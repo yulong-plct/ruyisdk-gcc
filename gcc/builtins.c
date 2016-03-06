@@ -3882,14 +3882,17 @@ expand_builtin_strnlen (tree exp, rtx target, machine_mode target_mode)
    a target constant.  */
 
 static rtx
-builtin_memcpy_read_str (void *data, HOST_WIDE_INT offset,
-			 scalar_int_mode mode)
+builtin_memcpy_read_str (void *data, void *, HOST_WIDE_INT offset,
+			 fixed_size_mode mode)
 {
   /* The REPresentation pointed to by DATA need not be a nul-terminated
      string but the caller guarantees it's large enough for MODE.  */
   const char *rep = (const char *) data;
 
-  return c_readstr (rep + offset, mode, /*nul_terminated=*/false);
+  /* The by-pieces infrastructure does not try to pick a vector mode
+     for memcpy expansion.  */
+  return c_readstr (rep + offset, as_a <scalar_int_mode> (mode),
+		    /*nul_terminated=*/false);
 }
 
 /* LEN specify length of the block of memcpy/memset operation.
@@ -6446,15 +6449,17 @@ expand_builtin_stpncpy (tree exp, rtx)
    constant.  */
 
 rtx
-builtin_strncpy_read_str (void *data, HOST_WIDE_INT offset,
-			  scalar_int_mode mode)
+builtin_strncpy_read_str (void *data, void *, HOST_WIDE_INT offset,
+			  fixed_size_mode mode)
 {
   const char *str = (const char *) data;
 
   if ((unsigned HOST_WIDE_INT) offset > strlen (str))
     return const0_rtx;
 
-  return c_readstr (str + offset, mode);
+  /* The by-pieces infrastructure does not try to pick a vector mode
+     for strncpy expansion.  */
+  return c_readstr (str + offset, as_a <scalar_int_mode> (mode));
 }
 
 /* Helper to check the sizes of sequences and the destination of calls
@@ -6655,20 +6660,121 @@ expand_builtin_strncpy (tree exp, rtx target)
   return NULL_RTX;
 }
 
+/* Return the RTL of a register in MODE generated from PREV in the
+   previous iteration.  */
+
+static rtx
+gen_memset_value_from_prev (by_pieces_prev *prev, fixed_size_mode mode)
+{
+  rtx target = nullptr;
+  if (prev != nullptr && prev->data != nullptr)
+    {
+      /* Use the previous data in the same mode.  */
+      if (prev->mode == mode)
+	return prev->data;
+
+      fixed_size_mode prev_mode = prev->mode;
+
+      /* Don't use the previous data to write QImode if it is in a
+	 vector mode.  */
+      if (VECTOR_MODE_P (prev_mode) && mode == QImode)
+	return target;
+
+      rtx prev_rtx = prev->data;
+
+      if (REG_P (prev_rtx)
+	  && HARD_REGISTER_P (prev_rtx)
+	  && lowpart_subreg_regno (REGNO (prev_rtx), prev_mode, mode) < 0)
+	{
+	  /* This case occurs when PREV_MODE is a vector and when
+	     MODE is too small to store using vector operations.
+	     After register allocation, the code will need to move the
+	     lowpart of the vector register into a non-vector register.
+
+	     Also, the target has chosen to use a hard register
+	     instead of going with the default choice of using a
+	     pseudo register.  We should respect that choice and try to
+	     avoid creating a pseudo register with the same mode as the
+	     current hard register.
+
+	     In principle, we could just use a lowpart MODE subreg of
+	     the vector register.  However, the vector register mode might
+	     be too wide for non-vector registers, and we already know
+	     that the non-vector mode is too small for vector registers.
+	     It's therefore likely that we'd need to spill to memory in
+	     the vector mode and reload the non-vector value from there.
+
+	     Try to avoid that by reducing the vector register to the
+	     smallest size that it can hold.  This should increase the
+	     chances that non-vector registers can hold both the inner
+	     and outer modes of the subreg that we generate later.  */
+	  machine_mode m;
+	  fixed_size_mode candidate;
+	  FOR_EACH_MODE_IN_CLASS (m, GET_MODE_CLASS (mode))
+	    if (is_a<fixed_size_mode> (m, &candidate))
+	      {
+		if (GET_MODE_SIZE (candidate)
+		    >= GET_MODE_SIZE (prev_mode))
+		  break;
+		if (GET_MODE_SIZE (candidate) >= GET_MODE_SIZE (mode)
+		    && lowpart_subreg_regno (REGNO (prev_rtx),
+					     prev_mode, candidate) >= 0)
+		  {
+		    target = lowpart_subreg (candidate, prev_rtx,
+					     prev_mode);
+		    prev_rtx = target;
+		    prev_mode = candidate;
+		    break;
+		  }
+	      }
+	  if (target == nullptr)
+	    prev_rtx = copy_to_reg (prev_rtx);
+	}
+
+      target = lowpart_subreg (mode, prev_rtx, prev_mode);
+    }
+  return target;
+}
+
 /* Callback routine for store_by_pieces.  Read GET_MODE_BITSIZE (MODE)
    bytes from constant string DATA + OFFSET and return it as target
    constant.  */
 
 rtx
-builtin_memset_read_str (void *data, HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
-			 scalar_int_mode mode)
+builtin_memset_read_str (void *data, void *prev,
+			 HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
+			 fixed_size_mode mode)
 {
   const char *c = (const char *) data;
-  char *p = XALLOCAVEC (char, GET_MODE_SIZE (mode));
+  unsigned int size = GET_MODE_SIZE (mode);
 
-  memset (p, *c, GET_MODE_SIZE (mode));
+  rtx target = gen_memset_value_from_prev ((by_pieces_prev *) prev,
+					   mode);
+  if (target != nullptr)
+    return target;
+  rtx src = gen_int_mode (*c, QImode);
 
-  return c_readstr (p, mode);
+  if (VECTOR_MODE_P (mode))
+    {
+      gcc_assert (GET_MODE_INNER (mode) == QImode);
+
+      rtx const_vec = gen_const_vec_duplicate (mode, src);
+      if (prev == NULL)
+	/* Return CONST_VECTOR when called by a query function.  */
+	return const_vec;
+
+      /* Use the move expander with CONST_VECTOR.  */
+      target = targetm.gen_memset_scratch_rtx (mode);
+      emit_move_insn (target, const_vec);
+      return target;
+    }
+
+  char *p = XALLOCAVEC (char, size);
+
+  memset (p, *c, size);
+
+  /* Vector modes should be handled above.  */
+  return c_readstr (p, as_a <scalar_int_mode> (mode));
 }
 
 /* Callback routine for store_by_pieces.  Return the RTL of a register
@@ -6677,20 +6783,40 @@ builtin_memset_read_str (void *data, HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
    4 bytes wide, return the RTL for 0x01010101*data.  */
 
 static rtx
-builtin_memset_gen_str (void *data, HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
-			scalar_int_mode mode)
-{
-  rtx target, coeff;
-  size_t size;
-  char *p;
+builtin_memset_gen_str (void *data, void *prev,
+			HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
+			fixed_size_mode mode)
 
   size = GET_MODE_SIZE (mode);
   if (size == 1)
-    return (rtx) data;
+
+  target = gen_memset_value_from_prev ((by_pieces_prev *) prev, mode);
+  if (target != nullptr)
+    return target;
+
+  if (VECTOR_MODE_P (mode))
+    {
+      gcc_assert (GET_MODE_INNER (mode) == QImode);
+
+      /* vec_duplicate_optab is a precondition to pick a vector mode for
+	 the memset expander.  */
+      insn_code icode = optab_handler (vec_duplicate_optab, mode);
+
+      target = targetm.gen_memset_scratch_rtx (mode);
+      class expand_operand ops[2];
+      create_output_operand (&ops[0], target, mode);
+      create_input_operand (&ops[1], (rtx) data, QImode);
+      expand_insn (icode, 2, ops);
+      if (!rtx_equal_p (target, ops[0].value))
+	emit_move_insn (target, ops[0].value);
+
+      return target;
+    }
 
   p = XALLOCAVEC (char, size);
   memset (p, 1, size);
-  coeff = c_readstr (p, mode);
+  /* Vector modes should be handled above.  */
+  coeff = c_readstr (p, as_a <scalar_int_mode> (mode));
 
   target = convert_to_mode (mode, (rtx) data, 1);
   target = expand_mult (mode, target, coeff, NULL_RTX, 1);
@@ -6794,7 +6920,7 @@ try_store_by_multiple_pieces (rtx to, rtx len, unsigned int ctz_len,
 			    &valc, align, true))
     return false;
 
-  rtx (*constfun) (void *, HOST_WIDE_INT, scalar_int_mode);
+  by_pieces_constfn constfun;
   void *constfundata;
   if (val)
     {
