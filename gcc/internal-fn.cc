@@ -2894,6 +2894,12 @@ expand_partial_load_optab_fn (internal_fn ifn, gcall *stmt, convert_optab optab)
     icode = convert_optab_handler (optab, TYPE_MODE (type),
 				   TYPE_MODE (TREE_TYPE (maskt)));
 
+  if (optab == vec_mask_load_lanes_optab)
+    icode = get_multi_vector_move (type, optab);
+  else
+    icode = convert_optab_handler (optab, TYPE_MODE (type),
+				   TYPE_MODE (TREE_TYPE (maskt)));
+
   mem = expand_expr (rhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
   gcc_assert (MEM_P (mem));
   target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
@@ -2933,6 +2939,12 @@ expand_partial_store_optab_fn (internal_fn ifn, gcall *stmt, convert_optab optab
     icode = get_multi_vector_move (type, optab);
   else if (optab == len_store_optab)
     icode = direct_optab_handler (optab, TYPE_MODE (type));
+  else
+    icode = convert_optab_handler (optab, TYPE_MODE (type),
+				   TYPE_MODE (TREE_TYPE (maskt)));
+
+  if (optab == vec_mask_store_lanes_optab)
+    icode = get_multi_vector_move (type, optab);
   else
     icode = convert_optab_handler (optab, TYPE_MODE (type),
 				   TYPE_MODE (TREE_TYPE (maskt)));
@@ -3067,6 +3079,8 @@ expand_vec_set_optab_fn (internal_fn, gcall *stmt, convert_optab optab)
     }
   gcc_unreachable ();
 }
+
+#define expand_mask_store_lanes_optab_fn expand_mask_store_optab_fn
 
 static void
 expand_ABNORMAL_DISPATCHER (internal_fn, gcall *)
