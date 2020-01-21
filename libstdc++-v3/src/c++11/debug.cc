@@ -593,7 +593,18 @@ namespace
   print_word(PrintContext& ctx, const char* word,
 	     std::ptrdiff_t count = -1)
   {
-    size_t length = count >= 0 ? count : __builtin_strlen(word);
+    if (nbc != 0)
+      {
+	ctx._M_column += (nbc > 0)
+	  ? fprintf(stderr, "%.*s", (int)nbc, str)
+	  : fprintf(stderr, "%s", str);
+      }
+  }
+
+  void
+  print_word(PrintContext& ctx, const char* word, ptrdiff_t nbc = -1)
+  {
+    size_t length = nbc >= 0 ? nbc : __builtin_strlen(word);
     if (length == 0)
       return;
 
@@ -640,7 +651,32 @@ namespace
     else
       {
 	print_literal(ctx, "\n");
-	print_word(ctx, word, count);
+	print_word(ctx, word, nbc);
+      }
+  }
+
+  void
+  pretty_print(PrintContext& ctx, const char* str, _Print_func_t print_func)
+  {
+    const char cxx1998[] = "cxx1998::";
+    for (;;)
+      {
+	if (auto pos = strstr(str, "__"))
+	  {
+	    if (pos != str)
+	      print_func(ctx, str, pos - str);
+
+	    pos += 2; // advance past "__"
+	    if (memcmp(pos, cxx1998, 9) == 0)
+	      pos += 9; // advance past "cxx1998::"
+
+	    str = pos;
+	  }
+	else
+	  {
+	    print_func(ctx, str, -1);
+	    break;
+	  }
       }
   }
 
@@ -1017,6 +1053,62 @@ namespace
 	print_word(ctx, buf, bufindex);
       }
   }
+
+  void
+  print_string(PrintContext& ctx, const char* str, ptrdiff_t nbc)
+  { print_string(ctx, str, nbc, nullptr, 0); }
+
+#if _GLIBCXX_HAVE_STACKTRACE
+  int
+  print_backtrace(void* data, __UINTPTR_TYPE__ pc, const char* filename,
+		  int lineno, const char* function)
+  {
+    const int bufsize = 64;
+    char buf[bufsize];
+
+    PrintContext& ctx = *static_cast<PrintContext*>(data);
+
+    int written = __builtin_sprintf(buf, "%p ", (void*)pc);
+    print_word(ctx, buf, written);
+
+    int ret = 0;
+    if (function)
+      {
+	int status;
+	char* demangled_name =
+	  __cxxabiv1::__cxa_demangle(function, NULL, NULL, &status);
+	if (status == 0)
+	  pretty_print(ctx, demangled_name, &print_raw);
+	else
+	  print_word(ctx, function);
+
+	free(demangled_name);
+	ret = strstr(function, "main") ? 1 : 0;
+      }
+
+    print_literal(ctx, "\n");
+
+    if (filename)
+      {
+	bool wordwrap = false;
+	swap(wordwrap, ctx._M_wordwrap);
+	print_word(ctx, filename);
+
+	if (lineno)
+	  {
+	    written = __builtin_sprintf(buf, ":%u\n", lineno);
+	    print_word(ctx, buf, written);
+	  }
+	else
+	  print_literal(ctx, "\n");
+	swap(wordwrap, ctx._M_wordwrap);
+      }
+    else
+      print_literal(ctx, "???:0\n");
+
+    return ret;
+  }
+#endif
 }
 
 namespace __gnu_debug
@@ -1064,28 +1156,15 @@ namespace __gnu_debug
 	print_literal(ctx, "\n");
       }
 
-// libstdc++/85768
-#if 0 //defined _GLIBCXX_HAVE_EXECINFO_H
-    {
-      void* stack[32];
-      int nb = backtrace(stack, 32);
-
-      // Note that we skip current method symbol.
-      if (nb > 1)
-	{
-	  print_literal(ctx, "Backtrace:\n");
-	  auto symbols = backtrace_symbols(stack, nb);
-	  for (int i = 1; i < nb; ++i)
-	    {
-	      print_word(ctx, symbols[i]);
-	      print_literal(ctx, "\n");
-	    }
-
-	  free(symbols);
-	  ctx._M_first_line = true;
-	  print_literal(ctx, "\n");
-	}
-    }
+#if _GLIBCXX_HAVE_STACKTRACE
+    if (_M_backtrace_state)
+      {
+	print_literal(ctx, "Backtrace:\n");
+	_M_backtrace_full(
+	  _M_backtrace_state, 1, print_backtrace, nullptr, &ctx);
+	ctx._M_first_line = true;
+	print_literal(ctx, "\n");
+      }
 #endif
 
     print_literal(ctx, "Error: ");
