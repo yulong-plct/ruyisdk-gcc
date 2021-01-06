@@ -1604,6 +1604,31 @@ if_convertible_loop_p (class loop *loop)
   return res;
 }
 
+/* Return reduc_1 if has_nop.
+
+   if (...)
+     tmp1 = (unsigned type) reduc_1;
+     tmp2 = tmp1 + rhs2;
+     reduc_3 = (signed type) tmp2.  */
+static tree
+strip_nop_cond_scalar_reduction (bool has_nop, tree op)
+{
+  if (!has_nop)
+    return op;
+
+  if (TREE_CODE (op) != SSA_NAME)
+    return NULL_TREE;
+
+  gassign *stmt = safe_dyn_cast <gassign *> (SSA_NAME_DEF_STMT (op));
+  if (!stmt
+      || !CONVERT_EXPR_CODE_P (gimple_assign_rhs_code (stmt))
+      || !tree_nop_conversion_p (TREE_TYPE (op), TREE_TYPE
+				 (gimple_assign_rhs1 (stmt))))
+    return NULL_TREE;
+
+  return gimple_assign_rhs1 (stmt);
+}
+
 /* Returns true if def-stmt for phi argument ARG is simple increment/decrement
    which is in predicated basic block.
    In fact, the following PHI pattern is searching:
@@ -1620,9 +1645,10 @@ if_convertible_loop_p (class loop *loop)
 
 static bool
 is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
-			  tree *op0, tree *op1, bool extended)
+			  tree *op0, tree *op1, bool extended, bool* has_nop,
+			  gimple **nop_reduc)
 {
-  tree lhs, r_op1, r_op2;
+  tree lhs, r_op1, r_op2, r_nop1, r_nop2;
   gimple *stmt;
   gimple *header_phi = NULL;
   enum tree_code reduction_op;
@@ -1633,7 +1659,7 @@ is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
   use_operand_p use_p;
   edge e;
   edge_iterator ei;
-  bool result = false;
+  bool result = *has_nop = false;
   if (TREE_CODE (arg_0) != SSA_NAME || TREE_CODE (arg_1) != SSA_NAME)
     return false;
 
@@ -1688,12 +1714,33 @@ is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
   r_op1 = gimple_assign_rhs1 (stmt);
   r_op2 = gimple_assign_rhs2 (stmt);
 
+  r_nop1 = strip_nop_cond_scalar_reduction (*has_nop, r_op1);
+  r_nop2 = strip_nop_cond_scalar_reduction (*has_nop, r_op2);
+
   /* Make R_OP1 to hold reduction variable.  */
-  if (r_op2 == PHI_RESULT (header_phi)
+  if (r_nop2 == PHI_RESULT (header_phi)
       && reduction_op == PLUS_EXPR)
-    std::swap (r_op1, r_op2);
-  else if (r_op1 != PHI_RESULT (header_phi))
+    {
+      std::swap (r_op1, r_op2);
+      std::swap (r_nop1, r_nop2);
+    }
+  else if (r_nop1 != PHI_RESULT (header_phi))
     return false;
+
+  if (*has_nop)
+    {
+      /* Check that R_NOP1 is used in nop_stmt or in PHI only.  */
+      FOR_EACH_IMM_USE_FAST (use_p, imm_iter, r_nop1)
+	{
+	  gimple *use_stmt = USE_STMT (use_p);
+	  if (is_gimple_debug (use_stmt))
+	    continue;
+	  if (use_stmt == SSA_NAME_DEF_STMT (r_op1))
+	    continue;
+	  if (use_stmt != phi)
+	    return false;
+	}
+    }
 
   /* Check that R_OP1 is used in reduction stmt or in PHI only.  */
   FOR_EACH_IMM_USE_FAST (use_p, imm_iter, r_op1)
@@ -1732,7 +1779,8 @@ is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
 
 static tree
 convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
-			       tree cond, tree op0, tree op1, bool swap)
+			       tree cond, tree op0, tree op1, bool swap,
+			       bool has_nop, gimple* nop_reduc)
 {
   gimple_stmt_iterator stmt_it;
   gimple *new_assign;
@@ -1752,36 +1800,19 @@ convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
       print_gimple_stmt (dump_file, reduc, 0, TDF_SLIM);
     }
 
-  /* If possible create a COND_OP instead of a COND_EXPR and an OP_EXPR.
-     The COND_OP will have a neutral_op else value.  */
-  internal_fn ifn;
-  ifn = get_conditional_internal_fn (reduction_op);
-  if (ifn != IFN_LAST
-      && vectorized_internal_fn_supported_p (ifn, TREE_TYPE (lhs))
-      && !swap)
-    {
-      gcall *cond_call = gimple_build_call_internal (ifn, 4,
-						     unshare_expr (cond),
-						     op0, op1, op0);
-      gsi_insert_before (gsi, cond_call, GSI_SAME_STMT);
-      gimple_call_set_lhs (cond_call, tmp);
-      rhs = tmp;
-    }
-  else
-    {
-      /* Build cond expression using COND and constant operand
+     /* Build cond expression using COND and constant operand
 	 of reduction rhs.  */
-      c = fold_build_cond_expr (TREE_TYPE (rhs1),
-				unshare_expr (cond),
+  c = fold_build_cond_expr (TREE_TYPE (rhs1),
+        unshare_expr (cond),
 				swap ? op_nochange : op1,
 				swap ? op1 : op_nochange);
-      /* Create assignment stmt and insert it at GSI.  */
-      new_assign = gimple_build_assign (tmp, c);
-      gsi_insert_before (gsi, new_assign, GSI_SAME_STMT);
-      /* Build rhs for unconditional increment/decrement/logic_operation.  */
-      rhs = gimple_build (&stmts, reduction_op,
-			  TREE_TYPE (rhs1), op0, tmp);
-    }
+
+  /* Create assignment stmt and insert it at GSI.  */
+  new_assign = gimple_build_assign (tmp, c);
+  gsi_insert_before (gsi, new_assign, GSI_SAME_STMT);
+  /* Build rhs for unconditional increment/decrement.  */
+  rhs = gimple_build (&stmts, gimple_assign_rhs_code (reduc),
+		      TREE_TYPE (rhs1), op0, tmp);
 
   if (has_nop)
     {
@@ -1866,7 +1897,7 @@ ifcvt_follow_ssa_use_edges (tree val)
 static void
 predicate_scalar_phi (gphi *phi, gimple_stmt_iterator *gsi)
 {
-  gimple *new_stmt = NULL, *reduc;
+  gimple *new_stmt = NULL, *reduc, *nop_reduc;
   tree rhs, res, arg0, arg1, op0, op1, scev;
   tree cond;
   unsigned int index0;
@@ -1874,6 +1905,7 @@ predicate_scalar_phi (gphi *phi, gimple_stmt_iterator *gsi)
   edge e;
   basic_block bb;
   unsigned int i;
+  bool has_nop;
 
   res = gimple_phi_result (phi);
   if (virtual_operand_p (res))
@@ -1934,10 +1966,15 @@ predicate_scalar_phi (gphi *phi, gimple_stmt_iterator *gsi)
 	  arg1 = gimple_phi_arg_def (phi, 1);
 	}
       if (is_cond_scalar_reduction (phi, &reduc, arg0, arg1,
-				    &op0, &op1, false))
-	/* Convert reduction stmt into vectorizable form.  */
-	rhs = convert_scalar_cond_reduction (reduc, gsi, cond, op0, op1,
-					     true_bb != gimple_bb (reduc));
+				    &op0, &op1, false, &has_nop,
+				    &nop_reduc))
+	{
+	  /* Convert reduction stmt into vectorizable form.  */
+	  rhs = convert_scalar_cond_reduction (reduc, gsi, cond, op0, op1,
+					       true_bb != gimple_bb (reduc),
+					       has_nop, nop_reduc);
+	  redundant_ssa_names.safe_push (std::make_pair (res, rhs));
+	}
       else
 	/* Build new RHS using selected condition and arguments.  */
 	rhs = fold_build_cond_expr (TREE_TYPE (res), unshare_expr (cond),
@@ -2019,7 +2056,7 @@ predicate_scalar_phi (gphi *phi, gimple_stmt_iterator *gsi)
 					 is_gimple_condexpr, NULL_TREE,
 					 true, GSI_SAME_STMT);
       if (!(is_cond_scalar_reduction (phi, &reduc, arg0 , arg1,
-				      &op0, &op1, true)))
+				      &op0, &op1, true, &has_nop, &nop_reduc)))
 	rhs = fold_build_cond_expr (TREE_TYPE (res), unshare_expr (cond),
 				    swap? arg1 : arg0,
 				    swap? arg0 : arg1);
