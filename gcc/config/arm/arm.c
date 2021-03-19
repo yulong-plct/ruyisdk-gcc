@@ -28231,12 +28231,36 @@ arm_file_start (void)
 
   if (TARGET_BPABI)
     {
-      /* If we have a named cpu, but we the assembler does not support that
-	 name via .cpu, put out a cpu name attribute; but don't do this if the
-	 name starts with the fictitious prefix, 'generic'.  */
-      if (arm_active_target.core_name
-	  && bitmap_bit_p (arm_active_target.isa, isa_bit_quirk_no_asmcpu)
-	  && strncmp (arm_active_target.core_name, "generic", 7) != 0)
+      /* We don't have a specified CPU.  Use the architecture to
+	 generate the tags.
+
+	 Note: it might be better to do this unconditionally, then the
+	 assembler would not need to know about all new CPU names as
+	 they are added.  */
+      if (!arm_active_target.core_name)
+	{
+	  /* armv7ve doesn't support any extensions.  */
+	  if (strcmp (arm_active_target.arch_name, "armv7ve") == 0)
+	    {
+	      /* Keep backward compatability for assemblers
+		 which don't support armv7ve.  */
+	      asm_fprintf (asm_out_file, "\t.arch armv7-a\n");
+	      asm_fprintf (asm_out_file, "\t.arch_extension virt\n");
+	      asm_fprintf (asm_out_file, "\t.arch_extension idiv\n");
+	      asm_fprintf (asm_out_file, "\t.arch_extension sec\n");
+	      asm_fprintf (asm_out_file, "\t.arch_extension mp\n");
+	      arm_last_printed_arch_string = "armv7ve";
+	    }
+	  else
+	    arm_print_asm_arch_directives ();
+	}
+      else if (startswith (arm_active_target.core_name, "generic"))
+	{
+	  asm_fprintf (asm_out_file, "\t.arch %s\n",
+		       arm_active_target.core_name + 8);
+	  arm_last_printed_arch_string = arm_active_target.core_name + 8;
+	}
+      else
 	{
 	  const char* truncated_name
 	    = arm_rewrite_selected_cpu (arm_active_target.core_name);
@@ -33118,7 +33142,7 @@ arm_valid_target_attribute_rec (tree args, struct gcc_options *opts)
       else if (!strcmp (q, "general-regs-only"))
 	opts->x_target_flags |= MASK_GENERAL_REGS_ONLY;
 
-      else if (!strncmp (q, "fpu=", 4))
+      else if (startswith (q, "fpu="))
 	{
 	  int fpu_index;
 	  if (! opt_enum_arg_to_value (OPT_mfpu_, q + 4,
@@ -33137,7 +33161,7 @@ arm_valid_target_attribute_rec (tree args, struct gcc_options *opts)
 	    }
 	  opts->x_arm_fpu_index = (enum fpu_type) fpu_index;
 	}
-      else if (!strncmp (q, "arch=", 5))
+      else if (startswith (q, "arch="))
 	{
 	  char *arch = q + 5;
 	  const arch_option *arm_selected_arch
@@ -34107,7 +34131,7 @@ thumb1_md_asm_adjust (vec<rtx> &outputs, vec<rtx> & /*inputs*/,
 		      HARD_REG_SET & /*clobbered_regs*/)
 {
   for (unsigned i = 0, n = outputs.length (); i < n; ++i)
-    if (strncmp (constraints[i], "=@cc", 4) == 0)
+    if (startswith (constraints[i], "=@cc"))
       {
 	sorry ("asm flags not supported in thumb1 mode");
 	break;
