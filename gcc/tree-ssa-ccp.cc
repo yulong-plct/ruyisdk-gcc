@@ -2334,12 +2334,10 @@ ccp_folder::fold_stmt (gimple_stmt_iterator *gsi)
 	    && (flags & ECF_LOOPING_CONST_OR_PURE) == 0)
 	  {
 	    tree new_rhs = unshare_expr (val);
-	    bool res;
 	    if (!useless_type_conversion_p (TREE_TYPE (lhs),
 					    TREE_TYPE (new_rhs)))
 	      new_rhs = fold_convert (TREE_TYPE (lhs), new_rhs);
-	    res = update_call_from_tree (gsi, new_rhs);
-	    gcc_assert (res);
+	    gimplify_and_update_call_from_tree (gsi, new_rhs);
 	    return true;
 	  }
 
@@ -2357,9 +2355,8 @@ ccp_folder::fold_stmt (gimple_stmt_iterator *gsi)
             tree new_rhs = fold_builtin_alloca_with_align (stmt);
             if (new_rhs)
 	      {
-		bool res = update_call_from_tree (gsi, new_rhs);
+		gimplify_and_update_call_from_tree (gsi, new_rhs);
 		tree var = TREE_OPERAND (TREE_OPERAND (new_rhs, 0),0);
-		gcc_assert (res);
 		insert_clobbers_for_var (*gsi, var);
 		return true;
 	      }
@@ -2384,8 +2381,7 @@ ccp_folder::fold_stmt (gimple_stmt_iterator *gsi)
 		    && ((TREE_INT_CST_LOW (ptrval.value) & (align - 1))
 			== (TREE_INT_CST_LOW (val.value) & (align - 1))))
 		  {
-		    bool res = update_call_from_tree (gsi, ptr);
-		    gcc_assert (res);
+		    replace_call_with_value (gsi, ptr);
 		    return true;
 		  }
 	      }
@@ -2712,7 +2708,7 @@ optimize_stack_restore (gimple_stmt_iterator i)
 
 	      stack_save_gsi = gsi_for_stmt (stack_save);
 	      rhs = build_int_cst (TREE_TYPE (gimple_call_arg (call, 0)), 0);
-	      update_call_from_tree (&stack_save_gsi, rhs);
+	      replace_call_with_value (&stack_save_gsi, rhs);
 	    }
 	}
     }
@@ -3436,8 +3432,7 @@ pass_fold_builtins::execute (function *fun)
 		  continue;
 		}
 
-	      if (!update_call_from_tree (&i, result))
-		gimplify_and_update_call_from_tree (&i, result);
+	      gimplify_and_update_call_from_tree (&i, result);
 	    }
 
 	  todoflags |= TODO_update_address_taken;
