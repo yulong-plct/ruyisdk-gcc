@@ -31,7 +31,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-iterator.h"
 #include "tree-cfg.h"
 #include "tree-dfa.h"
-#include "domwalk.h"
 #include "tree-cfgcleanup.h"
 #include "alias.h"
 #include "tree-ssa-loop.h"
@@ -39,6 +38,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "builtins.h"
 #include "gimple-fold.h"
 #include "gimplify.h"
+#include "tree-eh.h"
+#include "cfganal.h"
+#include "cgraph.h"
+#include "ipa-modref.h"
 #include "internal-fn.h"
 
 /* This file implements dead store elimination.
@@ -85,9 +88,12 @@ static void delete_dead_or_redundant_call (gimple_stmt_iterator *, const char *)
 /* Bitmap of blocks that have had EH statements cleaned.  We should
    remove their dead edges eventually.  */
 static bitmap need_eh_cleanup;
+static bitmap need_ab_cleanup;
 
 /* STMT is a statement that may write into memory.  Analyze it and
-   initialize WRITE to describe how STMT affects memory.
+   initialize WRITE to describe how STMT affects memory.  When
+   MAY_DEF_OK is true then the function initializes WRITE to what
+   the stmt may define.
 
    Return TRUE if the statement was analyzed, FALSE otherwise.
 
@@ -95,7 +101,7 @@ static bitmap need_eh_cleanup;
    can be achieved by analyzing more statements.  */
 
 static bool
-initialize_ao_ref_for_dse (gimple *stmt, ao_ref *write)
+initialize_ao_ref_for_dse (gimple *stmt, ao_ref *write, bool may_def_ok = false)
 {
   /* It's advantageous to handle certain mem* functions.  */
   if (gimple_call_builtin_p (stmt, BUILT_IN_NORMAL))
@@ -1001,22 +1007,6 @@ dse_classify_store (ao_ref *ref, gimple *stmt,
 }
 
 
-class dse_dom_walker : public dom_walker
-{
-public:
-  dse_dom_walker (cdi_direction direction)
-    : dom_walker (direction),
-    m_live_bytes (param_dse_max_object_size),
-    m_byte_tracking_enabled (false) {}
-
-  virtual edge before_dom_children (basic_block);
-
-private:
-  auto_sbitmap m_live_bytes;
-  bool m_byte_tracking_enabled;
-  void dse_optimize_stmt (gimple_stmt_iterator *);
-};
-
 /* Delete a dead call at GSI, which is mem* call of some kind.  */
 static void
 delete_dead_or_redundant_call (gimple_stmt_iterator *gsi, const char *type)
@@ -1078,6 +1068,94 @@ delete_dead_or_redundant_assignment (gimple_stmt_iterator *gsi, const char *type
   release_defs (stmt);
 }
 
+/* Try to prove, using modref summary, that all memory written to by a call is
+   dead and remove it.  Assume that if return value is written to memory
+   it is already proved to be dead.  */
+
+static bool
+dse_optimize_call (gimple_stmt_iterator *gsi, sbitmap live_bytes)
+{
+  gcall *stmt = dyn_cast <gcall *> (gsi_stmt (*gsi));
+
+  if (!stmt)
+    return false;
+
+  tree callee = gimple_call_fndecl (stmt);
+
+  if (!callee)
+    return false;
+
+  /* Pure/const functions are optimized by normal DCE
+     or handled as store above.  */
+  int flags = gimple_call_flags (stmt);
+  if ((flags & (ECF_PURE|ECF_CONST|ECF_NOVOPS))
+      && !(flags & (ECF_LOOPING_CONST_OR_PURE)))
+    return false;
+
+  cgraph_node *node = cgraph_node::get (callee);
+  if (!node)
+    return false;
+
+  if (stmt_could_throw_p (cfun, stmt)
+      && !cfun->can_delete_dead_exceptions)
+    return false;
+
+  /* If return value is used the call is not dead.  */
+  tree lhs = gimple_call_lhs (stmt);
+  if (lhs && TREE_CODE (lhs) == SSA_NAME)
+    {
+      imm_use_iterator ui;
+      gimple *use_stmt;
+      FOR_EACH_IMM_USE_STMT (use_stmt, ui, lhs)
+	if (!is_gimple_debug (use_stmt))
+	  return false;
+    }
+
+  /* Verify that there are no side-effects except for return value
+     and memory writes tracked by modref.  */
+  modref_summary *summary = get_modref_function_summary (node);
+  if (!summary || !summary->try_dse)
+    return false;
+
+  bool by_clobber_p = false;
+
+  /* Walk all memory writes and verify that they are dead.  */
+  for (auto base_node : summary->stores->bases)
+    for (auto ref_node : base_node->refs)
+      for (auto access_node : ref_node->accesses)
+	{
+	  tree arg = access_node.get_call_arg (stmt);
+
+	  if (!arg || !POINTER_TYPE_P (TREE_TYPE (arg)))
+	    return false;
+
+	  if (integer_zerop (arg)
+	      && !targetm.addr_space.zero_address_valid
+		    (TYPE_ADDR_SPACE (TREE_TYPE (arg))))
+	    continue;
+
+	  ao_ref ref;
+
+	  if (!access_node.get_ao_ref (stmt, &ref))
+	    return false;
+	  ref.ref_alias_set = ref_node->ref;
+	  ref.base_alias_set = base_node->base;
+
+	  bool byte_tracking_enabled
+	      = setup_live_bytes_from_ref (&ref, live_bytes);
+	  enum dse_store_status store_status;
+
+	  store_status = dse_classify_store (&ref, stmt,
+					     byte_tracking_enabled,
+					     live_bytes, &by_clobber_p);
+	  if (store_status != DSE_STORE_DEAD)
+	    return false;
+	}
+  delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup,
+				       need_ab_cleanup);
+  return true;
+}
+
 /* Attempt to eliminate dead stores in the statement referenced by BSI.
 
    A dead store is a store into a memory location which will later be
@@ -1089,8 +1167,8 @@ delete_dead_or_redundant_assignment (gimple_stmt_iterator *gsi, const char *type
    is used precisely once by a later store to the same location which
    post dominates the first store, then the first store is dead.  */
 
-void
-dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
+static void
+dse_optimize_stmt (function *fun, gimple_stmt_iterator *gsi, sbitmap live_bytes)
 {
   gimple *stmt = gsi_stmt (*gsi);
 
@@ -1106,7 +1184,7 @@ dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
     return;
 
   ao_ref ref;
-  if (!initialize_ao_ref_for_dse (stmt, &ref))
+  if (!initialize_ao_ref_for_dse (stmt, &ref, true))
     return;
 
   /* We know we have virtual definitions.  We can handle assignments and
@@ -1144,17 +1222,17 @@ dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
 	      dse_optimize_redundant_stores (stmt);
 
 	    enum dse_store_status store_status;
-	    m_byte_tracking_enabled
-	      = setup_live_bytes_from_ref (&ref, m_live_bytes);
+	    bool byte_tracking_enabled
+	      = setup_live_bytes_from_ref (&ref, live_bytes);
 	    store_status = dse_classify_store (&ref, stmt,
-					       m_byte_tracking_enabled,
-					       m_live_bytes);
+					       byte_tracking_enabled,
+					       live_bytes);
 	    if (store_status == DSE_STORE_LIVE)
 	      return;
 
 	    if (store_status == DSE_STORE_MAYBE_PARTIAL_DEAD)
 	      {
-		maybe_trim_memstar_call (&ref, m_live_bytes, stmt);
+		maybe_trim_memstar_call (&ref, live_bytes, stmt);
 		return;
 	      }
 
@@ -1172,23 +1250,10 @@ dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
 	  return;
 	}
     }
-
-  if (is_gimple_assign (stmt))
+  else if (is_gimple_assign (stmt)
+               && gimple_call_internal_p (stmt))
     {
-      bool by_clobber_p = false;
-
-      /* Check if this statement stores zero to a memory location,
-	 and if there is a subsequent store of zero to the same
-	 memory location.  If so, remove the subsequent store.  */
-      if (gimple_assign_single_p (stmt)
-	  && initializer_zerop (gimple_assign_rhs1 (stmt)))
-	dse_optimize_redundant_stores (stmt);
-
-      /* Self-assignments are zombies.  */
-      if (operand_equal_p (gimple_assign_rhs1 (stmt),
-			   gimple_assign_lhs (stmt), 0))
-	;
-      else
+      switch (gimple_call_internal_fn (stmt))
 	{
 	case IFN_LEN_STORE:
 	case IFN_MASK_STORE:
@@ -1198,37 +1263,79 @@ dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
 	    store_status = dse_classify_store (&ref, stmt, false, live_bytes);
 	    if (store_status == DSE_STORE_DEAD)
 	      delete_dead_or_redundant_call (gsi, "dead");
-	    return;
-	  if (store_status == DSE_STORE_MAYBE_PARTIAL_DEAD)
-	    }
+	      return;
+	  }
+  default:;
 	}
+    }
+  bool by_clobber_p = false;
 
-      /* Now we know that use_stmt kills the LHS of stmt.  */
+  /* Check if this statement stores zero to a memory location,
+     and if there is a subsequent store of zero to the same
+     memory location.  If so, remove the subsequent store.  */
+  if (gimple_assign_single_p (stmt)
+      && initializer_zerop (gimple_assign_rhs1 (stmt)))
+    dse_optimize_redundant_stores (stmt);
 
-      /* But only remove *this_2(D) ={v} {CLOBBER} if killed by
-	 another clobber stmt.  */
-      if (gimple_clobber_p (stmt)
-	  && !by_clobber_p)
+  /* Self-assignments are zombies.  */
+  if (is_gimple_assign (stmt)
+      && operand_equal_p (gimple_assign_rhs1 (stmt),
+			  gimple_assign_lhs (stmt), 0))
+    ;
+  else
+    {
+      bool byte_tracking_enabled
+	  = setup_live_bytes_from_ref (&ref, live_bytes);
+      enum dse_store_status store_status;
+      store_status = dse_classify_store (&ref, stmt,
+					 byte_tracking_enabled,
+					 live_bytes, &by_clobber_p);
+      if (store_status == DSE_STORE_LIVE)
 	return;
 
-      delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup);
+      if (store_status == DSE_STORE_MAYBE_PARTIAL_DEAD)
+	{
+	  maybe_trim_partially_dead_store (&ref, live_bytes, stmt);
+	  return;
+	}
     }
-}
 
-edge
-dse_dom_walker::before_dom_children (basic_block bb)
-{
-  gimple_stmt_iterator gsi;
+  /* Now we know that use_stmt kills the LHS of stmt.  */
 
-  for (gsi = gsi_last_bb (bb); !gsi_end_p (gsi);)
+  /* But only remove *this_2(D) ={v} {CLOBBER} if killed by
+     another clobber stmt.  */
+  if (gimple_clobber_p (stmt)
+      && !by_clobber_p)
+    return;
+
+  if (is_gimple_call (stmt)
+      && (gimple_has_side_effects (stmt)
+	  || (stmt_could_throw_p (fun, stmt)
+	      && !fun->can_delete_dead_exceptions)))
     {
-      dse_optimize_stmt (&gsi);
-      if (gsi_end_p (gsi))
-	gsi = gsi_last_bb (bb);
-      else
-	gsi_prev (&gsi);
+      /* See if we can remove complete call.  */
+      if (dse_optimize_call (gsi, live_bytes))
+	return;
+      /* Make sure we do not remove a return slot we cannot reconstruct
+	 later.  */
+      if (gimple_call_return_slot_opt_p (as_a <gcall *>(stmt))
+	  && (TREE_ADDRESSABLE (TREE_TYPE (gimple_call_fntype (stmt)))
+	      || !poly_int_tree_p
+		    (TYPE_SIZE (TREE_TYPE (gimple_call_fntype (stmt))))))
+	return;
+      if (dump_file && (dump_flags & TDF_DETAILS))
+	{
+	  fprintf (dump_file, "  Deleted dead store in call LHS: ");
+	  print_gimple_stmt (dump_file, stmt, 0, dump_flags);
+	  fprintf (dump_file, "\n");
+	}
+      gimple_call_set_lhs (stmt, NULL_TREE);
+      update_stmt (stmt);
     }
-  return NULL;
+  else if (!stmt_could_throw_p (fun, stmt)
+	   || fun->can_delete_dead_exceptions)
+    delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup,
+					 need_ab_cleanup);
 }
 
 namespace {
@@ -1263,20 +1370,75 @@ public:
 unsigned int
 pass_dse::execute (function *fun)
 {
+  unsigned todo = 0;
   need_eh_cleanup = BITMAP_ALLOC (NULL);
+  auto_sbitmap live_bytes (param_dse_max_object_size);
 
   renumber_gimple_stmt_uids (cfun);
 
-  /* We might consider making this a property of each pass so that it
-     can be [re]computed on an as-needed basis.  Particularly since
-     this pass could be seen as an extension of DCE which needs post
-     dominators.  */
-  calculate_dominance_info (CDI_POST_DOMINATORS);
   calculate_dominance_info (CDI_DOMINATORS);
 
-  /* Dead store elimination is fundamentally a walk of the post-dominator
-     tree and a backwards walk of statements within each block.  */
-  dse_dom_walker (CDI_POST_DOMINATORS).walk (fun->cfg->x_exit_block_ptr);
+  /* Dead store elimination is fundamentally a reverse program order walk.  */
+  int *rpo = XNEWVEC (int, n_basic_blocks_for_fn (fun) - NUM_FIXED_BLOCKS);
+  int n = pre_and_rev_post_order_compute_fn (fun, NULL, rpo, false);
+  for (int i = n; i != 0; --i)
+    {
+      basic_block bb = BASIC_BLOCK_FOR_FN (fun, rpo[i-1]);
+      gimple_stmt_iterator gsi;
+
+      for (gsi = gsi_last_bb (bb); !gsi_end_p (gsi);)
+	{
+	  gimple *stmt = gsi_stmt (gsi);
+
+	  if (gimple_vdef (stmt))
+	    dse_optimize_stmt (fun, &gsi, live_bytes);
+	  else if (def_operand_p
+		     def_p = single_ssa_def_operand (stmt, SSA_OP_DEF))
+	    {
+	      /* When we remove dead stores make sure to also delete trivially
+		 dead SSA defs.  */
+	      if (has_zero_uses (DEF_FROM_PTR (def_p))
+		  && !gimple_has_side_effects (stmt)
+		  && !stmt_unremovable_because_of_non_call_eh_p (cfun, stmt))
+		{
+		  if (dump_file && (dump_flags & TDF_DETAILS))
+		    {
+		      fprintf (dump_file, "  Deleted trivially dead stmt: ");
+		      print_gimple_stmt (dump_file, stmt, 0, dump_flags);
+		      fprintf (dump_file, "\n");
+		    }
+		  if (gsi_remove (&gsi, true) && need_eh_cleanup)
+		    bitmap_set_bit (need_eh_cleanup, bb->index);
+		  release_defs (stmt);
+		}
+	    }
+	  if (gsi_end_p (gsi))
+	    gsi = gsi_last_bb (bb);
+	  else
+	    gsi_prev (&gsi);
+	}
+      bool removed_phi = false;
+      for (gphi_iterator si = gsi_start_phis (bb); !gsi_end_p (si);)
+	{
+	  gphi *phi = si.phi ();
+	  if (has_zero_uses (gimple_phi_result (phi)))
+	    {
+	      if (dump_file && (dump_flags & TDF_DETAILS))
+		{
+		  fprintf (dump_file, "  Deleted trivially dead PHI: ");
+		  print_gimple_stmt (dump_file, phi, 0, dump_flags);
+		  fprintf (dump_file, "\n");
+		}
+	      remove_phi_node (&si, true);
+	      removed_phi = true;
+	    }
+	  else
+	    gsi_next (&si);
+	}
+      if (removed_phi && gimple_seq_empty_p (phi_nodes (bb)))
+	todo |= TODO_cleanup_cfg;
+    }
+  free (rpo);
 
   /* Removal of stores may make some EH edges dead.  Purge such edges from
      the CFG as needed.  */
