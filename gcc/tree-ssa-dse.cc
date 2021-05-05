@@ -41,6 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-eh.h"
 #include "cfganal.h"
 #include "cgraph.h"
+#include "ipa-modref-tree.h"
 #include "ipa-modref.h"
 #include "internal-fn.h"
 
@@ -88,7 +89,6 @@ static void delete_dead_or_redundant_call (gimple_stmt_iterator *, const char *)
 /* Bitmap of blocks that have had EH statements cleaned.  We should
    remove their dead edges eventually.  */
 static bitmap need_eh_cleanup;
-static bitmap need_ab_cleanup;
 
 /* STMT is a statement that may write into memory.  Analyze it and
    initialize WRITE to describe how STMT affects memory.  When
@@ -146,7 +146,8 @@ initialize_ao_ref_for_dse (gimple *stmt, ao_ref *write, bool may_def_ok = false)
 	  break;
 	}
     }
-  else if (is_gimple_assign (stmt))
+  else if (is_gimple_call (stmt)
+	   && gimple_call_internal_p (stmt))
     {
       switch (gimple_call_internal_fn (stmt))
 	{
@@ -1126,12 +1127,10 @@ dse_optimize_call (gimple_stmt_iterator *gsi, sbitmap live_bytes)
 	{
 	  tree arg = access_node.get_call_arg (stmt);
 
-	  if (!arg || !POINTER_TYPE_P (TREE_TYPE (arg)))
+	  if (!arg)
 	    return false;
 
-	  if (integer_zerop (arg)
-	      && !targetm.addr_space.zero_address_valid
-		    (TYPE_ADDR_SPACE (TREE_TYPE (arg))))
+	  if (integer_zerop (arg) && flag_delete_null_pointer_checks)
 	    continue;
 
 	  ao_ref ref;
@@ -1151,8 +1150,7 @@ dse_optimize_call (gimple_stmt_iterator *gsi, sbitmap live_bytes)
 	  if (store_status != DSE_STORE_DEAD)
 	    return false;
 	}
-  delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup,
-				       need_ab_cleanup);
+  delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup);
   return true;
 }
 
@@ -1263,7 +1261,7 @@ dse_optimize_stmt (function *fun, gimple_stmt_iterator *gsi, sbitmap live_bytes)
 	    store_status = dse_classify_store (&ref, stmt, false, live_bytes);
 	    if (store_status == DSE_STORE_DEAD)
 	      delete_dead_or_redundant_call (gsi, "dead");
-	      return;
+	    return;
 	  }
   default:;
 	}
@@ -1332,10 +1330,8 @@ dse_optimize_stmt (function *fun, gimple_stmt_iterator *gsi, sbitmap live_bytes)
       gimple_call_set_lhs (stmt, NULL_TREE);
       update_stmt (stmt);
     }
-  else if (!stmt_could_throw_p (fun, stmt)
-	   || fun->can_delete_dead_exceptions)
-    delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup,
-					 need_ab_cleanup);
+  else
+    delete_dead_or_redundant_assignment (gsi, "dead", need_eh_cleanup);
 }
 
 namespace {
@@ -1374,7 +1370,7 @@ pass_dse::execute (function *fun)
   need_eh_cleanup = BITMAP_ALLOC (NULL);
   auto_sbitmap live_bytes (param_dse_max_object_size);
 
-  renumber_gimple_stmt_uids (cfun);
+  renumber_gimple_stmt_uids (fun);
 
   calculate_dominance_info (CDI_DOMINATORS);
 

@@ -90,6 +90,10 @@ struct GTY(()) modref_access_node
   bool operator == (modref_access_node &a) const;
   /* Return true if range info is useful.  */
   bool range_info_useful_p () const;
+  /* Return tree corresponding to parameter of the range in STMT.  */
+  tree get_call_arg (const gcall *stmt) const;
+  /* Build ao_ref corresponding to the access and return true if successful.  */
+  bool get_ao_ref (const gcall *stmt, class ao_ref *ref) const;
   /* Insert A into vector ACCESSES.  Limit size of vector to MAX_ACCESSES and
      if RECORD_ADJUSTMENT is true keep track of adjustment counts.
      Return 0 if nothing changed, 1 is insertion suceeded and -1 if
@@ -115,7 +119,7 @@ private:
 
 /* Access node specifying no useful info.  */
 const modref_access_node unspecified_modref_access_node
-		 = {0, -1, -1, 0, -1, false};
+		 = {0, -1, -1, 0, -1, false, 0};
 
 template <typename T>
 struct GTY((user)) modref_ref_node

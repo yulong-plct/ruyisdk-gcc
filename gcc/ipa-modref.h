@@ -31,6 +31,7 @@ struct GTY(()) modref_summary
   modref_records *stores;
   auto_vec<unsigned char> GTY((skip)) arg_flags;
   bool writes_errno;
+  unsigned try_dse : 1;
 
   modref_summary ();
   ~modref_summary ();
