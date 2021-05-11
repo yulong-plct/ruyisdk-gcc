@@ -5203,6 +5203,9 @@ typedef struct _rs6000_cost_data
 {
   struct loop *loop_info;
   unsigned cost[3];
+  /* For each vectorized loop, this var holds TRUE iff a non-memory vector
+     instruction is needed by the vectorization.  */
+  bool vect_nonmem;
 } rs6000_cost_data;
 
 /* Test for likely overcommitment of vector hardware resources.  If a
@@ -5260,10 +5263,6 @@ rs6000_density_test (rs6000_cost_data *data)
 
 /* Implement targetm.vectorize.init_cost.  */
 
-/* For each vectorized loop, this var holds TRUE iff a non-memory vector
-   instruction is needed by the vectorization.  */
-static bool rs6000_vect_nonmem;
-
 static void *
 rs6000_init_cost (struct loop *loop_info)
 {
@@ -5272,7 +5271,7 @@ rs6000_init_cost (struct loop *loop_info)
   data->cost[vect_prologue] = 0;
   data->cost[vect_body]     = 0;
   data->cost[vect_epilogue] = 0;
-  rs6000_vect_nonmem = false;
+  data->vect_nonmem = false;
   return data;
 }
 
@@ -5332,7 +5331,7 @@ rs6000_add_stmt_cost (class vec_info *vinfo, void *data, int count,
 	   || kind == vec_promote_demote || kind == vec_construct
 	   || kind == scalar_to_vec)
 	  || (where == vect_body && kind == vector_stmt))
-	rs6000_vect_nonmem = true;
+	cost_data->vect_nonmem = true;
     }
 
   return retval;
@@ -5387,7 +5386,7 @@ rs6000_finish_cost (void *data, unsigned *prologue_cost,
   if (cost_data->loop_info)
     {
       loop_vec_info vec_info = loop_vec_info_for_loop (cost_data->loop_info);
-      if (!rs6000_vect_nonmem
+      if (!cost_data->vect_nonmem
 	  && LOOP_VINFO_VECT_FACTOR (vec_info) == 2
 	  && LOOP_REQUIRES_VERSIONING (vec_info))
 	cost_data->cost[vect_body] += 10000;
