@@ -5265,7 +5265,7 @@ rs6000_density_test (rs6000_cost_data *data)
 static bool rs6000_vect_nonmem;
 
 static void *
-rs6000_init_cost (struct loop *loop_info)
+rs6000_init_cost (struct loop *loop_info, bool)
 {
   rs6000_cost_data *data = XNEW (struct _rs6000_cost_data);
   data->loop_info = loop_info;
