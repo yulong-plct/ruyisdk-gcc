@@ -813,7 +813,7 @@
 ;;
 ;; [vcmpneq_, vcmpcsq_, vcmpeqq_, vcmpgeq_, vcmpgtq_, vcmphiq_, vcmpleq_, vcmpltq_])
 ;;
-(define_insn "mve_vcmp<mve_cmp_op>q_<mode>"
+(define_insn "@mve_vcmp<mve_cmp_op>q_<mode>"
   [
    (set (match_operand:HI 0 "vpr_register_operand" "=Up")
 	(MVE_COMPARISONS:HI (match_operand:MVE_2 1 "s_register_operand" "w")
@@ -1903,7 +1903,7 @@
 ;;
 ;; [vcmpeqq_f])
 ;;
-(define_insn "mve_vcmpeqq_f<mode>"
+(define_insn "@mve_vcmp<mve_cmp_op>q_f<mode>"
   [
    (set (match_operand:HI 0 "vpr_register_operand" "=Up")
 	(unspec:HI [(match_operand:MVE_0 1 "s_register_operand" "w")
@@ -1918,7 +1918,7 @@
 ;;
 ;; [vcmpeqq_n_f])
 ;;
-(define_insn "mve_vcmpeqq_n_f<mode>"
+(define_insn "@mve_vcmp<mve_cmp_op>q_n_f<mode>"
   [
    (set (match_operand:HI 0 "vpr_register_operand" "=Up")
 	(unspec:HI [(match_operand:MVE_0 1 "s_register_operand" "w")
@@ -3434,7 +3434,7 @@
 ;;
 ;; [vpselq_u, vpselq_s])
 ;;
-(define_insn "mve_vpselq_<supf><mode>"
+(define_insn "@mve_vpselq_<supf><mode>"
   [
    (set (match_operand:MVE_1 0 "s_register_operand" "=w")
 	(unspec:MVE_1 [(match_operand:MVE_1 1 "s_register_operand" "w")
@@ -4529,7 +4529,7 @@
 ;;
 ;; [vpselq_f])
 ;;
-(define_insn "mve_vpselq_f<mode>"
+(define_insn "@mve_vpselq_f<mode>"
   [
    (set (match_operand:MVE_0 0 "s_register_operand" "=w")
 	(unspec:MVE_0 [(match_operand:MVE_0 1 "s_register_operand" "w")
