@@ -15749,8 +15749,12 @@ aarch64_add_stmt_cost (class vec_info *vinfo, void *data, int count,
       /* Statements in an inner loop relative to the loop being
 	 vectorized are weighted more heavily.  The value here is
 	 arbitrary and could potentially be improved with analysis.  */
-      if (in_inner_loop_p)
-	count *= 50; /*  FIXME  */
+      if (where == vect_body && stmt_info
+	  && stmt_in_inner_loop_p (vinfo, stmt_info))
+	{
+	  gcc_assert (loop_vinfo);
+	  count *= LOOP_VINFO_INNER_LOOP_COST_FACTOR (loop_vinfo); /*  FIXME  */
+	}
 
       retval = (count * stmt_cost).ceil ();
       costs->region[where] += retval;
