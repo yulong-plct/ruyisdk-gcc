@@ -7815,6 +7815,7 @@ proc available_vector_sizes { } {
 	if { ![is-effective-target ia32] } {
 	    lappend result 64
 	}
+	lappend result 32
     } elseif { [istarget sparc*-*-*] } {
 	lappend result 64
     } elseif { [istarget amdgcn*-*-*] } {
@@ -7842,6 +7843,12 @@ proc check_effective_target_vect_variable_length { } {
 
 proc check_effective_target_vect64 { } {
     return [expr { [lsearch -exact [available_vector_sizes] 64] >= 0 }]
+}
+
+# Return 1 if the target supports vectors of 32 bits.
+
+proc check_effective_target_vect32 { } {
+    return [expr { [lsearch -exact [available_vector_sizes] 32] >= 0 }]
 }
 
 # Return 1 if the target supports vector copysignf calls.
