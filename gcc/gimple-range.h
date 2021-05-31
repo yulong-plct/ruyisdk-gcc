@@ -25,10 +25,10 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "range.h"
 #include "range-op.h"
+#include "value-query.h"
 #include "gimple-range-edge.h"
 #include "gimple-range-gori.h"
 #include "gimple-range-cache.h"
-#include "value-query.h"
 
 // This is the basic range generator interface.
 //
@@ -54,7 +54,9 @@ public:
   virtual void range_on_entry (irange &r, basic_block bb, tree name);
   virtual void range_on_exit (irange &r, basic_block bb, tree name);
   void export_global_ranges ();
-  void dump (FILE *f);
+  inline gori_compute &gori ()  { return m_cache.m_gori; }
+  virtual void dump (FILE *f) OVERRIDE;
+  void dump_bb (FILE *f, basic_block bb);
 protected:
   void prefill_name (irange &r, tree name);
   void prefill_stmt_dependencies (tree ssa);

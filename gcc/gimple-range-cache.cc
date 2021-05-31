@@ -750,7 +750,7 @@ ranger_cache::ranger_cache (gimple_ranger &q) : query (q)
     {
       basic_block bb = BASIC_BLOCK_FOR_FN (cfun, x);
       if (bb)
-	exports (bb);
+	m_gori.exports (bb);
     }
 }
 
@@ -767,22 +767,18 @@ ranger_cache::~ranger_cache ()
 // gori map as well.
 
 void
-ranger_cache::dump (FILE *f, bool gori_dump)
+ranger_cache::dump (FILE *f)
 {
   m_globals.dump (f);
-  if (gori_dump)
-    {
-      fprintf (f, "\nDUMPING GORI MAP\n");
-      gori_compute::dump (f);
-    }
   fprintf (f, "\n");
 }
 
 // Dump the caches for basic block BB to file F.
 
 void
-ranger_cache::dump (FILE *f, basic_block bb)
+ranger_cache::dump_bb (FILE *f, basic_block bb)
 {
+  m_gori.gori_map::dump (f, bb, false);
   m_on_entry.dump (f, bb);
 }
 
@@ -807,7 +803,10 @@ ranger_cache::get_non_stale_global_range (irange &r, tree name)
 {
   if (m_globals.get_global_range (r, name))
     {
-      if (m_temporal->current_p (name))
+      // Use this value if the range is constant or current.
+      if (r.singleton_p ()
+	  || m_temporal->current_p (name, m_gori.depend1 (name),
+				    m_gori.depend2 (name)))
 	return true;
     }
   else
@@ -838,11 +837,16 @@ ranger_cache::set_global_range (tree name, const irange &r)
 
       propagate_updated_value (name, bb);
     }
-  // Mark the value as up-to-date.
+  // Constants no longer need to tracked.  Any further refinement has to be
+  // Timestamp must always be updated, or dependent calculations may
+  // not include this latest value. PR 100774.
+
+  if (r.singleton_p ()
+      || (POINTER_TYPE_P (TREE_TYPE (name)) && r.nonzero_p ()))
+    m_gori.set_range_invariant (name);
   m_temporal->set_timestamp (name);
 }
 
-// Register a dependency on DEP to name.  If the timestamp for DEP is ever
 // greateer than the timestamp for NAME, then it is newer and NAMEs value
 // becomes stale.
 
@@ -901,7 +905,7 @@ ranger_cache::ssa_range_in_bb (irange &r, tree name, basic_block bb)
       // If it has no entry but should, then mark this as a poor value.
       // Its not a poor value if it does not have *any* edge ranges,
       // Then global range is as good as it gets.
-      if (has_edge_range_p (name) && push_poor_value (bb, name))
+      if (m_gori.has_edge_range_p (name) && push_poor_value (bb, name))
 	{
 	  if (DEBUG_RANGE_CACHE)
 	    {
@@ -927,6 +931,35 @@ ranger_cache::ssa_range_in_bb (irange &r, tree name, basic_block bb)
 	    r = range_nonzero (TREE_TYPE (name));
 	}
     }
+  // Check if pointers have any non-null dereferences.  Non-call
+  // exceptions mean we could throw in the middle of the block, so just
+  // punt for now on those.
+  if (r.varying_p () && m_non_null.non_null_deref_p (name, bb, false) &&
+      !cfun->can_throw_non_call_exceptions)
+    r = range_nonzero (TREE_TYPE (name));
+}
+
+// Implement range_of_expr.
+
+bool
+ranger_cache::range_of_expr (irange &r, tree expr, gimple *stmt)
+{
+  if (gimple_range_ssa_p (expr))
+    ssa_range_in_bb (r, expr, gimple_bb (stmt));
+  else
+    get_tree_range (r, expr);
+  return true;
+}
+
+// Implement range_on_edge which returns true ONLY if there is a range
+// calculated.
+
+bool
+ranger_cache::range_on_edge (irange &r, edge e, tree expr)
+{
+  if (gimple_range_ssa_p (expr))
+    return m_gori.outgoing_edge_range_p (r, e, expr, *this);
+  return false;
 }
 
 // Return a static range for NAME on entry to basic block BB in R.  If
@@ -940,7 +973,7 @@ ranger_cache::block_range (irange &r, basic_block bb, tree name, bool calc)
 
   // If there are no range calculations anywhere in the IL, global range
   // applies everywhere, so don't bother caching it.
-  if (!has_edge_range_p (name))
+  if (!m_gori.has_edge_range_p (name))
     return false;
 
   if (calc)
@@ -1006,6 +1039,15 @@ ranger_cache::propagate_cache (tree name)
       gcc_checking_assert (m_on_entry.bb_range_p (name, bb));
       m_on_entry.get_bb_range (current_range, name, bb);
 
+      if (DEBUG_RANGE_CACHE)
+	{
+	  fprintf (dump_file, "FWD visiting block %d for ", bb->index);
+	  print_generic_expr (dump_file, name, TDF_SLIM);
+	  fprintf (dump_file, "  starting range : ");
+	  current_range.dump (dump_file);
+	  fprintf (dump_file, "\n");
+	}
+
       // Calculate the "new" range on entry by unioning the pred edges.
       new_range.set_undefined ();
       FOR_EACH_EDGE (e, ei, bb->preds)
@@ -1013,13 +1055,13 @@ ranger_cache::propagate_cache (tree name)
 	  if (DEBUG_RANGE_CACHE)
 	    fprintf (dump_file, "   edge %d->%d :", e->src->index, bb->index);
 	  // Get whatever range we can for this edge.
-	  if (!outgoing_edge_range_p (e_range, e, name))
+	  if (!m_gori.outgoing_edge_range_p (e_range, e, name, *this))
 	    {
 	      ssa_range_in_bb (e_range, name, e->src);
 	      if (DEBUG_RANGE_CACHE)
 		{
 		  fprintf (dump_file, "No outgoing edge range, picked up ");
-		  e_range.dump(dump_file);
+		  e_range.dump (dump_file);
 		  fprintf (dump_file, "\n");
 		}
 	    }
@@ -1028,22 +1070,13 @@ ranger_cache::propagate_cache (tree name)
 	      if (DEBUG_RANGE_CACHE)
 		{
 		  fprintf (dump_file, "outgoing range :");
-		  e_range.dump(dump_file);
+		  e_range.dump (dump_file);
 		  fprintf (dump_file, "\n");
 		}
 	    }
 	  new_range.union_ (e_range);
 	  if (new_range.varying_p ())
 	    break;
-	}
-
-      if (DEBUG_RANGE_CACHE)
-	{
-	  fprintf (dump_file, "FWD visiting block %d for ", bb->index);
-	  print_generic_expr (dump_file, name, TDF_SLIM);
-	  fprintf (dump_file, "  starting range : ");
-	  current_range.dump (dump_file);
-	  fprintf (dump_file, "\n");
 	}
 
       // If the range on entry has changed, update it.
@@ -1214,8 +1247,12 @@ ranger_cache::fill_block_cache (tree name, basic_block bb, basic_block def_bb)
 	  if (m_on_entry.get_bb_range (r, name, pred))
 	    {
 	      if (DEBUG_RANGE_CACHE)
-		fprintf (dump_file, "has cache, ");
-	      if (!r.undefined_p () || has_edge_range_p (name, e))
+		{
+		  fprintf (dump_file, "has cache, ");
+		  r.dump (dump_file);
+		  fprintf (dump_file, ", ");
+		}
+	      if (!r.undefined_p () || m_gori.has_edge_range_p (name, e))
 		{
 		  add_to_update (node);
 		  if (DEBUG_RANGE_CACHE)
@@ -1225,7 +1262,7 @@ ranger_cache::fill_block_cache (tree name, basic_block bb, basic_block def_bb)
 	    }
 
 	  if (DEBUG_RANGE_CACHE)
-	    fprintf (dump_file, "pushing undefined pred block. ");
+	    fprintf (dump_file, "pushing undefined pred block.\n");
 	  // If the pred hasn't been visited (has no range), add it to
 	  // the list.
 	  gcc_checking_assert (!m_on_entry.bb_range_p (name, pred));
