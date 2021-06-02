@@ -36,6 +36,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "selftest.h"
 #include "selftest-rtl.h"
 #include "rtx-vector-builder.h"
+#include "rtlanal.h"
 
 /* Simplification and canonicalization of RTL.  */
 
@@ -4212,6 +4213,15 @@ simplify_context::simplify_binary_operation_1 (rtx_code code,
 		}
 	      if (maybe_ident)
 		return trueop0;
+	    }
+
+	  /* If we select a low-part subreg, return that.  */
+	  if (vec_series_lowpart_p (mode, GET_MODE (trueop0), trueop1))
+	    {
+	      rtx new_rtx = lowpart_subreg (mode, trueop0,
+					    GET_MODE (trueop0));
+	      if (new_rtx != NULL_RTX)
+		return new_rtx;
 	    }
 
 	  /* If we build {a,b} then permute it, build the result directly.  */
