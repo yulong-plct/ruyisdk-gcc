@@ -75,8 +75,68 @@ private:
 					 gphi *);
 };
 
-// Calculate a basic range for a tree expression.
-extern bool get_tree_range (irange &r, tree expr);
+// Source of all operands for fold_using_range and gori_compute.
+// It abstracts out the source of an operand so it can come from a stmt or
+// and edge or anywhere a derived classof fur_source wants.
+
+class fur_source
+{
+public:
+  virtual bool get_operand (irange &r, tree expr);
+  virtual bool get_phi_operand (irange &r, tree expr, edge e);
+  virtual void register_dependency (tree lhs, tree rhs);
+  virtual range_query *query ();
+};
+
+// fur_stmt is the specification for drawing an operand from range_query Q
+// via a range_of_Expr call on stmt S.
+
+class fur_stmt : public fur_source
+{
+public:
+  fur_stmt (gimple *s, range_query *q = NULL);
+  virtual bool get_operand (irange &r, tree expr) OVERRIDE;
+  virtual bool get_phi_operand (irange &r, tree expr, edge e) OVERRIDE;
+  virtual range_query *query () OVERRIDE;
+private:
+  range_query *m_query;
+  gimple *m_stmt;
+};
+
+
+// Fold stmt S into range R using range query Q.
+bool fold_range (irange &r, gimple *s, range_query *q = NULL);
+// Recalculate stmt S into R using range query Q as if it were on edge ON_EDGE.
+bool fold_range (irange &r, gimple *s, edge on_edge, range_query *q = NULL);
+// These routines allow you to specify the operands to use when folding.
+// Any excess queries will be drawn from the current range_query.
+bool fold_range (irange &r, gimple *s, irange &r1);
+bool fold_range (irange &r, gimple *s, irange &r1, irange &r2);
+bool fold_range (irange &r, gimple *s, unsigned num_elements, irange *vector);
+
+// This class uses ranges to fold a gimple statement producinf a range for
+// the LHS.  The source of all operands is supplied via the fur_source class
+// which provides a range_query as well as a source location and any other
+// required information.
+
+class fold_using_range
+{
+public:
+  bool fold_stmt (irange &r, gimple *s, class fur_source &src,
+		  tree name = NULL_TREE);
+protected:
+  bool range_of_range_op (irange &r, gimple *s, fur_source &src);
+  bool range_of_call (irange &r, gcall *call, fur_source &src);
+  bool range_of_cond_expr (irange &r, gassign* cond, fur_source &src);
+  bool range_of_address (irange &r, gimple *s, fur_source &src);
+  bool range_of_builtin_call (irange &r, gcall *call, fur_source &src);
+  void range_of_builtin_ubsan_call (irange &r, gcall *call, tree_code code,
+				    fur_source &src);
+  bool range_of_phi (irange &r, gphi *phi, fur_source &src);
+  void range_of_ssa_name_with_loop_info (irange &, tree, class loop *, gphi *,
+					 fur_source &src);
+};
+
 
 // These routines provide a GIMPLE interface to the range-ops code.
 extern tree gimple_range_operand1 (const gimple *s);
