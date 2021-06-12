@@ -3059,7 +3059,7 @@ delete_unreachable_blocks (void)
 		delete_basic_block (b);
 	      else
 		{
-		  vec<basic_block> h
+		  auto_vec<basic_block> h
 		    = get_all_dominated_blocks (CDI_DOMINATORS, b);
 
 		  while (h.length ())
@@ -3072,8 +3072,6 @@ delete_unreachable_blocks (void)
 
 		      delete_basic_block (b);
 		    }
-
-		  h.release ();
 		}
 
 	      changed = true;

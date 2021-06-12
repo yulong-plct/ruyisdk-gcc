@@ -1293,7 +1293,6 @@ eliminate_unnecessary_stmts (void)
   gimple_stmt_iterator gsi, psi;
   gimple *stmt;
   tree call;
-  vec<basic_block> h;
   auto_vec<edge> to_remove_edges;
 
   if (dump_file && (dump_flags & TDF_DETAILS))
@@ -1324,6 +1323,7 @@ eliminate_unnecessary_stmts (void)
 
      as desired.  */
   gcc_assert (dom_info_available_p (CDI_DOMINATORS));
+  auto_vec<basic_block> h;
   h = get_all_dominated_blocks (CDI_DOMINATORS,
 				single_succ (ENTRY_BLOCK_PTR_FOR_FN (cfun)));
 
@@ -1478,7 +1478,6 @@ eliminate_unnecessary_stmts (void)
       something_changed |= remove_dead_phis (bb);
     }
 
-  h.release ();
 
   /* Since we don't track liveness of virtual PHI nodes, it is possible that we
      rendered some PHI nodes unreachable while they are still in use.
