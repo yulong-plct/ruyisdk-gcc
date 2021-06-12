@@ -2815,9 +2815,7 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
 
 	  /* Forget the saved values of the callee's SAVE_EXPRs and
 	     TARGET_EXPRs.  */
-	  unsigned int i;
-	  tree save_expr;
-	  FOR_EACH_VEC_ELT (save_exprs, i, save_expr)
+	  for (tree save_expr : save_exprs)
 	    ctx->global->values.remove (save_expr);
 
 	  /* Remove the parms/result from the values map.  Is it worth
@@ -5491,9 +5489,7 @@ cxx_eval_store_expression (const constexpr_ctx *ctx, tree t,
 	     semantics are not applied on an object under construction.
 	     They come into effect when the constructor for the most
 	     derived object ends."  */
-	  tree elt;
-	  unsigned int i;
-	  FOR_EACH_VEC_ELT (*ctors, i, elt)
+	  for (tree elt : *ctors)
 	    if (same_type_ignoring_top_level_qualifiers_p
 		(TREE_TYPE (const_object_being_modified), TREE_TYPE (elt)))
 	      {
@@ -5607,12 +5603,10 @@ cxx_eval_store_expression (const constexpr_ctx *ctx, tree t,
 
   /* Update TREE_CONSTANT and TREE_SIDE_EFFECTS on enclosing
      CONSTRUCTORs, if any.  */
-  tree elt;
-  unsigned i;
   bool c = TREE_CONSTANT (init);
   bool s = TREE_SIDE_EFFECTS (init);
   if (!c || s || activated_union_member_p)
-    FOR_EACH_VEC_ELT (*ctors, i, elt)
+    for (tree elt : *ctors)
       {
 	if (!c)
 	  TREE_CONSTANT (elt) = false;
@@ -5944,9 +5938,7 @@ cxx_eval_loop_expr (const constexpr_ctx *ctx, tree t,
 	}
 
       /* Forget saved values of SAVE_EXPRs and TARGET_EXPRs.  */
-      unsigned int i;
-      tree save_expr;
-      FOR_EACH_VEC_ELT (save_exprs, i, save_expr)
+      for (tree save_expr : save_exprs)
 	ctx->global->values.remove (save_expr);
       save_exprs.truncate (0);
 
@@ -5968,9 +5960,7 @@ cxx_eval_loop_expr (const constexpr_ctx *ctx, tree t,
 	 && !*non_constant_p);
 
   /* Forget saved values of SAVE_EXPRs and TARGET_EXPRs.  */
-  unsigned int i;
-  tree save_expr;
-  FOR_EACH_VEC_ELT (save_exprs, i, save_expr)
+  for (tree save_expr : save_exprs)
     ctx->global->values.remove (save_expr);
 
   return NULL_TREE;
