@@ -19,13 +19,14 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifndef GCC_GIMPLE_RANGE_STMT_H
-#define GCC_GIMPLE_RANGE_STMT_H
+#ifndef GCC_GIMPLE_RANGE_H
+#define GCC_GIMPLE_RANGE_H
 
 
 #include "range.h"
 #include "range-op.h"
 #include "gimple-range-edge.h"
+#include "gimple-range-fold.h"
 #include "gimple-range-gori.h"
 #include "gimple-range-cache.h"
 #include "value-query.h"
@@ -63,76 +64,8 @@ protected:
   bool range_of_call (irange &r, gcall *call);
   bool range_of_cond_expr (irange &r, gassign* cond);
   ranger_cache m_cache;
-  vec<tree> m_stmt_list;
-private:
-  bool range_of_phi (irange &r, gphi *phi);
-  bool range_of_address (irange &r, gimple *s);
-  bool range_of_builtin_call (irange &r, gcall *call);
-  bool range_with_loop_info (irange &r, tree name);
-  void range_of_ssa_name_with_loop_info (irange &, tree, class loop *,
-					 gphi *);
 };
 
-// Calculate a basic range for a tree expression.
-extern bool get_tree_range (irange &r, tree expr);
-
-// These routines provide a GIMPLE interface to the range-ops code.
-extern tree gimple_range_operand1 (const gimple *s);
-extern tree gimple_range_operand2 (const gimple *s);
-extern tree gimple_range_base_of_assignment (const gimple *s);
-extern bool gimple_range_fold (irange &res, const gimple *s,
-			       const irange &r1);
-extern bool gimple_range_fold (irange &res, const gimple *s,
-			       const irange &r1,
-			       const irange &r2);
-extern bool gimple_range_calc_op1 (irange &r, const gimple *s,
-				   const irange &lhs_range);
-extern bool gimple_range_calc_op1 (irange &r, const gimple *s,
-				   const irange &lhs_range,
-				   const irange &op2_range);
-extern bool gimple_range_calc_op2 (irange &r, const gimple *s,
-				   const irange &lhs_range,
-				   const irange &op1_range);
-
-
-// Return the range_operator pointer for this statement.  This routine
-// can also be used to gate whether a routine is range-ops enabled.
-
-static inline range_operator *
-gimple_range_handler (const gimple *s)
-{
-  if (const gassign *ass = dyn_cast<const gassign *> (s))
-    return range_op_handler (gimple_assign_rhs_code (ass),
-			     TREE_TYPE (gimple_assign_lhs (ass)));
-  if (const gcond *cond = dyn_cast<const gcond *> (s))
-    return range_op_handler (gimple_cond_code (cond),
-			     TREE_TYPE (gimple_cond_lhs (cond)));
-  return NULL;
-}
-
-// Return EXP if it is an SSA_NAME with a type supported by gimple ranges.
-
-static inline tree
-gimple_range_ssa_p (tree exp)
-{
-  if (exp && TREE_CODE (exp) == SSA_NAME &&
-      !SSA_NAME_IS_VIRTUAL_OPERAND (exp) &&
-      irange::supports_type_p (TREE_TYPE (exp)))
-    return exp;
-  return NULL_TREE;
-}
-
-// Return true if TYPE1 and TYPE2 are compatible range types.
-
-static inline bool
-range_compatible_p (tree type1, tree type2)
-{
-  // types_compatible_p requires conversion in both directions to be useless.
-  // GIMPLE only requires a cast one way in order to be compatible.
-  // Ranges really only need the sign and precision to be the same.
-  return (TYPE_PRECISION (type1) == TYPE_PRECISION (type2)
-	  && TYPE_SIGN (type1) == TYPE_SIGN (type2));
-}
 
 // Return the legacy GCC global range for NAME if it has one, otherwise
 // return VARYING.
@@ -189,4 +122,4 @@ private:
 // Temporary external interface to share with vr_values.
 bool range_of_builtin_call (range_query &query, irange &r, gcall *call);
 
-#endif // GCC_GIMPLE_RANGE_STMT_H
+#endif // GCC_GIMPLE_RANGE_H
