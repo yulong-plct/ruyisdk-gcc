@@ -4037,7 +4037,8 @@ compute_avail (void)
 		  continue;
 
 		vn_reference_lookup_call (as_a <gcall *> (stmt), &ref, &ref1);
-		if (!ref)
+		/* There is no point to PRE a call without a value.  */
+		if (!ref || !ref->result)
 		  continue;
 
 		/* If the value of the call is not invalidated in
