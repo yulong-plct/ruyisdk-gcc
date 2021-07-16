@@ -565,7 +565,7 @@ vect_widened_op_tree (vec_info *vinfo, stmt_vec_info stmt_info, tree_code code,
   if (rhs_code != code && rhs_code != widened_code)
     return 0;
 
-  tree type = gimple_expr_type (assign);
+  tree type = TREE_TYPE (gimple_assign_lhs (assign));
   if (!INTEGRAL_TYPE_P (type))
     return 0;
 
@@ -1025,7 +1025,7 @@ vect_recog_dot_prod_pattern (vec_info *vinfo,
 				       &oprnd0, &oprnd1))
     return NULL;
 
-  type = gimple_expr_type (last_stmt);
+  type = TREE_TYPE (gimple_get_lhs (last_stmt));
 
   vect_unpromoted_value unprom_mult;
   oprnd0 = vect_look_through_possible_promotion (vinfo, oprnd0, &unprom_mult);
@@ -1154,7 +1154,7 @@ vect_recog_sad_pattern (vec_info *vinfo,
 				       &plus_oprnd0, &plus_oprnd1))
     return NULL;
 
-  tree sum_type = gimple_expr_type (last_stmt);
+  tree sum_type = TREE_TYPE (gimple_get_lhs (last_stmt));
 
   /* Any non-truncating sequence of conversions is OK here, since
      with a successful match, the result of the ABS(U) is known to fit
@@ -1277,7 +1277,7 @@ vect_recog_widen_op_pattern (vec_info *vinfo,
   /* Pattern detected.  */
   vect_pattern_detected (name, last_stmt);
 
-  tree type = gimple_expr_type (last_stmt);
+  tree type = TREE_TYPE (gimple_get_lhs (last_stmt));
   tree itype = type;
   if (TYPE_PRECISION (type) != TYPE_PRECISION (half_type) * 2
       || TYPE_UNSIGNED (type) != TYPE_UNSIGNED (half_type))
@@ -1698,7 +1698,7 @@ vect_recog_widen_sum_pattern (vec_info *vinfo,
       || !vinfo->lookup_def (oprnd0))
     return NULL;
 
-  type = gimple_expr_type (last_stmt);
+  type = TREE_TYPE (gimple_get_lhs (last_stmt));
 
   /* So far so good.  Since last_stmt was detected as a (summation) reduction,
      we know that oprnd1 is the reduction variable (defined by a loop-header
@@ -3761,7 +3761,7 @@ vect_recog_mixed_size_cond_pattern (vec_info *vinfo,
   if (comp_vectype == NULL_TREE)
     return NULL;
 
-  type = gimple_expr_type (last_stmt);
+  type = TREE_TYPE (gimple_assign_lhs (last_stmt));
   if (types_compatible_p (type, comp_scalar_type)
       || ((TREE_CODE (then_clause) != INTEGER_CST
 	   || TREE_CODE (else_clause) != INTEGER_CST)
