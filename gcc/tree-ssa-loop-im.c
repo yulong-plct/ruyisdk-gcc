@@ -2511,7 +2511,7 @@ sm_seq_valid_bb (class loop *loop, basic_block bb, tree vdef,
 
 static void
 hoist_memory_references (class loop *loop, bitmap mem_refs,
-			 vec<edge> exits)
+			 const vec<edge> &exits)
 {
   im_mem_ref *ref;
   unsigned  i;
@@ -2906,7 +2906,7 @@ find_refs_for_sm (class loop *loop, bitmap sm_executed, bitmap refs_to_sm)
 
 static bool
 loop_suitable_for_sm (class loop *loop ATTRIBUTE_UNUSED,
-		      vec<edge> exits)
+		      const vec<edge> &exits)
 {
   unsigned i;
   edge ex;

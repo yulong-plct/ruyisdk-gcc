@@ -1924,7 +1924,7 @@ make_vector (unsigned log2_npatterns,
    are extracted from V, a vector of CONSTRUCTOR_ELT.  */
 
 tree
-build_vector_from_ctor (tree type, vec<constructor_elt, va_gc> *v)
+build_vector_from_ctor (tree type, const vec<constructor_elt, va_gc> *v)
 {
   if (vec_safe_length (v) == 0)
     return build_zero_cst (type);
@@ -15578,7 +15578,7 @@ test_labels ()
    are given by VALS.  */
 
 static tree
-build_vector (tree type, vec<tree> vals MEM_STAT_DECL)
+build_vector (tree type, const vec<tree> &vals MEM_STAT_DECL)
 {
   gcc_assert (known_eq (vals.length (), TYPE_VECTOR_SUBPARTS (type)));
   tree_vector_builder builder (type, vals.length (), 1);
@@ -15589,7 +15589,7 @@ build_vector (tree type, vec<tree> vals MEM_STAT_DECL)
 /* Check that VECTOR_CST ACTUAL contains the elements in EXPECTED.  */
 
 static void
-check_vector_cst (vec<tree> expected, tree actual)
+check_vector_cst (const vec<tree> &expected, tree actual)
 {
   ASSERT_KNOWN_EQ (expected.length (),
 		   TYPE_VECTOR_SUBPARTS (TREE_TYPE (actual)));
@@ -15602,7 +15602,7 @@ check_vector_cst (vec<tree> expected, tree actual)
    and that its elements match EXPECTED.  */
 
 static void
-check_vector_cst_duplicate (vec<tree> expected, tree actual,
+check_vector_cst_duplicate (const vec<tree> &expected, tree actual,
 			    unsigned int npatterns)
 {
   ASSERT_EQ (npatterns, VECTOR_CST_NPATTERNS (actual));
@@ -15618,7 +15618,7 @@ check_vector_cst_duplicate (vec<tree> expected, tree actual,
    EXPECTED.  */
 
 static void
-check_vector_cst_fill (vec<tree> expected, tree actual,
+check_vector_cst_fill (const vec<tree> &expected, tree actual,
 		       unsigned int npatterns)
 {
   ASSERT_EQ (npatterns, VECTOR_CST_NPATTERNS (actual));
@@ -15633,7 +15633,7 @@ check_vector_cst_fill (vec<tree> expected, tree actual,
    and that its elements match EXPECTED.  */
 
 static void
-check_vector_cst_stepped (vec<tree> expected, tree actual,
+check_vector_cst_stepped (const vec<tree> &expected, tree actual,
 			  unsigned int npatterns)
 {
   ASSERT_EQ (npatterns, VECTOR_CST_NPATTERNS (actual));

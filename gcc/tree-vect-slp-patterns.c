@@ -763,8 +763,11 @@ is_eq_or_top (slp_tree_to_load_perm_map_t *perm_cache,
 enum _conj_status { CONJ_NONE, CONJ_FST, CONJ_SND };
 
 static inline bool
-compatible_complex_nodes_p (slp_compat_nodes_map_t *compat_cache,
-			    slp_tree a, int *pa, slp_tree b, int *pb)
+vect_validate_multiplication (slp_tree_to_load_perm_map_t *perm_cache,
+			      const vec<slp_tree> &left_op,
+			      const vec<slp_tree> &right_op,
+			     bool neg_first, bool *conj_first_operand,
+			     bool fms)
 {
   bool *tmp;
   std::pair<slp_tree, slp_tree> key = std::make_pair(a, b);
@@ -872,9 +875,8 @@ compatible_complex_nodes_p (slp_compat_nodes_map_t *compat_cache,
 
 static inline bool
 vect_validate_multiplication (slp_tree_to_load_perm_map_t *perm_cache,
-			      slp_compat_nodes_map_t *compat_cache,
-			      vec<slp_tree> &left_op, vec<slp_tree> &right_op,
-			      bool subtract, enum _conj_status *_status)
+			      const vec<slp_tree> &op,
+			      complex_perm_kinds_t permKind)
 {
   auto_vec<slp_tree> ops;
   enum _conj_status stats = CONJ_NONE;
