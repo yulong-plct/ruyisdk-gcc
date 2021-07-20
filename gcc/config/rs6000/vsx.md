@@ -6276,7 +6276,7 @@
   [(set_attr "type" "vecdiv")
    (set_attr "size" "<bits>")])
 
-(define_insn "mulhs_<mode>"
+(define_insn "smul<mode>3_highpart"
   [(set (match_operand:VIlong 0 "vsx_register_operand" "=v")
 	(mult:VIlong (ashiftrt
 		       (match_operand:VIlong 1 "vsx_register_operand" "v")
@@ -6288,7 +6288,7 @@
   "vmulhs<wd> %0,%1,%2"
   [(set_attr "type" "veccomplex")])
 
-(define_insn "mulhu_<mode>"
+(define_insn "umul<mode>3_highpart"
   [(set (match_operand:VIlong 0 "vsx_register_operand" "=v")
 	(us_mult:VIlong (ashiftrt
 			  (match_operand:VIlong 1 "vsx_register_operand" "v")
