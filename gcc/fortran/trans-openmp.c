@@ -4083,6 +4083,27 @@ gfc_trans_omp_clauses (stmtblock_t *block, gfc_omp_clauses *clauses,
 	  OMP_CLAUSE_GANG_STATIC_EXPR (c) = arg;
 	}
     }
+  if (clauses->bind != OMP_BIND_UNSET)
+    {
+      c = build_omp_clause (gfc_get_location (&where), OMP_CLAUSE_BIND);
+      omp_clauses = gfc_trans_add_clause (c, omp_clauses);
+      switch (clauses->bind)
+	{
+	case OMP_BIND_TEAMS:
+	  OMP_CLAUSE_BIND_KIND (c) = OMP_CLAUSE_BIND_TEAMS;
+	  break;
+	case OMP_BIND_PARALLEL:
+	  OMP_CLAUSE_BIND_KIND (c) = OMP_CLAUSE_BIND_PARALLEL;
+	  break;
+	case OMP_BIND_THREAD:
+	  OMP_CLAUSE_BIND_KIND (c) = OMP_CLAUSE_BIND_THREAD;
+	  break;
+	default:
+	  gcc_unreachable ();
+	}
+    }
+  /* OpenACC 'nohost' clauses cannot appear here.  */
+  gcc_checking_assert (!clauses->nohost);
 
   return nreverse (omp_clauses);
 }
