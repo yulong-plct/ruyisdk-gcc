@@ -6607,4 +6607,9 @@ constexpr opt_code all_warnings = N_OPTS;
 extern bool suppress_warning_at (location_t, opt_code = all_warnings,
 				 bool = true);
 
+/* Return the zero-based number corresponding to the argument being
+   deallocated if FNDECL is a deallocation function or an out-of-bounds
+   value if it isn't.  */
+extern unsigned fndecl_dealloc_argno (tree);
+
 #endif  /* GCC_TREE_H  */
