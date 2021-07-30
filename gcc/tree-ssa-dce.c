@@ -432,7 +432,6 @@ find_obviously_necessary_stmts (bool aggressive)
      correct edge to keep when removing a controlling condition.  */
   if (aggressive)
     {
-      class loop *loop;
       if (mark_irreducible_loops ())
 	FOR_EACH_BB_FN (bb, cfun)
 	  {
@@ -448,9 +447,8 @@ find_obviously_necessary_stmts (bool aggressive)
 		}
 	  }
 
-      FOR_EACH_LOOP (loop, 0)
-	/* For loops without an exit do not mark any condition.  */
-	if (loop->exits->next->e && !finite_loop_p (loop))
+      for (auto loop : loops_list (cfun, 0))
+	if (!finite_loop_p (loop))
 	  {
 	    if (dump_file)
 	      fprintf (dump_file, "cannot prove finiteness of loop %i\n",

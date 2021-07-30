@@ -3365,11 +3365,10 @@ tree_predictive_commoning_loop (class loop *loop, bool allow_unroll_p)
 unsigned
 tree_predictive_commoning (bool allow_unroll_p)
 {
-  class loop *loop;
   unsigned ret = 0, changed = 0;
 
   initialize_original_copy_tables ();
-  FOR_EACH_LOOP (loop, LI_ONLY_INNERMOST)
+  for (auto loop : loops_list (cfun, LI_ONLY_INNERMOST))
     if (optimize_loop_for_speed_p (loop))
       {
 	changed |= tree_predictive_commoning_loop (loop, allow_unroll_p);
