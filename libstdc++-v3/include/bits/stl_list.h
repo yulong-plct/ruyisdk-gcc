@@ -206,10 +206,12 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       { return *this; }
 
       // Must downcast from _List_node_base to _List_node to get to value.
+      _GLIBCXX_NODISCARD
       reference
       operator*() const _GLIBCXX_NOEXCEPT
       { return *static_cast<_Node*>(_M_node)->_M_valptr(); }
 
+      _GLIBCXX_NODISCARD
       pointer
       operator->() const _GLIBCXX_NOEXCEPT
       { return static_cast<_Node*>(_M_node)->_M_valptr(); }
@@ -244,11 +246,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	return __tmp;
       }
 
+      _GLIBCXX_NODISCARD
       friend bool
       operator==(const _Self& __x, const _Self& __y) _GLIBCXX_NOEXCEPT
       { return __x._M_node == __y._M_node; }
 
 #if __cpp_impl_three_way_comparison < 201907L
+      _GLIBCXX_NODISCARD
       friend bool
       operator!=(const _Self& __x, const _Self& __y) _GLIBCXX_NOEXCEPT
       { return __x._M_node != __y._M_node; }
@@ -292,10 +296,12 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       { return iterator(const_cast<__detail::_List_node_base*>(_M_node)); }
 
       // Must downcast from List_node_base to _List_node to get to value.
+      _GLIBCXX_NODISCARD
       reference
       operator*() const _GLIBCXX_NOEXCEPT
       { return *static_cast<_Node*>(_M_node)->_M_valptr(); }
 
+      _GLIBCXX_NODISCARD
       pointer
       operator->() const _GLIBCXX_NOEXCEPT
       { return static_cast<_Node*>(_M_node)->_M_valptr(); }
@@ -330,11 +336,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	return __tmp;
       }
 
+      _GLIBCXX_NODISCARD
       friend bool
       operator==(const _Self& __x, const _Self& __y) _GLIBCXX_NOEXCEPT
       { return __x._M_node == __y._M_node; }
 
 #if __cpp_impl_three_way_comparison < 201907L
+      _GLIBCXX_NODISCARD
       friend bool
       operator!=(const _Self& __x, const _Self& __y) _GLIBCXX_NOEXCEPT
       { return __x._M_node != __y._M_node; }
@@ -942,6 +950,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  Returns a read/write iterator that points to the first element in the
        *  %list.  Iteration is done in ordinary element order.
        */
+      _GLIBCXX_NODISCARD
       iterator
       begin() _GLIBCXX_NOEXCEPT
       { return iterator(this->_M_impl._M_node._M_next); }
@@ -951,6 +960,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  first element in the %list.  Iteration is done in ordinary
        *  element order.
        */
+      _GLIBCXX_NODISCARD
       const_iterator
       begin() const _GLIBCXX_NOEXCEPT
       { return const_iterator(this->_M_impl._M_node._M_next); }
@@ -960,6 +970,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  element in the %list.  Iteration is done in ordinary element
        *  order.
        */
+      _GLIBCXX_NODISCARD
       iterator
       end() _GLIBCXX_NOEXCEPT
       { return iterator(&this->_M_impl._M_node); }
@@ -969,6 +980,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  the last element in the %list.  Iteration is done in ordinary
        *  element order.
        */
+      _GLIBCXX_NODISCARD
       const_iterator
       end() const _GLIBCXX_NOEXCEPT
       { return const_iterator(&this->_M_impl._M_node); }
@@ -978,6 +990,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  element in the %list.  Iteration is done in reverse element
        *  order.
        */
+      _GLIBCXX_NODISCARD
       reverse_iterator
       rbegin() _GLIBCXX_NOEXCEPT
       { return reverse_iterator(end()); }
@@ -987,6 +1000,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  the last element in the %list.  Iteration is done in reverse
        *  element order.
        */
+      _GLIBCXX_NODISCARD
       const_reverse_iterator
       rbegin() const _GLIBCXX_NOEXCEPT
       { return const_reverse_iterator(end()); }
@@ -996,6 +1010,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  before the first element in the %list.  Iteration is done in
        *  reverse element order.
        */
+      _GLIBCXX_NODISCARD
       reverse_iterator
       rend() _GLIBCXX_NOEXCEPT
       { return reverse_iterator(begin()); }
@@ -1005,6 +1020,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  before the first element in the %list.  Iteration is done in reverse
        *  element order.
        */
+      _GLIBCXX_NODISCARD
       const_reverse_iterator
       rend() const _GLIBCXX_NOEXCEPT
       { return const_reverse_iterator(begin()); }
@@ -1015,6 +1031,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  first element in the %list.  Iteration is done in ordinary
        *  element order.
        */
+      [[__nodiscard__]]
       const_iterator
       cbegin() const noexcept
       { return const_iterator(this->_M_impl._M_node._M_next); }
@@ -1024,6 +1041,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  the last element in the %list.  Iteration is done in ordinary
        *  element order.
        */
+      [[__nodiscard__]]
       const_iterator
       cend() const noexcept
       { return const_iterator(&this->_M_impl._M_node); }
@@ -1033,6 +1051,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  the last element in the %list.  Iteration is done in reverse
        *  element order.
        */
+      [[__nodiscard__]]
       const_reverse_iterator
       crbegin() const noexcept
       { return const_reverse_iterator(end()); }
@@ -1042,6 +1061,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  before the first element in the %list.  Iteration is done in reverse
        *  element order.
        */
+      [[__nodiscard__]]
       const_reverse_iterator
       crend() const noexcept
       { return const_reverse_iterator(begin()); }
@@ -1057,11 +1077,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       { return this->_M_impl._M_node._M_next == &this->_M_impl._M_node; }
 
       /**  Returns the number of elements in the %list.  */
+      _GLIBCXX_NODISCARD
       size_type
       size() const _GLIBCXX_NOEXCEPT
       { return _M_node_count(); }
 
       /**  Returns the size() of the largest possible %list.  */
+      _GLIBCXX_NODISCARD
       size_type
       max_size() const _GLIBCXX_NOEXCEPT
       { return _Node_alloc_traits::max_size(_M_get_Node_allocator()); }
@@ -1111,6 +1133,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  Returns a read/write reference to the data at the first
        *  element of the %list.
        */
+      _GLIBCXX_NODISCARD
       reference
       front() _GLIBCXX_NOEXCEPT
       { return *begin(); }
@@ -1119,6 +1142,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  Returns a read-only (constant) reference to the data at the first
        *  element of the %list.
        */
+      _GLIBCXX_NODISCARD
       const_reference
       front() const _GLIBCXX_NOEXCEPT
       { return *begin(); }
@@ -1127,6 +1151,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  Returns a read/write reference to the data at the last element
        *  of the %list.
        */
+      _GLIBCXX_NODISCARD
       reference
       back() _GLIBCXX_NOEXCEPT
       {
@@ -1139,6 +1164,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
        *  Returns a read-only (constant) reference to the data at the last
        *  element of the %list.
        */
+      _GLIBCXX_NODISCARD
       const_reference
       back() const _GLIBCXX_NOEXCEPT
       {
@@ -2026,6 +2052,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
    *  equal, and if corresponding elements compare equal.
   */
   template<typename _Tp, typename _Alloc>
+    _GLIBCXX_NODISCARD
     inline bool
     operator==(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     {
@@ -2061,6 +2088,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
    *  `<` and `>=` etc.
   */
   template<typename _Tp, typename _Alloc>
+    [[nodiscard]]
     inline __detail::__synth3way_t<_Tp>
     operator<=>(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     {
@@ -2081,6 +2109,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
    *  See std::lexicographical_compare() for how the determination is made.
   */
   template<typename _Tp, typename _Alloc>
+    _GLIBCXX_NODISCARD
     inline bool
     operator<(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     { return std::lexicographical_compare(__x.begin(), __x.end(),
@@ -2088,24 +2117,28 @@ _GLIBCXX_END_NAMESPACE_CXX11
 
   /// Based on operator==
   template<typename _Tp, typename _Alloc>
+    _GLIBCXX_NODISCARD
     inline bool
     operator!=(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     { return !(__x == __y); }
 
   /// Based on operator<
   template<typename _Tp, typename _Alloc>
+    _GLIBCXX_NODISCARD
     inline bool
     operator>(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     { return __y < __x; }
 
   /// Based on operator<
   template<typename _Tp, typename _Alloc>
+    _GLIBCXX_NODISCARD
     inline bool
     operator<=(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     { return !(__y < __x); }
 
   /// Based on operator<
   template<typename _Tp, typename _Alloc>
+    _GLIBCXX_NODISCARD
     inline bool
     operator>=(const list<_Tp, _Alloc>& __x, const list<_Tp, _Alloc>& __y)
     { return !(__x < __y); }
