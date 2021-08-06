@@ -499,9 +499,8 @@ dump_chain (FILE *file, chain_p chain)
 
 /* Dumps CHAINS to FILE.  */
 
-extern void dump_chains (FILE *, vec<chain_p> );
 void
-dump_chains (FILE *file, vec<chain_p> chains)
+dump_chains (FILE *file, const vec<chain_p> &chains)
 {
   chain_p chain;
   unsigned i;
@@ -1975,7 +1974,7 @@ finalize_eliminated_stores (class loop *loop, chain_p chain)
 
 static void
 initialize_root_vars_lm (class loop *loop, dref root, bool written,
-			 vec<tree> *vars, vec<tree> inits,
+			 vec<tree> *vars, const vec<tree> &inits,
 			 bitmap tmp_vars)
 {
   unsigned i;
@@ -2250,7 +2249,7 @@ execute_pred_commoning_chain (class loop *loop, chain_p chain,
    optimized.  */
 
 static unsigned
-determine_unroll_factor (vec<chain_p> chains)
+determine_unroll_factor (const vec<chain_p> &chains)
 {
   chain_p chain;
   unsigned factor = 1, af, nfactor, i;
@@ -2328,7 +2327,7 @@ execute_pred_commoning (class loop *loop, vec<chain_p> chains,
    phi node, record the ssa name that is defined by it.  */
 
 static void
-replace_phis_by_defined_names (vec<chain_p> chains)
+replace_phis_by_defined_names (vec<chain_p> &chains)
 {
   chain_p chain;
   dref a;
@@ -3201,7 +3200,7 @@ prepare_finalizers (class loop *loop, vec<chain_p> chains)
 /* Insert all initializing gimple stmts into loop's entry edge.  */
 
 static void
-insert_init_seqs (class loop *loop, vec<chain_p> chains)
+insert_init_seqs (class loop *loop, vec<chain_p> &chains)
 {
   unsigned i;
   edge entry = loop_preheader_edge (loop);
@@ -3333,6 +3332,8 @@ tree_predictive_commoning_loop (class loop *loop, bool allow_unroll_p)
 
       dta.chains = chains;
       dta.tmp_vars = tmp_vars;
+      dta.chains = m_chains.to_vec_legacy ();
+      dta.worker = this;
 
       /* Cfg manipulations performed in tree_transform_and_unroll_loop before
 	 execute_pred_commoning_cbck is called may cause phi nodes to be

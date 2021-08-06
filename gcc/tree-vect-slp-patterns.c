@@ -742,6 +742,39 @@ vect_match_call_complex_mla (slp_tree node, unsigned child,
   return vect_detect_pair_op (data, false, args);
 }
 
+/* Check to see if either of the trees in ARGS are a NEGATE_EXPR.  If the first
+   child (args[0]) is a NEGATE_EXPR then NEG_FIRST_P is set to TRUE.
+
+   If a negate is found then the values in ARGS are reordered such that the
+   negate node is always the second one and the entry is replaced by the child
+   of the negate node.  */
+
+static inline bool
+vect_normalize_conj_loc (vec<slp_tree> &args, bool *neg_first_p = NULL)
+{
+  gcc_assert (args.length () == 2);
+  bool neg_found = false;
+
+  if (vect_match_expression_p (args[0], NEGATE_EXPR))
+    {
+      std::swap (args[0], args[1]);
+      neg_found = true;
+      if (neg_first_p)
+	*neg_first_p = true;
+    }
+  else if (vect_match_expression_p (args[1], NEGATE_EXPR))
+    {
+      neg_found = true;
+      if (neg_first_p)
+	*neg_first_p = false;
+    }
+
+  if (neg_found)
+    args[1] = SLP_TREE_CHILDREN (args[1])[0];
+
+  return neg_found;
+}
+
 /* Helper function to check if PERM is KIND or PERM_TOP.  */
 
 static inline bool
