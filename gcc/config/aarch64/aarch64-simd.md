@@ -1305,13 +1305,10 @@
   DONE;
 })
 
-;; Using mode VDQ_BHSI as there is no V2DImode neg!
-;; Negating individual lanes most certainly offsets the
-;; gain from vectorization.
 (define_expand "vashr<mode>3"
- [(match_operand:VDQ_BHSI 0 "register_operand")
-  (match_operand:VDQ_BHSI 1 "register_operand")
-  (match_operand:VDQ_BHSI 2 "register_operand")]
+ [(match_operand:VDQ_I 0 "register_operand")
+  (match_operand:VDQ_I 1 "register_operand")
+  (match_operand:VDQ_I 2 "register_operand")]
  "TARGET_SIMD"
 {
   rtx neg = gen_reg_rtx (<MODE>mode);
@@ -1339,9 +1336,9 @@
 )
 
 (define_expand "vlshr<mode>3"
- [(match_operand:VDQ_BHSI 0 "register_operand")
-  (match_operand:VDQ_BHSI 1 "register_operand")
-  (match_operand:VDQ_BHSI 2 "register_operand")]
+ [(match_operand:VDQ_I 0 "register_operand")
+  (match_operand:VDQ_I 1 "register_operand")
+  (match_operand:VDQ_I 2 "register_operand")]
  "TARGET_SIMD"
 {
   rtx neg = gen_reg_rtx (<MODE>mode);
