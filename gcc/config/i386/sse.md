@@ -2780,7 +2780,7 @@
 	  (vec_select:DF
 	    (match_dup 1)
 	    (parallel [(match_operand:SI 3 "const_0_to_1_operand")]))))]
-  "TARGET_SSE3
+  "TARGET_SSE3 && TARGET_V2DF_REDUCTION_PREFER_HADDPD
    && INTVAL (operands[2]) != INTVAL (operands[3])"
   "@
    haddpd\t{%0, %0|%0, %0}
@@ -2799,7 +2799,7 @@
 	  (vec_select:DF
 	    (match_dup 1)
 	    (parallel [(const_int 1)]))))]
-  "TARGET_SSE3"
+  "TARGET_SSE3 && TARGET_V2DF_REDUCTION_PREFER_HADDPD"
   "@
    hsubpd\t{%0, %0|%0, %0}
    vhsubpd\t{%1, %1, %0|%0, %1, %1}"
