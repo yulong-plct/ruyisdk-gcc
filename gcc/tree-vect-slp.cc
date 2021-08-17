@@ -4187,6 +4187,59 @@ vect_bb_slp_mark_live_stmts (bb_vec_info bb_vinfo, slp_tree node,
 				   cost_vec, svisited, visited);
 }
 
+/* Determine whether we can vectorize the reduction epilogue for INSTANCE.  */
+
+static bool
+vectorizable_bb_reduc_epilogue (slp_instance instance,
+				stmt_vector_for_cost *cost_vec)
+{
+  gassign *stmt = as_a <gassign *> (instance->root_stmts[0]->stmt);
+  enum tree_code reduc_code = gimple_assign_rhs_code (stmt);
+  if (reduc_code == MINUS_EXPR)
+    reduc_code = PLUS_EXPR;
+  internal_fn reduc_fn;
+  tree vectype = SLP_TREE_VECTYPE (SLP_INSTANCE_TREE (instance));
+  if (!reduction_fn_for_scalar_code (reduc_code, &reduc_fn)
+      || reduc_fn == IFN_LAST
+      || !direct_internal_fn_supported_p (reduc_fn, vectype, OPTIMIZE_FOR_BOTH)
+      || !useless_type_conversion_p (TREE_TYPE (gimple_assign_lhs (stmt)),
+				     TREE_TYPE (vectype)))
+    return false;
+
+  /* There's no way to cost a horizontal vector reduction via REDUC_FN so
+     cost log2 vector operations plus shuffles and one extraction.  */
+  unsigned steps = floor_log2 (vect_nunits_for_cost (vectype));
+  record_stmt_cost (cost_vec, steps, vector_stmt, instance->root_stmts[0],
+		    vectype, 0, vect_body);
+  record_stmt_cost (cost_vec, steps, vec_perm, instance->root_stmts[0],
+		    vectype, 0, vect_body);
+  record_stmt_cost (cost_vec, 1, vec_to_scalar, instance->root_stmts[0],
+		    vectype, 0, vect_body);
+  return true;
+}
+
+/* Prune from ROOTS all stmts that are computed as part of lanes of NODE
+   and recurse to children.  */
+
+static void
+vect_slp_prune_covered_roots (slp_tree node, hash_set<stmt_vec_info> &roots,
+			      hash_set<slp_tree> &visited)
+{
+  if (SLP_TREE_DEF_TYPE (node) != vect_internal_def
+      || visited.add (node))
+    return;
+
+  stmt_vec_info stmt;
+  unsigned i;
+  FOR_EACH_VEC_ELT (SLP_TREE_SCALAR_STMTS (node), i, stmt)
+    roots.remove (vect_orig_stmt (stmt));
+
+  slp_tree child;
+  FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (node), i, child)
+    if (child)
+      vect_slp_prune_covered_roots (child, roots, visited);
+}
+
 /* Analyze statements in SLP instances of VINFO.  Return true if the
    operations are supported. */
 
