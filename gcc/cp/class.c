@@ -136,7 +136,6 @@ static bool check_field_decl (tree, tree, int *, int *);
 static void check_field_decls (tree, tree *, int *, int *);
 static void build_base_fields (record_layout_info, splay_tree, tree *);
 static void check_methods (tree);
-static void remove_zero_width_bit_fields (tree);
 static bool accessible_nvdtor_p (tree);
 
 /* Used by find_flexarrays and related functions.  */
@@ -4667,7 +4666,7 @@ build_base_field (record_layout_info rli, tree binfo, tree access,
 	  DECL_FIELD_OFFSET (decl) = BINFO_OFFSET (binfo);
 	  DECL_FIELD_BIT_OFFSET (decl) = bitsize_zero_node;
 	  SET_DECL_OFFSET_ALIGN (decl, BITS_PER_UNIT);
-	  DECL_FIELD_ABI_IGNORED (decl) = 1;
+	  SET_DECL_FIELD_ABI_IGNORED (decl, 1);
 	}
 
       /* An empty virtual base causes a class to be non-empty
@@ -5802,31 +5801,6 @@ type_build_dtor_call (tree t)
   return false;
 }
 
-/* Remove all zero-width bit-fields from T.  */
-
-static void
-remove_zero_width_bit_fields (tree t)
-{
-  tree *fieldsp;
-
-  fieldsp = &TYPE_FIELDS (t);
-  while (*fieldsp)
-    {
-      if (TREE_CODE (*fieldsp) == FIELD_DECL
-	  && DECL_C_BIT_FIELD (*fieldsp)
-	  /* We should not be confused by the fact that grokbitfield
-	     temporarily sets the width of the bit field into
-	     DECL_BIT_FIELD_REPRESENTATIVE (*fieldsp).
-	     check_bitfield_decl eventually sets DECL_SIZE (*fieldsp)
-	     to that width.  */
-	  && (DECL_SIZE (*fieldsp) == NULL_TREE
-	      || integer_zerop (DECL_SIZE (*fieldsp))))
-	*fieldsp = DECL_CHAIN (*fieldsp);
-      else
-	fieldsp = &DECL_CHAIN (*fieldsp);
-    }
-}
-
 /* Returns TRUE iff we need a cookie when dynamically allocating an
    array whose elements have the indicated class TYPE.  */
 
@@ -6730,7 +6704,7 @@ layout_class_type (tree t, tree *virtuals_p)
 	}
       else if (might_overlap && is_empty_class (type))
 	{
-	  DECL_FIELD_ABI_IGNORED (field) = 1;
+	  SET_DECL_FIELD_ABI_IGNORED (field, 1);
 	  layout_empty_base_or_field (rli, field, empty_base_offsets);
 	}
       else
@@ -6818,9 +6792,22 @@ layout_class_type (tree t, tree *virtuals_p)
       normalize_rli (rli);
     }
 
-  /* Delete all zero-width bit-fields from the list of fields.  Now
-     that the type is laid out they are no longer important.  */
-  remove_zero_width_bit_fields (t);
+  /* We used to remove zero width bitfields at this point since PR42217,
+     while the C FE never did that.  That caused ABI differences on various
+     targets.  Set the DECL_FIELD_CXX_ZERO_WIDTH_BIT_FIELD flag on them
+     instead, so that the backends can emit -Wpsabi warnings in the cases
+     where the ABI changed.  */
+  for (field = TYPE_FIELDS (t); field; field = DECL_CHAIN (field))
+    if (TREE_CODE (field) == FIELD_DECL
+	&& DECL_C_BIT_FIELD (field)
+	/* We should not be confused by the fact that grokbitfield
+	   temporarily sets the width of the bit field into
+	   DECL_BIT_FIELD_REPRESENTATIVE (field).
+	   check_bitfield_decl eventually sets DECL_SIZE (field)
+	   to that width.  */
+	&& (DECL_SIZE (field) == NULL_TREE
+	    || integer_zerop (DECL_SIZE (field))))
+      SET_DECL_FIELD_CXX_ZERO_WIDTH_BIT_FIELD (field, 1);
 
   if (CLASSTYPE_NON_LAYOUT_POD_P (t) || CLASSTYPE_EMPTY_P (t))
     {
