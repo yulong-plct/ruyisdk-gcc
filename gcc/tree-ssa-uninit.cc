@@ -135,8 +135,41 @@ warn_uninit (enum opt_code wc, tree t, tree expr, tree var,
   if (is_gimple_assign (context)
       && gimple_assign_rhs_code (context) == COMPLEX_EXPR)
     return;
-  if (!has_undefined_value_p (t))
-    return;
+
+  /* Ignore REALPART_EXPR or IMAGPART_EXPR if its operand is a call to
+     .DEFERRED_INIT.  This is for handling the following case correctly:
+
+  1 typedef _Complex float C;
+  2 C foo (int cond)
+  3 {
+  4   C f;
+  5   __imag__ f = 0;
+  6   if (cond)
+  7     {
+  8       __real__ f = 1;
+  9       return f;
+ 10     }
+ 11   return f;
+ 12 }
+
+    with -ftrivial-auto-var-init, compiler will insert the following
+    artificial initialization at line 4:
+  f = .DEFERRED_INIT (f, 2);
+  _1 = REALPART_EXPR <f>;
+
+    without the following special handling, _1 = REALPART_EXPR <f> will
+    be treated as the uninitialized use point, which is incorrect. (the
+    real uninitialized use point is at line 11).  */
+  if (is_gimple_assign (context)
+      && (gimple_assign_rhs_code (context) == REALPART_EXPR
+	  || gimple_assign_rhs_code (context) == IMAGPART_EXPR))
+    {
+      tree v = gimple_assign_rhs1 (context);
+      if (TREE_CODE (TREE_OPERAND (v, 0)) == SSA_NAME
+	  && gimple_call_internal_p (SSA_NAME_DEF_STMT (TREE_OPERAND (v, 0)),
+				     IFN_DEFERRED_INIT))
+	return;
+    }
 
   /* Anonymous SSA_NAMEs shouldn't be uninitialized, but ssa_undefined_value_p
      can return true if the def stmt of anonymous SSA_NAME is COMPLEX_EXPR
@@ -209,6 +242,38 @@ check_defs (ao_ref *ref, tree vdef, void *data_)
 {
   check_defs_data *data = (check_defs_data *)data_;
   gimple *def_stmt = SSA_NAME_DEF_STMT (vdef);
+
+  /* Ignore the vdef if the definition statement is a call
+     to .DEFERRED_INIT function.  */
+  if (gimple_call_internal_p (def_stmt, IFN_DEFERRED_INIT))
+    return false;
+
+  /* The ASAN_MARK intrinsic doesn't modify the variable.  */
+  if (is_gimple_call (def_stmt))
+    {
+      if (gimple_call_internal_p (def_stmt)
+	  && gimple_call_internal_fn (def_stmt) == IFN_ASAN_MARK)
+       return false;
+
+      if (tree fndecl = gimple_call_fndecl (def_stmt))
+       {
+	 /* Some sanitizer calls pass integer arguments to built-ins
+	    that expect pointers.  Avoid using gimple_call_builtin_p()
+	    which fails for such calls.  */
+	 if (DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL)
+	   {
+	     built_in_function fncode = DECL_FUNCTION_CODE (fndecl);
+	     if (fncode > BEGIN_SANITIZER_BUILTINS
+		 && fncode < END_SANITIZER_BUILTINS)
+	       return false;
+	   }
+       }
+    }
+
+  /* End of VLA scope is not a kill.  */
+  if (gimple_call_builtin_p (def_stmt, BUILT_IN_STACK_RESTORE))
+    return false;
+
   /* If this is a clobber then if it is not a kill walk past it.  */
   if (gimple_clobber_p (def_stmt))
     {
@@ -610,9 +675,12 @@ warn_uninitialized_vars (bool wmaybe_uninit)
       for (gsi = gsi_start_bb (bb); !gsi_end_p (gsi); gsi_next (&gsi))
 	{
 	  gimple *stmt = gsi_stmt (gsi);
-	  use_operand_p use_p;
-	  ssa_op_iter op_iter;
-	  tree use;
+
+	  /* The call is an artificial use, will not provide meaningful
+	     error message.  If the result of the call is used somewhere
+	     else, we warn there instead.  */
+	  if (gimple_call_internal_p (stmt, IFN_DEFERRED_INIT))
+	    continue;
 
 	  if (is_gimple_debug (stmt))
 	    continue;

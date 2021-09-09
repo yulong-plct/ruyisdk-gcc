@@ -483,96 +483,95 @@ Objective-C and Objective-C++ Dialects}.
 
 @item Optimization Options
 @xref{Optimize Options,,Options that Control Optimization}.
-@gccoptlist{-faggressive-loop-optimizations
--falign-functions[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]]
--falign-jumps[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]]
--falign-labels[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]]
--falign-loops[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]]
--fno-allocation-dce -fallow-store-data-races
--fassociative-math  -fauto-profile  -fauto-profile[=@var{path}]
--fauto-inc-dec  -fbranch-probabilities
--fcaller-saves
--fcombine-stack-adjustments  -fconserve-stack
--ffold-mem-offsets
--fcompare-elim  -fcprop-registers  -fcrossjumping
--fcse-follow-jumps  -fcse-skip-blocks  -fcx-fortran-rules
--fcx-limited-range
--fdata-sections  -fdce  -fdelayed-branch
--fdelete-null-pointer-checks  -fdevirtualize  -fdevirtualize-speculatively
--fdevirtualize-at-ltrans  -fdse
--fearly-inlining  -fipa-sra  -fexpensive-optimizations  -ffat-lto-objects
--ffast-math  -ffinite-math-only  -ffloat-store  -fexcess-precision=@var{style}
--ffinite-loops
--fforward-propagate  -ffp-contract=@var{style}  -ffunction-sections
--fgcse  -fgcse-after-reload  -fgcse-las  -fgcse-lm  -fgraphite-identity
--fgcse-sm  -fhoist-adjacent-loads  -fif-conversion
--fif-conversion2  -findirect-inlining
--finline-functions  -finline-functions-called-once  -finline-limit=@var{n}
--finline-small-functions -fipa-modref -fipa-cp  -fipa-cp-clone
--fipa-bit-cp  -fipa-vrp  -fipa-pta  -fipa-profile  -fipa-pure-const
--fipa-reference  -fipa-reference-addressable
--fipa-stack-alignment  -fipa-icf  -fira-algorithm=@var{algorithm}
--flive-patching=@var{level}
--fira-region=@var{region}  -fira-hoist-pressure
--fira-loop-pressure  -fno-ira-share-save-slots
--fno-ira-share-spill-slots
--fisolate-erroneous-paths-dereference  -fisolate-erroneous-paths-attribute
--fivopts  -fkeep-inline-functions  -fkeep-static-functions
--fkeep-static-consts  -flimit-function-alignment  -flive-range-shrinkage
--floop-block  -floop-interchange  -floop-strip-mine
--floop-unroll-and-jam  -floop-nest-optimize
--floop-parallelize-all  -flra-remat  -flto  -flto-compression-level
--flto-partition=@var{alg}  -fmerge-all-constants
--fmerge-constants  -fmodulo-sched  -fmodulo-sched-allow-regmoves
--fmove-loop-invariants  -fmove-loop-stores  -fno-branch-count-reg
--fno-defer-pop  -fno-fp-int-builtin-inexact  -fno-function-cse
--fno-guess-branch-probability  -fno-inline  -fno-math-errno  -fno-peephole
--fno-peephole2  -fno-printf-return-value  -fno-sched-interblock
--fno-sched-spec  -fno-signed-zeros
--fno-toplevel-reorder  -fno-trapping-math  -fno-zero-initialized-in-bss
--fomit-frame-pointer  -foptimize-sibling-calls
--fpartial-inlining  -fpeel-loops  -fpredictive-commoning
--fprefetch-loop-arrays
--fprofile-correction
--fprofile-use  -fprofile-use=@var{path} -fprofile-partial-training
--fprofile-values -fprofile-reorder-functions
--freciprocal-math  -free  -frename-registers  -freorder-blocks
--freorder-blocks-algorithm=@var{algorithm}
--freorder-blocks-and-partition  -freorder-functions
--frerun-cse-after-loop  -freschedule-modulo-scheduled-loops
--frounding-math  -fsave-optimization-record
--fsched2-use-superblocks  -fsched-pressure
--fsched-spec-load  -fsched-spec-load-dangerous
--fsched-stalled-insns-dep[=@var{n}]  -fsched-stalled-insns[=@var{n}]
--fsched-group-heuristic  -fsched-critical-path-heuristic
--fsched-spec-insn-heuristic  -fsched-rank-heuristic
--fsched-last-insn-heuristic  -fsched-dep-count-heuristic
--fschedule-fusion
--fschedule-insns  -fschedule-insns2  -fsection-anchors
--fselective-scheduling  -fselective-scheduling2
--fsel-sched-pipelining  -fsel-sched-pipelining-outer-loops
--fsemantic-interposition  -fshrink-wrap  -fshrink-wrap-separate
--fsignaling-nans
--fsingle-precision-constant  -fsplit-ivs-in-unroller  -fsplit-loops
--fsplit-paths
--fsplit-wide-types  -fsplit-wide-types-early  -fssa-backprop  -fssa-phiopt
--fstdarg-opt  -fstore-merging  -fstrict-aliasing -fipa-strict-aliasing
--fthread-jumps  -ftracer  -ftree-bit-ccp
--ftree-builtin-call-dce  -ftree-ccp  -ftree-ch
--ftree-coalesce-vars  -ftree-copy-prop  -ftree-dce  -ftree-dominator-opts
--ftree-dse  -ftree-forwprop  -ftree-fre  -fcode-hoisting
--ftree-loop-if-convert  -ftree-loop-im
--ftree-phiprop  -ftree-loop-distribution  -ftree-loop-distribute-patterns
--ftree-loop-ivcanon  -ftree-loop-linear  -ftree-loop-optimize
--ftree-loop-vectorize
--ftree-parallelize-loops=@var{n}  -ftree-pre  -ftree-partial-pre  -ftree-pta
--ftree-reassoc  -ftree-scev-cprop  -ftree-sink  -ftree-slsr  -ftree-sra
--ftree-switch-conversion  -ftree-tail-merge
--ftree-ter  -ftree-vectorize  -ftree-vrp  -ftrivial-auto-var-init
--funconstrained-commons -funit-at-a-time  -funroll-all-loops
--funroll-loops -funsafe-math-optimizations  -funswitch-loops
--fipa-ra  -fvariable-expansion-in-unroller  -fvect-cost-model  -fvpt
--fweb  -fwhole-program  -fwpa  -fuse-linker-plugin -fzero-call-used-regs
+@gccoptlist{-faggressive-loop-optimizations @gol
+-falign-functions[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]] @gol
+-falign-jumps[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]] @gol
+-falign-labels[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]] @gol
+-falign-loops[=@var{n}[:@var{m}:[@var{n2}[:@var{m2}]]]] @gol
+-fno-allocation-dce -fallow-store-data-races @gol
+-fassociative-math  -fauto-profile  -fauto-profile[=@var{path}] @gol
+-fauto-inc-dec  -fbranch-probabilities @gol
+-fcaller-saves @gol
+-fcombine-stack-adjustments  -fconserve-stack @gol
+-fcompare-elim  -fcprop-registers  -fcrossjumping @gol
+-fcse-follow-jumps  -fcse-skip-blocks  -fcx-fortran-rules @gol
+-fcx-limited-range @gol
+-fdata-sections  -fdce  -fdelayed-branch @gol
+-fdelete-null-pointer-checks  -fdevirtualize  -fdevirtualize-speculatively @gol
+-fdevirtualize-at-ltrans  -fdse @gol
+-fearly-inlining  -fipa-sra  -fexpensive-optimizations  -ffat-lto-objects @gol
+-ffast-math  -ffinite-math-only  -ffloat-store  -fexcess-precision=@var{style} @gol
+-ffinite-loops @gol
+-fforward-propagate  -ffp-contract=@var{style}  -ffunction-sections @gol
+-fgcse  -fgcse-after-reload  -fgcse-las  -fgcse-lm  -fgraphite-identity @gol
+-fgcse-sm  -fhoist-adjacent-loads  -fif-conversion @gol
+-fif-conversion2  -findirect-inlining @gol
+-finline-functions  -finline-functions-called-once  -finline-limit=@var{n} @gol
+-finline-small-functions -fipa-modref -fipa-cp  -fipa-cp-clone @gol
+-fipa-bit-cp  -fipa-vrp  -fipa-pta  -fipa-profile  -fipa-pure-const @gol
+-fipa-reference  -fipa-reference-addressable @gol
+-fipa-stack-alignment  -fipa-icf  -fira-algorithm=@var{algorithm} @gol
+-flive-patching=@var{level} @gol
+-fira-region=@var{region}  -fira-hoist-pressure @gol
+-fira-loop-pressure  -fno-ira-share-save-slots @gol
+-fno-ira-share-spill-slots @gol
+-fisolate-erroneous-paths-dereference  -fisolate-erroneous-paths-attribute @gol
+-fivopts  -fkeep-inline-functions  -fkeep-static-functions @gol
+-fkeep-static-consts  -flimit-function-alignment  -flive-range-shrinkage @gol
+-floop-block  -floop-interchange  -floop-strip-mine @gol
+-floop-unroll-and-jam  -floop-nest-optimize @gol
+-floop-parallelize-all  -flra-remat  -flto  -flto-compression-level @gol
+-flto-partition=@var{alg}  -fmerge-all-constants @gol
+-fmerge-constants  -fmodulo-sched  -fmodulo-sched-allow-regmoves @gol
+-fmove-loop-invariants  -fmove-loop-stores  -fno-branch-count-reg @gol
+-fno-defer-pop  -fno-fp-int-builtin-inexact  -fno-function-cse @gol
+-fno-guess-branch-probability  -fno-inline  -fno-math-errno  -fno-peephole @gol
+-fno-peephole2  -fno-printf-return-value  -fno-sched-interblock @gol
+-fno-sched-spec  -fno-signed-zeros @gol
+-fno-toplevel-reorder  -fno-trapping-math  -fno-zero-initialized-in-bss @gol
+-fomit-frame-pointer  -foptimize-sibling-calls @gol
+-fpartial-inlining  -fpeel-loops  -fpredictive-commoning @gol
+-fprefetch-loop-arrays @gol
+-fprofile-correction @gol
+-fprofile-use  -fprofile-use=@var{path} -fprofile-partial-training @gol
+-fprofile-values -fprofile-reorder-functions @gol
+-freciprocal-math  -free  -frename-registers  -freorder-blocks @gol
+-freorder-blocks-algorithm=@var{algorithm} @gol
+-freorder-blocks-and-partition  -freorder-functions @gol
+-frerun-cse-after-loop  -freschedule-modulo-scheduled-loops @gol
+-frounding-math  -fsave-optimization-record @gol
+-fsched2-use-superblocks  -fsched-pressure @gol
+-fsched-spec-load  -fsched-spec-load-dangerous @gol
+-fsched-stalled-insns-dep[=@var{n}]  -fsched-stalled-insns[=@var{n}] @gol
+-fsched-group-heuristic  -fsched-critical-path-heuristic @gol
+-fsched-spec-insn-heuristic  -fsched-rank-heuristic @gol
+-fsched-last-insn-heuristic  -fsched-dep-count-heuristic @gol
+-fschedule-fusion @gol
+-fschedule-insns  -fschedule-insns2  -fsection-anchors @gol
+-fselective-scheduling  -fselective-scheduling2 @gol
+-fsel-sched-pipelining  -fsel-sched-pipelining-outer-loops @gol
+-fsemantic-interposition  -fshrink-wrap  -fshrink-wrap-separate @gol
+-fsignaling-nans @gol
+-fsingle-precision-constant  -fsplit-ivs-in-unroller  -fsplit-loops@gol
+-fsplit-paths @gol
+-fsplit-wide-types  -fsplit-wide-types-early  -fssa-backprop  -fssa-phiopt @gol
+-fstdarg-opt  -fstore-merging  -fstrict-aliasing @gol
+-fthread-jumps  -ftracer  -ftree-bit-ccp @gol
+-ftree-builtin-call-dce  -ftree-ccp  -ftree-ch @gol
+-ftree-coalesce-vars  -ftree-copy-prop  -ftree-dce  -ftree-dominator-opts @gol
+-ftree-dse  -ftree-forwprop  -ftree-fre  -fcode-hoisting @gol
+-ftree-loop-if-convert  -ftree-loop-im @gol
+-ftree-phiprop  -ftree-loop-distribution  -ftree-loop-distribute-patterns @gol
+-ftree-loop-ivcanon  -ftree-loop-linear  -ftree-loop-optimize @gol
+-ftree-loop-vectorize @gol
+-ftree-parallelize-loops=@var{n}  -ftree-pre  -ftree-partial-pre  -ftree-pta @gol
+-ftree-reassoc  -ftree-scev-cprop  -ftree-sink  -ftree-slsr  -ftree-sra @gol
+-ftree-switch-conversion  -ftree-tail-merge @gol
+-ftree-ter  -ftree-vectorize  -ftree-vrp  -ftrivial-auto-var-init @gol
+-funconstrained-commons -funit-at-a-time  -funroll-all-loops @gol
+-funroll-loops -funsafe-math-optimizations  -funswitch-loops @gol
+-fipa-ra  -fvariable-expansion-in-unroller  -fvect-cost-model  -fvpt @gol
+-fweb  -fwhole-program  -fwpa  -fuse-linker-plugin -fzero-call-used-regs @gol
 --param @var{name}=@var{value}
 -O  -O0  -O1  -O2  -O3  -Os  -Ofast  -Og}
 
@@ -11762,6 +11761,41 @@ and @option{-fauto-profile}.
 Perform basic block vectorization on trees. This flag is enabled by default at
 @option{-O3} and by @option{-ftree-vectorize}, @option{-fprofile-use},
 and @option{-fauto-profile}.
+
+@item -ftrivial-auto-var-init=@var{choice}
+@opindex ftrivial-auto-var-init
+Initialize automatic variables with either a pattern or with zeroes to increase
+the security and predictability of a program by preventing uninitialized memory
+disclosure and use.
+GCC still considers an automatic variable that doesn't have an explicit
+initializer as uninitialized, -Wuninitialized will still report warning messages
+on such automatic variables.
+With this option, GCC will also initialize any padding of automatic variables
+that have structure or union types to zeroes.
+
+The three values of @var{choice} are:
+
+@itemize @bullet
+@item
+@samp{uninitialized} doesn't initialize any automatic variables.
+This is C and C++'s default.
+
+@item
+@samp{pattern} Initialize automatic variables with values which will likely
+transform logic bugs into crashes down the line, are easily recognized in a
+crash dump and without being values that programmers can rely on for useful
+program semantics.
+The current value is byte-repeatable pattern with byte "0xFE".
+The values used for pattern initialization might be changed in the future.
+
+@item
+@samp{zero} Initialize automatic variables with zeroes.
+@end itemize
+
+The default is @samp{uninitialized}.
+
+You can control this behavior for a specific variable by using the variable
+attribute @code{uninitialized} (@pxref{Variable Attributes}).
 
 @item -fvect-cost-model=@var{model}
 @opindex fvect-cost-model
