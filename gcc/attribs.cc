@@ -87,6 +87,8 @@ struct scoped_attributes
   const char *ns;
   vec<attribute_spec> attributes;
   hash_table<attribute_hasher> *attribute_hash;
+  /* True if we should not warn about unknown attributes in this NS.  */
+  bool ignored_p;
 };
 
 /* The table of scope attributes.  */
@@ -95,6 +97,8 @@ static vec<scoped_attributes> attributes_table;
 static scoped_attributes* find_attribute_namespace (const char*);
 static void register_scoped_attribute (const struct attribute_spec *,
 				       scoped_attributes *);
+static const struct attribute_spec *lookup_scoped_attribute_spec (const_tree,
+								  const_tree);
 
 static bool attributes_initialized = false;
 
@@ -137,9 +141,12 @@ register_scoped_attributes (const scoped_attribute_specs &specs,
       memset (&sa, 0, sizeof (sa));
       sa.ns = specs.ns;
       sa.attributes.create (64);
+      sa.ignored_p = ignored_p;
       result = attributes_table.safe_push (sa);
       result->attribute_hash = new hash_table<attribute_hasher> (200);
     }
+  else
+    result->ignored_p |= ignored_p;
 
   /* Really add the attributes to their namespace now.  */
   for (const attribute_spec &attribute : specs.attributes)
@@ -231,7 +238,6 @@ handle_ignored_attributes_option (vec<char *> *v)
       /* We don't accept '::attr'.  */
       if (cln == nullptr || cln == opt)
 	{
-	  auto_diagnostic_group d;
 	  error ("wrong argument to ignored attributes");
 	  inform (input_location, "valid format is %<ns::attr%> or %<ns::%>");
 	  continue;
@@ -261,7 +267,7 @@ handle_ignored_attributes_option (vec<char *> *v)
       canonicalize_attr_name (vendor_start, vendor_len);
       /* We perform all this hijinks so that we don't have to copy OPT.  */
       tree vendor_id = get_identifier_with_length (vendor_start, vendor_len);
-      array_slice<const attribute_spec> attrs;
+      const char *attr;
       /* In the "vendor::" case, we should ignore *any* attribute coming
 	 from this attribute namespace.  */
       if (attr_len > 0)
@@ -273,23 +279,22 @@ handle_ignored_attributes_option (vec<char *> *v)
 	    }
 	  canonicalize_attr_name (attr_start, attr_len);
 	  tree attr_id = get_identifier_with_length (attr_start, attr_len);
-	  const char *attr = IDENTIFIER_POINTER (attr_id);
+	  attr = IDENTIFIER_POINTER (attr_id);
 	  /* If we've already seen this vendor::attr, ignore it.  Attempting to
 	     register it twice would lead to a crash.  */
 	  if (lookup_scoped_attribute_spec (vendor_id, attr_id))
 	    continue;
-	  /* Create a table with extra attributes which we will register.
-	     We can't free it here, so squirrel away the pointers.  */
-	  attribute_spec *table = new attribute_spec {
-	    attr, 0, -2, false, false, false, false, nullptr, nullptr
-	  };
-	  ignored_attributes_table.safe_push (table);
-	  attrs = { table, 1 };
 	}
-      const scoped_attribute_specs scoped_specs = {
-	IDENTIFIER_POINTER (vendor_id), attrs
-      };
-      register_scoped_attributes (scoped_specs, attrs.empty ());
+      else
+	attr = nullptr;
+      /* Create a table with extra attributes which we will register.
+	 We can't free it here, so squirrel away the pointers.  */
+      attribute_spec *table = new attribute_spec[2];
+      ignored_attributes_table.safe_push (table);
+      table[0] = { attr, 0, 0, false, false, false, false, nullptr, nullptr };
+      table[1] = { nullptr, 0, 0, false, false, false, false, nullptr,
+		   nullptr };
+      register_scoped_attributes (table, IDENTIFIER_POINTER (vendor_id), !attr);
     }
 }
 
@@ -321,6 +326,9 @@ init_attributes (void)
   for (auto scoped_array : attribute_tables)
     for (auto scoped_attributes : scoped_array)
       register_scoped_attributes (*scoped_attributes);
+
+  vec<char *> *ignored = (vec<char *> *) flag_ignored_attributes;
+  handle_ignored_attributes_option (ignored);
 
   invoke_plugin_callbacks (PLUGIN_ATTRIBUTES, NULL);
   attributes_initialized = true;
@@ -526,6 +534,19 @@ diag_attr_exclusions (tree last_decl, tree node, tree attrname,
   return found;
 }
 
+/* Return true iff we should not complain about unknown attributes
+   coming from the attribute namespace NS.  This is the case for
+   the -Wno-attributes=ns:: command-line option.  */
+
+static bool
+attr_namespace_ignored_p (tree ns)
+{
+  if (ns == NULL_TREE)
+    return false;
+  scoped_attributes *r = find_attribute_namespace (IDENTIFIER_POINTER (ns));
+  return r && r->ignored_p;
+}
+
 /* Process the attributes listed in ATTRIBUTES and install them in *NODE,
    which is either a DECL (including a TYPE_DECL) or a TYPE.  If a DECL,
    it should be modified in place; if a TYPE, a copy should be created
@@ -626,7 +647,8 @@ decl_attributes (tree *node, tree attributes, int flags,
 
       if (spec == NULL)
 	{
-	  if (!(flags & (int) ATTR_FLAG_BUILT_IN))
+	  if (!(flags & (int) ATTR_FLAG_BUILT_IN)
+	      && !attr_namespace_ignored_p (ns))
 	    {
 	      if (ns == NULL_TREE || !cxx11_attr_p)
 		warning (OPT_Wattributes, "%qE attribute directive ignored",
