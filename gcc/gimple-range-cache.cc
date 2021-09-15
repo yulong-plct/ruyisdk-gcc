@@ -742,6 +742,22 @@ ranger_cache::ranger_cache (gimple_ranger &q) : query (q)
   m_poor_value_list.safe_grow_cleared (20);
   m_poor_value_list.truncate (0);
   m_temporal = new temporal_cache;
+  // If DOM info is available, spawn an oracle as well.
+  if (dom_info_available_p (CDI_DOMINATORS))
+      m_oracle = new dom_oracle ();
+    else
+      m_oracle = NULL;
+
+  unsigned x, lim = last_basic_block_for_fn (cfun);
+  // Calculate outgoing range info upfront.  This will fully populate the
+  // m_maybe_variant bitmap which will help eliminate processing of names
+  // which never have their ranges adjusted.
+  for (x = 0; x < lim ; x++)
+    {
+      basic_block bb = BASIC_BLOCK_FOR_FN (cfun, x);
+      if (bb)
+	m_gori.exports (bb);
+    }
   m_propfail = BITMAP_ALLOC (NULL);
 }
 

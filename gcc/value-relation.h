@@ -127,15 +127,18 @@ public:
 // can be represented only on edges whose destination is a single-pred block,
 // and the equivalence is simply applied to that succesor block.
 
-class equiv_oracle
+class equiv_oracle : public relation_oracle
 {
 public:
   equiv_oracle ();
   ~equiv_oracle ();
 
-  const_bitmap equiv_set (tree ssa, basic_block bb) const;
-  void register_equiv (basic_block bb, tree ssa1, tree ssa2);
+  const_bitmap equiv_set (tree ssa, basic_block bb);
+  void register_relation (basic_block bb, relation_kind k, tree ssa1,
+			  tree ssa2);
 
+  relation_kind query_relation (basic_block, tree, tree);
+  relation_kind query_relation (basic_block, const_bitmap, const_bitmap);
   void dump (FILE *f, basic_block bb) const;
   void dump (FILE *f) const;
 
@@ -145,6 +148,7 @@ protected:
 private:
   bitmap m_equiv_set;	// Index by ssa-name. true if an equivalence exists.
   vec <equiv_chain *> m_equiv;	// Index by BB.  list of equivalences.
+  vec <bitmap> m_self_equiv;  // Index by ssa-name, self equivalency set.
 
   void limit_check (basic_block bb = NULL);
   equiv_chain *find_equiv_block (unsigned ssa, int bb) const;
@@ -163,6 +167,7 @@ class relation_chain_head
 public:
   bitmap m_names;		// ssa_names with relations in this block.
   class relation_chain *m_head; // List of relations in block.
+  relation_kind find_relation (const_bitmap b1, const_bitmap b2) const;
 };
 
 // A relation oracle maintains a set of relations between ssa_names using the
@@ -175,16 +180,17 @@ public:
 // relation to the destination block of the edge, but ONLY if that block
 // has a single successor.  For now.
 
-class relation_oracle : public equiv_oracle
+class dom_oracle : public equiv_oracle
 {
 public:
-  relation_oracle ();
-  ~relation_oracle ();
+  dom_oracle ();
+  ~dom_oracle ();
 
-  void register_relation (gimple *stmt, relation_kind k, tree op1, tree op2);
-  void register_relation (edge e, relation_kind k, tree op1, tree op2);
+  void register_relation (basic_block bb, relation_kind k, tree op1, tree op2);
 
   relation_kind query_relation (basic_block bb, tree ssa1, tree ssa2);
+  relation_kind query_relation (basic_block bb, const_bitmap b1,
+				   const_bitmap b2);
 
   void dump (FILE *f, basic_block bb) const;
   void dump (FILE *f) const;
@@ -193,13 +199,14 @@ private:
   bitmap m_relation_set;  // Index by ssa-name. True if a relation exists
   vec <relation_chain_head> m_relations;  // Index by BB, list of relations.
   relation_kind find_relation_block (unsigned bb, const_bitmap b1,
-				     const_bitmap b2);
-  relation_kind find_relation_dom (basic_block bb, const_bitmap b1,
-				   const_bitmap b2);
+				     const_bitmap b2) const;
   relation_kind find_relation_block (int bb, unsigned v1, unsigned v2,
-				     relation_chain **obj = NULL);
-  relation_kind find_relation_dom (basic_block bb, unsigned v1, unsigned v2);
-  void register_relation (basic_block bb, relation_kind k, tree op1, tree op2);
+				     relation_chain **obj = NULL) const;
+  relation_kind find_relation_dom (basic_block bb, unsigned v1, unsigned v2) const;
+  relation_chain *set_one_relation (basic_block bb, relation_kind k, tree op1,
+				    tree op2);
+  void register_transitives (basic_block, const class value_relation &);
+
 };
 
 // A path_oracle implements relations in a list.  The only sense of ordering
