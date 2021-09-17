@@ -84,8 +84,43 @@ relation_kind relation_negate (relation_kind r);
 relation_kind relation_swap (relation_kind r);
 void print_relation (FILE *f, relation_kind rel);
 
-// Declared internally in value-relation.cc
-class equiv_chain;
+
+class relation_oracle
+{
+public:
+  virtual ~relation_oracle () { }
+  // register a relation between 2 ssa names at a stmt.
+  void register_stmt (gimple *, relation_kind, tree, tree);
+  // register a relation between 2 ssa names on an edge.
+  void register_edge (edge, relation_kind, tree, tree);
+
+  // Return equivalency set for an SSA name in a basic block.
+  virtual const_bitmap equiv_set (tree, basic_block) = 0;
+  // register a relation between 2 ssa names in a basic block.
+  virtual void register_relation (basic_block, relation_kind, tree, tree) = 0;
+  // Query for a relation between two ssa names in a basic block.
+  virtual relation_kind query_relation (basic_block, tree, tree) = 0;
+  // Query for a relation between two equivalency stes in a basic block.
+  virtual relation_kind query_relation (basic_block, const_bitmap,
+					const_bitmap) = 0;
+
+  virtual void dump (FILE *, basic_block) const = 0;
+  virtual void dump (FILE *) const = 0;
+  void debug () const;
+};
+
+// This class represents an equivalency set, and contains a link to the next
+// one in the list to be searched.
+
+class equiv_chain
+{
+public:
+  bitmap m_names;		// ssa-names in equiv set.
+  basic_block m_bb;		// Block this belongs to
+  equiv_chain *m_next;		// Next in block list.
+  void dump (FILE *f) const;	// Show names in this list.
+  equiv_chain *find (unsigned ssa);
+};
 
 // The equivalency oracle maintains equivalencies using the dominator tree.
 // Equivalencies apply to an entire basic block.  Equivalencies on edges
