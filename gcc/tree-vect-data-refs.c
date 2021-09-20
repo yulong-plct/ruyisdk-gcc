@@ -4635,9 +4635,6 @@ static void
 vect_duplicate_ssa_name_ptr_info (tree name, dr_vec_info *dr_info)
 {
   duplicate_ssa_name_ptr_info (name, DR_PTR_INFO (dr_info->dr));
-  /* DR_PTR_INFO is for a base SSA name, not including constant or
-     variable offsets in the ref so its alignment info does not apply.  */
-  mark_ptr_info_alignment_unknown (SSA_NAME_PTR_INFO (name));
 }
 
 /* Function vect_create_addr_base_for_vector_ref.
