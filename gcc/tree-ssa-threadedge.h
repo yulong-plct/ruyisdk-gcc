@@ -20,6 +20,39 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_TREE_SSA_THREADEDGE_H
 #define GCC_TREE_SSA_THREADEDGE_H
 
+// Class used to maintain path state in the jump threader and pass it
+// to the jump threader simplifier.
+
+class jt_state
+{
+public:
+  virtual ~jt_state () { }
+  virtual void push (edge);
+  virtual void pop ();
+  virtual void register_equiv (tree dest, tree src, bool update_range);
+  virtual void register_equivs_edge (edge e);
+  virtual void register_equivs_stmt (gimple *, basic_block,
+				     class jt_simplifier *);
+  virtual void record_ranges_from_stmt (gimple *stmt, bool temporary);
+  void get_path (vec<basic_block> &);
+  void append_path (basic_block);
+  void dump (FILE *);
+  void debug ();
+
+private:
+  auto_vec<basic_block> m_blocks;
+  static const basic_block BB_MARKER;
+};
+
+// Statement simplifier callback for the jump threader.
+
+class jt_simplifier
+{
+public:
+  virtual ~jt_simplifier () { }
+  virtual tree simplify (gimple *, gimple *, basic_block, jt_state *) = 0;
+};
+
 // This is the high level threader.  The entry point is
 // thread_outgoing_edges(), which calculates and registers paths to be
 // threaded.  When all candidates have been registered,
@@ -28,10 +61,7 @@ along with GCC; see the file COPYING3.  If not see
 class jump_threader
 {
 public:
-  jump_threader (class const_and_copies *,
-		 avail_exprs_stack *,
-		 class jump_threader_simplifier *,
-		 class evrp_range_analyzer * = NULL);
+  jump_threader (jt_simplifier *, class jt_state *);
   ~jump_threader ();
   void thread_outgoing_edges (basic_block);
   void remove_jump_threads_including (edge_def *);
@@ -57,29 +87,9 @@ private:
   // Dummy condition to avoid creating lots of throw away statements.
   gcond *dummy_cond;
 
-  const_and_copies *m_const_and_copies;
-  avail_exprs_stack *m_avail_exprs_stack;
-  class jump_thread_path_registry *m_registry;
-  jump_threader_simplifier *m_simplifier;
-  evrp_range_analyzer *m_evrp_range_analyzer;
-};
-
-// Statement simplifier callback for the jump threader.
-
-class jump_threader_simplifier
-{
-public:
-  jump_threader_simplifier (class vr_values *v,
-			    avail_exprs_stack *avails)
-    : m_vr_values (v),
-      m_avail_exprs_stack (avails)
-  { }
-  virtual ~jump_threader_simplifier () { }
-  virtual tree simplify (gimple *, gimple *, basic_block);
-
-protected:
-  vr_values *m_vr_values;
-  avail_exprs_stack *m_avail_exprs_stack;
+  class fwd_jt_path_registry *m_registry;
+  jt_simplifier *m_simplifier;
+  jt_state *m_state;
 };
 
 extern void propagate_threaded_block_debug_into (basic_block, basic_block);

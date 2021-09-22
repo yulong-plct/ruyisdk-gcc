@@ -33,12 +33,12 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-ssa-threadupdate.h"
 #include "tree-ssa-scopedtables.h"
 #include "tree-ssa-threadedge.h"
-#include "tree-ssa-dom.h"
 #include "gimple-fold.h"
 #include "cfganal.h"
 #include "alloc-pool.h"
 #include "vr-values.h"
 #include "gimple-ssa-evrp-analyze.h"
+#include "gimple-range.h"
 
 /* To avoid code explosion due to jump threading, we limit the
    number of statements we are going to copy.  This variable
@@ -61,10 +61,7 @@ set_ssa_name_value (tree name, tree value)
   ssa_name_values[SSA_NAME_VERSION (name)] = value;
 }
 
-jump_threader::jump_threader (const_and_copies *copies,
-			      avail_exprs_stack *avails,
-			      jump_threader_simplifier *simplifier,
-			      evrp_range_analyzer *analyzer)
+jump_threader::jump_threader (jt_simplifier *simplifier, jt_state *state)
 {
   /* Initialize the per SSA_NAME value-handles array.  */
   gcc_assert (!ssa_name_values.exists ());
@@ -253,8 +250,6 @@ jump_threader::record_temporary_equivalences_from_stmts_at_dest (edge e)
      when we're finished processing E.  */
   for (gsi = gsi_start_bb (e->dest); !gsi_end_p (gsi); gsi_next (&gsi))
     {
-      tree cached_lhs = NULL;
-
       stmt = gsi_stmt (gsi);
 
       /* Ignore empty statements and labels.  */
@@ -354,76 +349,7 @@ jump_threader::record_temporary_equivalences_from_stmts_at_dest (edge e)
 	    continue;
 	}
 
-      /* At this point we have a statement which assigns an RHS to an
-	 SSA_VAR on the LHS.  We want to try and simplify this statement
-	 to expose more context sensitive equivalences which in turn may
-	 allow us to simplify the condition at the end of the loop.
-
-	 Handle simple copy operations as well as implied copies from
-	 ASSERT_EXPRs.  */
-      if (gimple_assign_single_p (stmt)
-          && TREE_CODE (gimple_assign_rhs1 (stmt)) == SSA_NAME)
-	cached_lhs = gimple_assign_rhs1 (stmt);
-      else if (gimple_assign_single_p (stmt)
-               && TREE_CODE (gimple_assign_rhs1 (stmt)) == ASSERT_EXPR)
-	cached_lhs = TREE_OPERAND (gimple_assign_rhs1 (stmt), 0);
-      else
-	{
-	  /* A statement that is not a trivial copy or ASSERT_EXPR.
-	     Try to fold the new expression.  Inserting the
-	     expression into the hash table is unlikely to help.  */
-	  /* ???  The DOM callback below can be changed to setting
-	     the mprts_hook around the call to thread_across_edge,
-	     avoiding the use substitution.  The VRP hook should be
-	     changed to properly valueize operands itself using
-	     SSA_NAME_VALUE in addition to its own lattice.  */
-	  cached_lhs = gimple_fold_stmt_to_constant_1 (stmt,
-						       threadedge_valueize);
-          if (NUM_SSA_OPERANDS (stmt, SSA_OP_ALL_USES) != 0
-	      && (!cached_lhs
-                  || (TREE_CODE (cached_lhs) != SSA_NAME
-                      && !is_gimple_min_invariant (cached_lhs))))
-	    {
-	      /* We're going to temporarily copy propagate the operands
-		 and see if that allows us to simplify this statement.  */
-	      tree *copy;
-	      ssa_op_iter iter;
-	      use_operand_p use_p;
-	      unsigned int num, i = 0;
-
-	      num = NUM_SSA_OPERANDS (stmt, SSA_OP_ALL_USES);
-	      copy = XALLOCAVEC (tree, num);
-
-	      /* Make a copy of the uses & vuses into USES_COPY, then cprop into
-		 the operands.  */
-	      FOR_EACH_SSA_USE_OPERAND (use_p, stmt, iter, SSA_OP_ALL_USES)
-		{
-		  tree tmp = NULL;
-		  tree use = USE_FROM_PTR (use_p);
-
-		  copy[i++] = use;
-		  if (TREE_CODE (use) == SSA_NAME)
-		    tmp = SSA_NAME_VALUE (use);
-		  if (tmp)
-		    SET_USE (use_p, tmp);
-		}
-
-	      cached_lhs = m_simplifier->simplify (stmt, stmt, e->src);
-
-	      /* Restore the statement's original uses/defs.  */
-	      i = 0;
-	      FOR_EACH_SSA_USE_OPERAND (use_p, stmt, iter, SSA_OP_ALL_USES)
-		SET_USE (use_p, copy[i++]);
-	    }
-	}
-
-      /* Record the context sensitive equivalence if we were able
-	 to simplify this statement.  */
-      if (cached_lhs
-	  && (TREE_CODE (cached_lhs) == SSA_NAME
-	      || is_gimple_min_invariant (cached_lhs)))
-	m_const_and_copies->record_const_or_copy (gimple_get_lhs (stmt),
-						  cached_lhs);
+      m_state->register_equivs_stmt (stmt, e->src, m_simplifier);
     }
   return stmt;
 }
@@ -928,10 +854,8 @@ jump_threader::thread_around_empty_blocks (vec<jump_thread_edge *> *path,
 
 	  if (!bitmap_bit_p (visited, taken_edge->dest->index))
 	    {
-	      jump_thread_edge *x
-		= m_registry->allocate_thread_edge (taken_edge,
-						    EDGE_NO_COPY_SRC_BLOCK);
-	      path->safe_push (x);
+	      m_registry->push_edge (path, taken_edge, EDGE_NO_COPY_SRC_BLOCK);
+	      m_state->append_path (taken_edge->dest);
 	      bitmap_set_bit (visited, taken_edge->dest->index);
 	      return thread_around_empty_blocks (path, taken_edge, visited);
 	    }
@@ -972,10 +896,8 @@ jump_threader::thread_around_empty_blocks (vec<jump_thread_edge *> *path,
 	return false;
       bitmap_set_bit (visited, taken_edge->dest->index);
 
-      jump_thread_edge *x
-	= m_registry->allocate_thread_edge (taken_edge,
-					    EDGE_NO_COPY_SRC_BLOCK);
-      path->safe_push (x);
+      m_registry->push_edge (path, taken_edge, EDGE_NO_COPY_SRC_BLOCK);
+      m_state->append_path (taken_edge->dest);
 
       thread_around_empty_blocks (path, taken_edge, visited);
       return true;
@@ -1012,8 +934,7 @@ int
 jump_threader::thread_through_normal_block (vec<jump_thread_edge *> *path,
 					    edge e, bitmap visited)
 {
-  /* We want to record any equivalences created by traversing E.  */
-  record_temporary_equivalences (e, m_const_and_copies, m_avail_exprs_stack);
+  m_state->register_equivs_edge (e);
 
   /* PHIs create temporary equivalences.
      Note that if we found a PHI that made the block non-threadable, then
@@ -1095,10 +1016,8 @@ jump_threader::thread_through_normal_block (vec<jump_thread_edge *> *path,
 	      path->safe_push (x);
 	    }
 
-	  jump_thread_edge *x
-	    = m_registry->allocate_thread_edge (taken_edge,
-						EDGE_COPY_SRC_BLOCK);
-	  path->safe_push (x);
+	  m_registry->push_edge (path, taken_edge, EDGE_COPY_SRC_BLOCK);
+	  m_state->append_path (taken_edge->dest);
 
 	  /* See if we can thread through DEST as well, this helps capture
 	     secondary effects of threading without having to re-run DOM or
@@ -1383,45 +1302,178 @@ jump_threader::thread_outgoing_edges (basic_block bb)
     }
 }
 
-tree
-jump_threader_simplifier::simplify (gimple *stmt,
-				    gimple *within_stmt,
-				    basic_block)
-{
-  if (gcond *cond_stmt = dyn_cast <gcond *> (stmt))
-    {
-      simplify_using_ranges simplifier (m_vr_values);
-      return simplifier.vrp_evaluate_conditional (gimple_cond_code (cond_stmt),
-						  gimple_cond_lhs (cond_stmt),
-						  gimple_cond_rhs (cond_stmt),
-						  within_stmt);
-    }
-  if (gswitch *switch_stmt = dyn_cast <gswitch *> (stmt))
-    {
-      tree op = gimple_switch_index (switch_stmt);
-      if (TREE_CODE (op) != SSA_NAME)
-	return NULL_TREE;
+// Marker to keep track of the start of the current path.
+const basic_block jt_state::BB_MARKER = (basic_block) -1;
 
-      const value_range_equiv *vr = m_vr_values->get_value_range (op);
-      return find_case_label_range (switch_stmt, vr);
-    }
-   if (gassign *assign_stmt = dyn_cast <gassign *> (stmt))
+// Record that E is being crossed.
+
+void
+jt_state::push (edge e)
+{
+  m_blocks.safe_push (BB_MARKER);
+  if (m_blocks.length () == 1)
+    m_blocks.safe_push (e->src);
+  m_blocks.safe_push (e->dest);
+}
+
+// Pop to the last pushed state.
+
+void
+jt_state::pop ()
+{
+  if (!m_blocks.is_empty ())
     {
-      tree lhs = gimple_assign_lhs (assign_stmt);
-      if (TREE_CODE (lhs) == SSA_NAME
-	  && (INTEGRAL_TYPE_P (TREE_TYPE (lhs))
-	      || POINTER_TYPE_P (TREE_TYPE (lhs)))
-	  && stmt_interesting_for_vrp (stmt))
+      while (m_blocks.last () != BB_MARKER)
+	m_blocks.pop ();
+      // Pop marker.
+      m_blocks.pop ();
+    }
+}
+
+// Add BB to the list of blocks seen.
+
+void
+jt_state::append_path (basic_block bb)
+{
+  gcc_checking_assert (!m_blocks.is_empty ());
+  m_blocks.safe_push (bb);
+}
+
+void
+jt_state::dump (FILE *out)
+{
+  if (!m_blocks.is_empty ())
+    {
+      auto_vec<basic_block> path;
+      get_path (path);
+      dump_ranger (out, path);
+    }
+}
+
+void
+jt_state::debug ()
+{
+  push_dump_file save (stderr, TDF_DETAILS);
+  dump (stderr);
+}
+
+// Convert the current path in jt_state into a path suitable for the
+// path solver.  Return the resulting path in PATH.
+
+void
+jt_state::get_path (vec<basic_block> &path)
+{
+  path.truncate (0);
+
+  for (int i = (int) m_blocks.length () - 1; i >= 0; --i)
+    {
+      basic_block bb = m_blocks[i];
+
+      if (bb != BB_MARKER)
+	path.safe_push (bb);
+    }
+}
+
+// Record an equivalence from DST to SRC.  If UPDATE_RANGE is TRUE,
+// update the value range associated with DST.
+
+void
+jt_state::register_equiv (tree dest ATTRIBUTE_UNUSED,
+			  tree src ATTRIBUTE_UNUSED,
+			  bool update_range ATTRIBUTE_UNUSED)
+{
+}
+
+// Record any ranges calculated in STMT.  If TEMPORARY is TRUE, then
+// this is a temporary equivalence and should be recorded into the
+// unwind table, instead of the global table.
+
+void
+jt_state::record_ranges_from_stmt (gimple *,
+				   bool temporary ATTRIBUTE_UNUSED)
+{
+}
+
+// Record any equivalences created by traversing E.
+
+void
+jt_state::register_equivs_edge (edge)
+{
+}
+
+void
+jt_state::register_equivs_stmt (gimple *stmt, basic_block bb,
+				jt_simplifier *simplifier)
+{
+  /* At this point we have a statement which assigns an RHS to an
+     SSA_VAR on the LHS.  We want to try and simplify this statement
+     to expose more context sensitive equivalences which in turn may
+     allow us to simplify the condition at the end of the loop.
+
+     Handle simple copy operations as well as implied copies from
+     ASSERT_EXPRs.  */
+  tree cached_lhs = NULL;
+  if (gimple_assign_single_p (stmt)
+      && TREE_CODE (gimple_assign_rhs1 (stmt)) == SSA_NAME)
+    cached_lhs = gimple_assign_rhs1 (stmt);
+  else if (gimple_assign_single_p (stmt)
+	   && TREE_CODE (gimple_assign_rhs1 (stmt)) == ASSERT_EXPR)
+    cached_lhs = TREE_OPERAND (gimple_assign_rhs1 (stmt), 0);
+  else
+    {
+      /* A statement that is not a trivial copy or ASSERT_EXPR.
+	 Try to fold the new expression.  Inserting the
+	 expression into the hash table is unlikely to help.  */
+      /* ???  The DOM callback below can be changed to setting
+	 the mprts_hook around the call to thread_across_edge,
+	 avoiding the use substitution.  The VRP hook should be
+	 changed to properly valueize operands itself using
+	 SSA_NAME_VALUE in addition to its own lattice.  */
+      cached_lhs = gimple_fold_stmt_to_constant_1 (stmt,
+						   threadedge_valueize);
+      if (NUM_SSA_OPERANDS (stmt, SSA_OP_ALL_USES) != 0
+	  && (!cached_lhs
+	      || (TREE_CODE (cached_lhs) != SSA_NAME
+		  && !is_gimple_min_invariant (cached_lhs))))
 	{
-	  edge dummy_e;
-	  tree dummy_tree;
-	  value_range_equiv new_vr;
-	  m_vr_values->extract_range_from_stmt (stmt, &dummy_e, &dummy_tree,
-						&new_vr);
-	  tree singleton;
-	  if (new_vr.singleton_p (&singleton))
-	    return singleton;
+	  /* We're going to temporarily copy propagate the operands
+	     and see if that allows us to simplify this statement.  */
+	  tree *copy;
+	  ssa_op_iter iter;
+	  use_operand_p use_p;
+	  unsigned int num, i = 0;
+
+	  num = NUM_SSA_OPERANDS (stmt, SSA_OP_ALL_USES);
+	  copy = XALLOCAVEC (tree, num);
+
+	  /* Make a copy of the uses & vuses into USES_COPY, then cprop into
+	     the operands.  */
+	  FOR_EACH_SSA_USE_OPERAND (use_p, stmt, iter, SSA_OP_ALL_USES)
+	    {
+	      tree tmp = NULL;
+	      tree use = USE_FROM_PTR (use_p);
+
+	      copy[i++] = use;
+	      if (TREE_CODE (use) == SSA_NAME)
+		tmp = SSA_NAME_VALUE (use);
+	      if (tmp)
+		SET_USE (use_p, tmp);
+	    }
+
+	  cached_lhs = simplifier->simplify (stmt, stmt, bb, this);
+
+	  /* Restore the statement's original uses/defs.  */
+	  i = 0;
+	  FOR_EACH_SSA_USE_OPERAND (use_p, stmt, iter, SSA_OP_ALL_USES)
+	    SET_USE (use_p, copy[i++]);
 	}
     }
-   return NULL;
+
+  /* Record the context sensitive equivalence if we were able
+     to simplify this statement.  */
+  if (cached_lhs
+      && (TREE_CODE (cached_lhs) == SSA_NAME
+	  || is_gimple_min_invariant (cached_lhs)))
+    register_equiv (gimple_get_lhs (stmt), cached_lhs,
+		    /*update_range=*/false);
 }
