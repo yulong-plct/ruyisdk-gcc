@@ -64,6 +64,31 @@ public:
   jump_thread_path_registry ();
   ~jump_thread_path_registry ();
   bool register_jump_thread (vec<jump_thread_edge *> *);
+  bool thread_through_all_blocks (bool peel_loop_headers);
+  void push_edge (vec<jump_thread_edge *> *path, edge, jump_thread_edge_type);
+  vec<jump_thread_edge *> *allocate_thread_path ();
+  void debug ();
+protected:
+  void debug_path (FILE *, int pathno);
+  vec<vec<jump_thread_edge *> *> m_paths;
+  unsigned long m_num_threaded_edges;
+private:
+  virtual bool update_cfg (bool peel_loop_headers) = 0;
+  bool cancel_invalid_paths (vec<jump_thread_edge *> &path);
+  jump_thread_path_allocator m_allocator;
+  // True if threading through back edges is allowed.  This is only
+  // allowed in the generic copier in the backward threader.
+  bool m_backedge_threads;
+  DISABLE_COPY_AND_ASSIGN (jt_path_registry);
+};
+
+// Forward threader path registry using a custom BB copier.
+
+class fwd_jt_path_registry : public jt_path_registry
+{
+public:
+  fwd_jt_path_registry ();
+  ~fwd_jt_path_registry ();
   void remove_jump_threads_including (edge);
   bool thread_through_all_blocks (bool);
   jump_thread_edge *allocate_thread_edge (edge e, jump_thread_edge_type t);
