@@ -15746,6 +15746,7 @@ emit_reduc_half (rtx dest, rtx src, int i)
       break;
     case E_V16QImode:
     case E_V8HImode:
+    case E_V8HFmode:
     case E_V4SImode:
     case E_V2DImode:
       d = gen_reg_rtx (V1TImode);
@@ -15767,6 +15768,7 @@ emit_reduc_half (rtx dest, rtx src, int i)
       break;
     case E_V32QImode:
     case E_V16HImode:
+    case E_V16HFmode:
     case E_V8SImode:
     case E_V4DImode:
       if (i == 256)
@@ -15786,6 +15788,7 @@ emit_reduc_half (rtx dest, rtx src, int i)
       break;
     case E_V64QImode:
     case E_V32HImode:
+    case E_V32HFmode:
       if (i < 64)
 	{
 	  d = gen_reg_rtx (V4TImode);
