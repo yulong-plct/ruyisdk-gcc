@@ -44,6 +44,22 @@
 #include <bits/c++config.h>
 #include <bits/stl_iterator_base_types.h>    // for traits and tags
 
+namespace std  _GLIBCXX_VISIBILITY(default)
+{
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+_GLIBCXX_BEGIN_NAMESPACE_CONTAINER
+  struct _Bit_iterator;
+  struct _Bit_const_iterator;
+_GLIBCXX_END_NAMESPACE_CONTAINER
+_GLIBCXX_END_NAMESPACE_VERSION
+}
+
+namespace __gnu_debug
+{
+  template<typename _Iterator, typename _Sequence, typename _Category>
+    class _Safe_iterator;
+}
+
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -467,8 +483,72 @@ struct _Aux_require_same<_Tp,_Tp> { typedef _Tp _Type; };
       *__i++ = __t;                     // require postincrement and assignment
     }
     _Tp __i;
-    _ValueT __t;
+    _ValueT __val() const;
   };
+
+  template<typename _Tp>
+  struct _Is_vector_bool_iterator
+  { static const bool __value = false; };
+
+#ifdef _GLIBCXX_DEBUG
+  namespace __cont = ::std::_GLIBCXX_STD_C;
+#else
+  namespace __cont = ::std;
+#endif
+
+  // Trait to identify vector<bool>::iterator
+  template <>
+  struct _Is_vector_bool_iterator<__cont::_Bit_iterator>
+  { static const bool __value = true; };
+
+  // And for vector<bool>::const_iterator.
+  template <>
+  struct _Is_vector_bool_iterator<__cont::_Bit_const_iterator>
+  { static const bool __value = true; };
+
+  // And for __gnu_debug::vector<bool> iterators too.
+  template <typename _It, typename _Seq, typename _Tag>
+  struct _Is_vector_bool_iterator<__gnu_debug::_Safe_iterator<_It, _Seq, _Tag> >
+  : _Is_vector_bool_iterator<_It> { };
+
+  template <class _Tp, bool = _Is_vector_bool_iterator<_Tp>::__value>
+  struct _ForwardIteratorReferenceConcept
+  {
+    void __constraints() {
+#if __cplusplus >= 201103L
+      typedef typename std::iterator_traits<_Tp>::reference _Ref;
+      static_assert(std::is_reference<_Ref>::value,
+	  "reference type of a forward iterator must be a real reference");
+#endif
+    }
+  };
+
+  template <class _Tp, bool = _Is_vector_bool_iterator<_Tp>::__value>
+  struct _Mutable_ForwardIteratorReferenceConcept
+  {
+    void __constraints() {
+      typedef typename std::iterator_traits<_Tp>::reference _Ref;
+      typedef typename std::iterator_traits<_Tp>::value_type _Val;
+      __function_requires< _SameTypeConcept<_Ref, _Val&> >();
+    }
+  };
+
+  // vector<bool> iterators are not real forward iterators, but we ignore that.
+  template <class _Tp>
+  struct _ForwardIteratorReferenceConcept<_Tp, true>
+  {
+    void __constraints() { }
+  };
+
+  // vector<bool> iterators are not real forward iterators, but we ignore that.
+  template <class _Tp>
+  struct _Mutable_ForwardIteratorReferenceConcept<_Tp, true>
+  {
+    void __constraints() { }
+  };
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
 
   template <class _Tp>
   struct _ForwardIteratorConcept
