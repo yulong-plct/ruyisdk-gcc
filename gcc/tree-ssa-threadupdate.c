@@ -239,6 +239,29 @@ debug (const vec<jump_thread_edge *> &path)
   dump_jump_thread_path (stderr, path, true);
 }
 
+DEBUG_FUNCTION void
+debug (const vec<jump_thread_edge *> *path)
+{
+  debug (*path);
+}
+
+/* Release the memory associated with PATH, and if dumping is enabled,
+   dump out the reason why the thread was canceled.  */
+
+static void
+cancel_thread (vec<jump_thread_edge *> *path, const char *reason = NULL)
+{
+  if (dump_file && (dump_flags & TDF_DETAILS))
+    {
+      if (reason)
+	fprintf (dump_file, "%s: ", reason);
+
+      dump_jump_thread_path (dump_file, *path, false);
+      fprintf (dump_file, "\n");
+    }
+  path->release ();
+}
+
 /* Simple hashing function.  For any given incoming edge E, we're going
    to be most concerned with the final destination of its jump thread
    path.  So hash on the block index of the final edge in the path.  */
@@ -2741,6 +2764,15 @@ jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
   loop_p loop = taken_edge->src->loop_father;
   bool seen_latch = false;
   bool path_crosses_loops = false;
+  int loops_crossed = 0;
+  bool crossed_latch = false;
+  bool crossed_loop_header = false;
+  // Use ->dest here instead of ->src to ignore the first block.  The
+  // first block is allowed to be in a different loop, since it'll be
+  // redirected.  See similar comment in profitable_path_p: "we don't
+  // care about that block...".
+  loop_p loop = entry->dest->loop_father;
+  loop_p curr_loop = loop;
 
   for (unsigned int i = 0; i < path.length (); i++)
     {
@@ -2764,6 +2796,14 @@ jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
 	  || e->dest->loop_father != loop)
 	path_crosses_loops = true;
 
+      // ?? Avoid threading through loop headers that remain in the
+      // loop, as such threadings tend to create sub-loops which
+      // _might_ be OK ??.
+      if (e->dest->loop_father->header == e->dest
+	  && !flow_loop_nested_p (exit->dest->loop_father,
+				  e->dest->loop_father))
+	crossed_loop_header = true;
+
       if (flag_checking && !m_backedge_threads)
 	gcc_assert ((path[i]->e->flags & EDGE_DFS_BACK) == 0);
     }
@@ -2780,6 +2820,21 @@ jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
   if (path_crosses_loops)
     {
       cancel_thread (&path, "Path crosses loops");
+      return true;
+    }
+  // The path should either start and end in the same loop or exit the
+  // loop it starts in but never enter a loop.  This also catches
+  // creating irreducible loops, not only rotation.
+  if (entry->src->loop_father != exit->dest->loop_father
+      && !flow_loop_nested_p (exit->src->loop_father,
+			      entry->dest->loop_father))
+    {
+      cancel_thread (&path, "Path rotates loop");
+      return true;
+    }
+  if (crossed_loop_header)
+    {
+      cancel_thread (&path, "Path crosses loop header but does not exit it");
       return true;
     }
   return false;

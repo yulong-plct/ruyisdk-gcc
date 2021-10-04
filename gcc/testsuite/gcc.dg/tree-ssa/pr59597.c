@@ -56,6 +56,7 @@ main (int argc, char argv[])
   return crc;
 }
 
-/* { dg-final { scan-tree-dump-times "Registering jump thread" 3 "vrp1" } } */
-/* { dg-final { scan-tree-dump-not "joiner" "vrp1" } } */
-/* { dg-final { scan-tree-dump-times "Threaded jump" 3 "vrp1" } } */
+/* None of the threads we can get in vrp-thread1 are valid.  They all
+   cross or rotate loops.  */
+/* { dg-final { scan-tree-dump-not "Registering jump thread" "vrp-thread1" } } */
+/* { dg-final { scan-tree-dump-not "joiner" "vrp-thread1" } } */
