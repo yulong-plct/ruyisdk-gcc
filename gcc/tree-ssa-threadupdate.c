@@ -2760,8 +2760,8 @@ bool
 jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
 {
   gcc_checking_assert (!path.is_empty ());
-  edge taken_edge = path[path.length () - 1]->e;
-  loop_p loop = taken_edge->src->loop_father;
+  edge entry = path[0]->e;
+  edge exit = path[path.length () - 1]->e;
   bool seen_latch = false;
   bool path_crosses_loops = false;
   int loops_crossed = 0;
@@ -2787,14 +2787,18 @@ jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
 	}
 
       if (loop->latch == e->src || loop->latch == e->dest)
-	seen_latch = true;
+	{
+	  seen_latch = true;
+	  // Like seen_latch, but excludes the first block.
+	  if (e->src != entry->src)
+	    crossed_latch = true;
+	}
 
-      // The first entry represents the block with an outgoing edge
-      // that we will redirect to the jump threading path.  Thus we
-      // don't care about that block's loop father.
-      if ((i > 0 && e->src->loop_father != loop)
-	  || e->dest->loop_father != loop)
-	path_crosses_loops = true;
+      if (e->dest->loop_father != curr_loop)
+	{
+	  curr_loop = e->dest->loop_father;
+	  ++loops_crossed;
+	}
 
       // ?? Avoid threading through loop headers that remain in the
       // loop, as such threadings tend to create sub-loops which
@@ -2808,6 +2812,13 @@ jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
 	gcc_assert ((path[i]->e->flags & EDGE_DFS_BACK) == 0);
     }
 
+  // If we crossed a loop into an outer loop without crossing the
+  // latch, this is just an early exit from the loop.
+  if (loops_crossed == 1
+      && !crossed_latch
+      && flow_loop_nested_p (exit->dest->loop_father, exit->src->loop_father))
+    return false;
+
   if (cfun->curr_properties & PROP_loop_opts_done)
     return false;
 
@@ -2817,7 +2828,7 @@ jt_path_registry::cancel_invalid_paths (vec<jump_thread_edge *> &path)
 		     "would create non-empty latch");
       return true;
     }
-  if (path_crosses_loops)
+  if (loops_crossed)
     {
       cancel_thread (&path, "Path crosses loops");
       return true;
