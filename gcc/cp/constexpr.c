@@ -36,6 +36,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "fold-const-call.h"
 #include "stor-layout.h"
 #include "cgraph.h"
+#include "opts.h"
 
 static bool verify_constant (tree, bool, bool *, bool *);
 #define VERIFY_CONSTANT(X)						\
@@ -6068,10 +6069,16 @@ build_new_constexpr_heap_type (const constexpr_ctx *ctx, tree elt_type,
 			       tree cookie_size, tree full_size, tree arg_size,
 			       bool *non_constant_p, bool *overflow_p)
 {
-  gcc_assert (cookie_size == NULL_TREE || tree_fits_uhwi_p (cookie_size));
-  gcc_assert (tree_fits_uhwi_p (full_size));
-  unsigned HOST_WIDE_INT csz = cookie_size ? tree_to_uhwi (cookie_size) : 0;
-  if (arg_size)
+  static bool explained = false;
+  if (cxx_dialect >= cxx17
+      && warn_interference_size
+      && !OPTION_SET_P (param_destruct_interfere_size)
+      && DECL_CONTEXT (decl) == std_node
+      && id_equal (DECL_NAME (decl), "hardware_destructive_interference_size")
+      && (LOCATION_FILE (input_location) != main_input_filename
+	  || module_exporting_p ())
+      && warning_at (loc, OPT_Winterference_size, "use of %qD", decl)
+      && !explained)
     {
       STRIP_NOPS (arg_size);
       if (cookie_size)

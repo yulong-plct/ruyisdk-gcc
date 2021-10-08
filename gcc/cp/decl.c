@@ -56,6 +56,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "context.h"  /* For 'g'.  */
 #include "omp-general.h"
 #include "omp-offload.h"  /* For offload_vars.  */
+#include "opts.h"
 
 /* Possible cases of bad specifiers type used by bad_specifiers. */
 enum bad_spec_place {
@@ -3224,7 +3225,7 @@ redeclaration_error_message (tree newdecl, tree olddecl)
 	{
 	  DECL_EXTERNAL (newdecl) = 1;
 	  /* For now, only warn with explicit -Wdeprecated.  */
-	  if (global_options_set.x_warn_deprecated)
+	  if (OPTION_SET_P (warn_deprecated))
 	    {
 	      auto_diagnostic_group d;
 	      if (warning_at (DECL_SOURCE_LOCATION (newdecl), OPT_Wdeprecated,
@@ -4716,6 +4717,43 @@ cxx_init_decl_processing (void)
   /* Show we use EH for cleanups.  */
   if (flag_exceptions)
     using_eh_for_cleanups ();
+
+  /* Check that the hardware interference sizes are at least
+     alignof(max_align_t), as required by the standard.  */
+  const int max_align = max_align_t_align () / BITS_PER_UNIT;
+  if (OPTION_SET_P (param_destruct_interfere_size))
+    {
+      if (param_destruct_interfere_size < max_align)
+	error ("%<--param destructive-interference-size=%d%> is less than "
+	       "%d", param_destruct_interfere_size, max_align);
+      else if (param_destruct_interfere_size < param_l1_cache_line_size)
+	warning (OPT_Winterference_size,
+		 "%<--param destructive-interference-size=%d%> "
+		 "is less than %<--param l1-cache-line-size=%d%>",
+		 param_destruct_interfere_size, param_l1_cache_line_size);
+    }
+  else if (param_destruct_interfere_size)
+    /* Assume the internal value is OK.  */;
+  else if (param_l1_cache_line_size >= max_align)
+    param_destruct_interfere_size = param_l1_cache_line_size;
+  /* else leave it unset.  */
+
+  if (OPTION_SET_P (param_construct_interfere_size))
+    {
+      if (param_construct_interfere_size < max_align)
+	error ("%<--param constructive-interference-size=%d%> is less than "
+	       "%d", param_construct_interfere_size, max_align);
+      else if (param_construct_interfere_size > param_l1_cache_line_size
+	       && param_l1_cache_line_size >= max_align)
+	warning (OPT_Winterference_size,
+		 "%<--param constructive-interference-size=%d%> "
+		 "is greater than %<--param l1-cache-line-size=%d%>",
+		 param_construct_interfere_size, param_l1_cache_line_size);
+    }
+  else if (param_construct_interfere_size)
+    /* Assume the internal value is OK.  */;
+  else if (param_l1_cache_line_size >= max_align)
+    param_construct_interfere_size = param_l1_cache_line_size;
 }
 
 /* Enter an abi node in global-module context.  returns a cookie to

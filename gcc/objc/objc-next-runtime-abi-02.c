@@ -254,6 +254,10 @@ objc_next_runtime_abi_02_init (objc_runtime_hooks *rthooks)
       flag_objc_sjlj_exceptions = 0;
     }
 
+  /* NeXT ABI 2 is intended to default to checking for nil receivers.  */
+  if (! OPTION_SET_P (flag_objc_nilcheck))
+    flag_objc_nilcheck = 1;
+
   rthooks->initialize = next_runtime_02_initialize;
   rthooks->default_constant_string_class_name = DEF_CONSTANT_STRING_CLASS_NAME;
   rthooks->tag_getclass = TAG_GETCLASS;
@@ -362,7 +366,7 @@ static void next_runtime_02_initialize (void)
 #ifdef OBJCPLUS
   /* For all NeXT objc ABIs -fobjc-call-cxx-cdtors is on by
      default.  */
-  if (!global_options_set.x_flag_objc_call_cxx_cdtors)
+  if (!OPTION_SET_P (flag_objc_call_cxx_cdtors))
     global_options.x_flag_objc_call_cxx_cdtors = 1;
 #endif
 
