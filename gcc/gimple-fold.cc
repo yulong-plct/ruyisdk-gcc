@@ -4662,7 +4662,7 @@ clear_padding_bitint_needs_padding_p (tree type)
 
 /* Return true if TYPE might contain any padding bits.  */
 
-static bool
+bool
 clear_padding_type_may_have_padding_p (tree type)
 {
   switch (TREE_CODE (type))
