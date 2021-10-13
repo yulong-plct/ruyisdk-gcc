@@ -153,6 +153,31 @@ namespace __detail
   template<typename _Iter, typename _Tr = __safe_iterator_traits<_Iter>>
     using _Path2 = enable_if_t<__is_path_iter_src<_Tr>::value, path>;
 
+#if __cpp_lib_concepts
+  template<typename _Iter>
+    constexpr bool __is_contiguous = std::contiguous_iterator<_Iter>;
+#else
+  template<typename _Iter>
+    constexpr bool __is_contiguous = false;
+#endif
+
+  template<typename _Tp>
+    constexpr bool __is_contiguous<_Tp*> = true;
+
+  template<typename _Tp, typename _Seq>
+    constexpr bool
+    __is_contiguous<__gnu_cxx::__normal_iterator<_Tp*, _Seq>> = true;
+
+#if !defined _GLIBCXX_FILESYSTEM_IS_WINDOWS && defined _GLIBCXX_USE_CHAR8_T
+  // For POSIX treat char8_t sequences as char without encoding conversions.
+  template<typename _EcharT>
+    using __unified_u8_t
+      = __conditional_t<is_same_v<_EcharT, char8_t>, char, _EcharT>;
+#else
+  template<typename _EcharT>
+    using __unified_u8_t = _EcharT;
+#endif
+
   // The __effective_range overloads convert a Source parameter into
   // either a basic_string_view or basic_string containing the
   // effective range of the Source, as defined in [fs.path.req].
