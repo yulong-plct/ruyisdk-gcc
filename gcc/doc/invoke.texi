@@ -13912,6 +13912,11 @@ Maximum depth of recursive cloning for self-recursive function.
 Recursive cloning only when the probability of call being executed exceeds
 the parameter.
 
+@item ipa-cp-profile-count-base
+When using @option{-fprofile-use} option, IPA-CP will consider the measured
+execution count of a call graph edge at this percentage position in their
+histogram as the basis for its heuristics calculation.
+
 @item ipa-cp-recursion-penalty
 Percentage penalty the recursive functions will receive when they
 are evaluated for cloning.
