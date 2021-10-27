@@ -20,6 +20,7 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #define INCLUDE_ALGORITHM
+#define INCLUDE_FUNCTIONAL
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
@@ -3526,7 +3527,6 @@ vect_analyze_loop (class loop *loop, vec_info_shared *shared)
 			       autodetected_vector_mode, fatal);
       if (fatal)
 	break;
-
       if (loop_vinfo)
 	{
 	  /*  Analyzis has been successful so update the VF value.  The
