@@ -23,14 +23,10 @@ void test_store_zero_length (int i)
 {
   char a[3];
   struct S0 *p = (struct S0*)a;
-<<<<<<< HEAD
-  p->a = 0;                         // { dg-warning "\\\[-Wstringop-overflow" { target { i?86-*-* x86_64-*-* } } }
-=======
-  p->a = 0;                         // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { target { vect_slp_v4qi_store } } }
->>>>>>> 3c8d8c0be95 (Adjust testcase for O2 vectorization.)
+  p->a = 0;                         // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { target { vect_slp_v4qi_store_align } } }
   p->b[0] = 0;
   p->b[1] = 1;                      // { dg-bogus "\\\[-Wstringop-overflow" }
-  p->b[2] = 2;                      // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { xfail { vect_slp_v4qi_store } } }
+  p->b[2] = 2;                      // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { xfail { vect_slp_v4qi_store_align } } }
   p->b[i] = 2;
   sink (p);
 }
@@ -54,10 +50,10 @@ void test_store_flexarray (int i)
 {
   char a[3];
   struct Sx *p = (struct Sx*)a;
-  p->a = 0;                         // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { target { vect_slp_v4qi_store } } }
+  p->a = 0;                         // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { target { vect_slp_v4qi_store_align } } }
   p->b[0] = 0;
   p->b[1] = 1;                      // { dg-bogus "\\\[-Wstringop-overflow" }
-  p->b[2] = 1;                      // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { xfail { vect_slp_v4qi_store } } }
+  p->b[2] = 1;                      // { dg-warning "\\\[-Wstringop-overflow" "pr102706" { xfail { vect_slp_v4qi_store_align } } }
   p->b[i] = 2;
   sink (p);
 }
