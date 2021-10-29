@@ -7,5 +7,5 @@
 #define N 16
 #include "complex-mul-template.c"
 
-/* { dg-final { scan-tree-dump "Found COMPLEX_MUL_CONJ" "vect" } } */
-/* { dg-final { scan-tree-dump "Found COMPLEX_MUL" "vect" } } */
+/* { dg-final { scan-tree-dump "Found COMPLEX_MUL_CONJ" "slp1" } } */
+/* { dg-final { scan-tree-dump "Found COMPLEX_MUL" slp1" } } */

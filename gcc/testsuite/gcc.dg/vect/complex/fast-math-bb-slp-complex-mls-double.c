@@ -7,5 +7,7 @@
 #define N 16
 #include "complex-mls-template.c"
 
-/* { dg-final { scan-tree-dump "Found COMPLEX_FMS_CONJ" "vect" } } */
-/* { dg-final { scan-tree-dump "Found COMPLEX_FMS" "vect" } } */
+/* { dg-final { scan-tree-dump "Found COMPLEX_ADD_ROT270" "slp1" } } */
+/* { dg-final { scan-tree-dump "Found COMPLEX_FMA" "slp1" } } */
+/* { dg-final { scan-tree-dump "Found COMPLEX_FMS_CONJ" "slp1" } } */
+/* { dg-final { scan-tree-dump "Found COMPLEX_FMS" "slp1" } } */
