@@ -1,4 +1,5 @@
 /* { dg-do compile } */
+/* { dg-require-effective-target float16 } */
 /* { dg-add-options arm_v8_3a_fp16_complex_neon } */
 
 #define TYPE _Float16
