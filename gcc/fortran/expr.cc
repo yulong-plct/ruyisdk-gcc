@@ -786,7 +786,7 @@ gfc_copy_ref (gfc_ref *src)
 
 /* Detect whether an expression has any vector index array references.  */
 
-int
+bool
 gfc_has_vector_index (gfc_expr *e)
 {
   gfc_ref *ref;
@@ -876,7 +876,7 @@ gfc_kind_max (gfc_expr *e1, gfc_expr *e2)
 
 /* Returns nonzero if the type is numeric, zero otherwise.  */
 
-static int
+static bool
 numeric_type (bt type)
 {
   return type == BT_COMPLEX || type == BT_REAL || type == BT_INTEGER;
@@ -885,7 +885,7 @@ numeric_type (bt type)
 
 /* Returns nonzero if the typespec is a numeric type, zero otherwise.  */
 
-int
+bool
 gfc_numeric_ts (gfc_typespec *ts)
 {
   return numeric_type (ts->type);
