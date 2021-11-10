@@ -1051,11 +1051,12 @@ complex_mul_pattern::matches (complex_operation_t op,
   if (op != MINUS_PLUS)
     return IFN_LAST;
 
-  slp_tree root = *node;
-  /* First two nodes must be a multiply.  */
-  auto_vec<slp_tree> muls;
-  if (vect_match_call_complex_mla (root, 0) != MULT_MULT
-      || vect_match_call_complex_mla (root, 1, &muls) != MULT_MULT)
+  auto childs = *ops;
+  auto l0node = SLP_TREE_CHILDREN (childs[0]);
+
+  bool mul0 = vect_match_expression_p (l0node[0], MULT_EXPR);
+  bool mul1 = vect_match_expression_p (l0node[1], MULT_EXPR);
+  if (!mul0 && !mul1)
     return IFN_LAST;
 
   /* Now operand2+4 may lead to another expression.  */
