@@ -14587,7 +14587,7 @@ struct aarch64_vector_costs : public vector_costs
 			      stmt_vec_info stmt_info, tree vectype,
 			      int misalign,
 			      vect_cost_model_location where) override;
-  void finish_cost () override;
+  void finish_cost (const vector_costs *) override;
 
   /* True if we have performed one-time initialization based on the vec_info.
 
@@ -16011,14 +16011,14 @@ aarch64_adjust_body_cost (aarch64_vector_costs *costs, unsigned int body_cost)
 }
 
 void
-aarch64_vector_costs::finish_cost ()
+aarch64_vector_costs::finish_cost (const vector_costs *scalar_costs)
 {
   if (this->is_loop
       && this->vec_flags
       && aarch64_use_new_vector_costs_p ())
     m_costs[vect_body] = aarch64_adjust_body_cost (this, m_costs[vect_body]);
 
-  vector_costs::finish_cost ();
+  vector_costs::finish_cost (scalar_costs);
 }
 
 static void initialize_aarch64_code_model (struct gcc_options *);
