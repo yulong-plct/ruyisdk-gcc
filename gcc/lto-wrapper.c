@@ -194,7 +194,7 @@ find_option (vec<cl_decoded_option> &options, cl_decoded_option *option)
    ontop of DECODED_OPTIONS.  */
 
 static void
-merge_and_complain (vec<cl_decoded_option> decoded_options,
+merge_and_complain (vec<cl_decoded_option> &decoded_options,
 		    vec<cl_decoded_option> fdecoded_options,
 		    vec<cl_decoded_option> decoded_cl_options)
 {
