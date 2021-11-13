@@ -370,33 +370,6 @@ modref_summary_lto::useful_p (int ecf_flags, bool check_flags)
   return stores && !stores->every_base;
 }
 
-/* Dump A to OUT.  */
-
-static void
-dump_access (modref_access_node *a, FILE *out)
-{
-  fprintf (out, "          access:");
-  if (a->parm_index != -1)
-    {
-      fprintf (out, " Parm %i", a->parm_index);
-      if (a->parm_offset_known)
-	{
-	  fprintf (out, " param offset:");
-	  print_dec ((poly_int64_pod)a->parm_offset, out, SIGNED);
-	}
-    }
-  if (a->range_info_useful_p ())
-    {
-      fprintf (out, " offset:");
-      print_dec ((poly_int64_pod)a->offset, out, SIGNED);
-      fprintf (out, " size:");
-      print_dec ((poly_int64_pod)a->size, out, SIGNED);
-      fprintf (out, " max_size:");
-      print_dec ((poly_int64_pod)a->max_size, out, SIGNED);
-    }
-  fprintf (out, "\n");
-}
-
 /* Dump records TT to OUT.  */
 
 static void
@@ -432,7 +405,10 @@ dump_records (modref_records *tt, FILE *out)
 	  size_t k;
 	  modref_access_node *a;
 	  FOR_EACH_VEC_SAFE_ELT (r->accesses, k, a)
-	    dump_access (a, out);
+	    {
+	      fprintf (out, "          access:");
+	      a->dump (out);
+	    }
 	}
     }
 }
@@ -478,7 +454,10 @@ dump_lto_records (modref_records_lto *tt, FILE *out)
 	  size_t k;
 	  modref_access_node *a;
 	  FOR_EACH_VEC_SAFE_ELT (r->accesses, k, a)
-	    dump_access (a, out);
+	    {
+	      fprintf (out, "          access:");
+	      a->dump (out);
+	    }
 	}
     }
 }

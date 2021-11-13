@@ -41,7 +41,25 @@ along with GCC; see the file COPYING3.  If not see
 
 struct ipa_modref_summary;
 
-/* Memory access.  */
+/* parm indexes greater than 0 are normal parms.
+   Some negative values have special meaning.  */
+enum modref_special_parms {
+  MODREF_UNKNOWN_PARM = -1,
+  MODREF_STATIC_CHAIN_PARM = -2,
+  MODREF_RETSLOT_PARM = -3,
+  /* Used for bases that points to memory that escapes from function.  */
+  MODREF_GLOBAL_MEMORY_PARM = -4,
+  /* Used in modref_parm_map to take references which can be removed
+     from the summary during summary update since they now points to local
+     memory.  */
+  MODREF_LOCAL_MEMORY_PARM = -5
+};
+
+/* Modref record accesses relative to function parameters.
+   This is entry for single access specifying its base and access range.
+
+   Accesses can be collected to boundedly sized arrays using
+   modref_access_node::insert.  */
 struct GTY(()) modref_access_node
 {
 
@@ -57,37 +75,42 @@ struct GTY(()) modref_access_node
      a function parameter.  */
   int parm_index;
   bool parm_offset_known;
+  /* Number of times interval was extended during dataflow.
+     This has to be limited in order to keep dataflow finite.  */
+  unsigned char adjustments;
 
   /* Return true if access node holds no useful info.  */
   bool useful_p () const
     {
       return parm_index != -1;
     }
-  /* Return true if range info is useful.  */
-  bool range_info_useful_p () const
-    {
-      return parm_index != -1 && parm_offset_known;
-    }
+  /* Dump range to debug OUT.  */
+  void dump (FILE *out);
   /* Return true if both accesses are the same.  */
-  bool operator == (modref_access_node &a) const
-    {
-      if (parm_index != a.parm_index)
-	return false;
-      if (parm_index >= 0)
-	{
-	  if (parm_offset_known != a.parm_offset_known)
-	    return false;
-	  if (parm_offset_known
-	      && !known_eq (parm_offset, a.parm_offset))
-	    return false;
-	}
-      if (range_info_useful_p ()
-	  && (!known_eq (a.offset, offset)
-	      || !known_eq (a.size, size)
-	      || !known_eq (a.max_size, max_size)))
-	return false;
-      return true;
-    }
+  bool operator == (modref_access_node &a) const;
+  /* Return true if range info is useful.  */
+  bool range_info_useful_p () const;
+  /* Insert A into vector ACCESSES.  Limit size of vector to MAX_ACCESSES and
+     if RECORD_ADJUSTMENT is true keep track of adjustment counts.
+     Return 0 if nothing changed, 1 is insertion suceeded and -1 if
+     failed.  */
+  static int insert (vec <modref_access_node, va_gc> *&accesses,
+		     modref_access_node a, size_t max_accesses,
+		     bool record_adjustments);
+private:
+  bool contains (const modref_access_node &) const;
+  void update (poly_int64, poly_int64, poly_int64, poly_int64, bool);
+  bool merge (const modref_access_node &, bool);
+  static bool closer_pair_p (const modref_access_node &,
+			     const modref_access_node &,
+			     const modref_access_node &,
+			     const modref_access_node &);
+  void forced_merge (const modref_access_node &, bool);
+  void update2 (poly_int64, poly_int64, poly_int64, poly_int64,
+		poly_int64, poly_int64, poly_int64, bool);
+  bool combined_offsets (const modref_access_node &,
+			 poly_int64 *, poly_int64 *, poly_int64 *) const;
+  static void try_merge_with (vec <modref_access_node, va_gc> *&, size_t);
 };
 
 /* Access node specifying no useful info.  */
