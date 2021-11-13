@@ -44,7 +44,6 @@ struct ipa_modref_summary;
 /* Memory access.  */
 struct GTY(()) modref_access_node
 {
-
   /* Access range information (in bits).  */
   poly_int64 offset;
   poly_int64 size;
@@ -69,25 +68,28 @@ struct GTY(()) modref_access_node
       return parm_index != -1 && parm_offset_known;
     }
   /* Return true if both accesses are the same.  */
-  bool operator == (modref_access_node &a) const
-    {
-      if (parm_index != a.parm_index)
-	return false;
-      if (parm_index >= 0)
-	{
-	  if (parm_offset_known != a.parm_offset_known)
-	    return false;
-	  if (parm_offset_known
-	      && !known_eq (parm_offset, a.parm_offset))
-	    return false;
-	}
-      if (range_info_useful_p ()
-	  && (!known_eq (a.offset, offset)
-	      || !known_eq (a.size, size)
-	      || !known_eq (a.max_size, max_size)))
-	return false;
-      return true;
-    }
+  bool operator == (modref_access_node &a) const;
+  /* Insert A into ACCESSES.  Limit size of vector to MAX_ACCESSES and if
+     RECORD_ADJUSTMENT is true keep track of adjustment counts.
+     Return 0 if nothing changed, 1 is insertion suceeded and -1 if
+     failed.  */
+  static int insert (vec <modref_access_node, va_gc> *&accesses,
+		     modref_access_node a, size_t max_accesses,
+		     bool record_adjustments);
+private:
+  bool contains (const modref_access_node &) const;
+  void update (poly_int64, poly_int64, poly_int64, poly_int64, bool);
+  bool merge (const modref_access_node &, bool);
+  static bool closer_pair_p (const modref_access_node &,
+			     const modref_access_node &,
+			     const modref_access_node &,
+			     const modref_access_node &);
+  void forced_merge (const modref_access_node &, bool);
+  void update2 (poly_int64, poly_int64, poly_int64, poly_int64,
+		poly_int64, poly_int64, poly_int64, bool);
+  bool combined_offsets (const modref_access_node &,
+			 poly_int64 *, poly_int64 *, poly_int64 *) const;
+  static void try_merge_with (vec <modref_access_node, va_gc> *&, size_t);
 };
 
 /* Access node specifying no useful info.  */
@@ -135,24 +137,34 @@ struct GTY((user)) modref_ref_node
     if (every_access)
       return false;
 
-    /* Otherwise, insert a node for the ref of the access under the base.  */
-    modref_access_node *access_node = search (a);
-    if (access_node)
-      return false;
+    /* Only the following kind of paramters needs to be tracked.
+       We do not track return slots because they are seen as a direct store
+       in the caller.  */
+    gcc_checking_assert (a.parm_index >= 0
+			 || a.parm_index == MODREF_STATIC_CHAIN_PARM
+			 || a.parm_index == MODREF_UNKNOWN_PARM);
 
-    /* If this base->ref pair has too many accesses stored, we will clear
-       all accesses and bail out.  */
-    if ((accesses && accesses->length () >= max_accesses)
-	|| !a.useful_p ())
+    if (!a.useful_p ())
       {
-	if (dump_file && a.useful_p ())
-	  fprintf (dump_file,
-		   "--param param=modref-max-accesses limit reached\n");
-	collapse ();
-	return true;
+	if (!every_access)
+	  {
+	    collapse ();
+	    return true;
+	  }
+	return false;
       }
-    vec_safe_push (accesses, a);
-    return true;
+
+    int ret = modref_access_node::insert (accesses, a, max_accesses,
+					  record_adjustments);
+    if (ret == -1)
+      {
+	if (dump_file)
+	  fprintf (dump_file,
+		   "--param param=modref-max-accesses limit reached;"
+		   " collapsing\n");
+	collapse ();
+      }
+    return ret != 0;
   }
 };
 
