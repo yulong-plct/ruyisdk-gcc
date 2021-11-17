@@ -4014,6 +4014,8 @@ first_commutative_argument (internal_fn fn)
     case IFN_COND_MUL:
     case IFN_COND_MIN:
     case IFN_COND_MAX:
+    case IFN_COND_FMIN:
+    case IFN_COND_FMAX:
     case IFN_COND_AND:
     case IFN_COND_IOR:
     case IFN_COND_XOR:
@@ -4217,6 +4219,8 @@ get_conditional_len_internal_fn (tree_code code)
 /* Invoke T(IFN) for each internal function IFN that also has an
    IFN_COND_* form.  */
 #define FOR_EACH_COND_FN_PAIR(T) \
+  T (FMAX) \
+  T (FMIN) \
   T (FMA) \
   T (FMS) \
   T (FNMA) \
