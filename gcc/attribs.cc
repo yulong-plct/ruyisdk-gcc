@@ -108,12 +108,7 @@ static bool attributes_initialized = false;
 static void
 extract_attribute_substring (struct substring *str)
 {
-  if (str->length > 4 && str->str[0] == '_' && str->str[1] == '_'
-      && str->str[str->length - 1] == '_' && str->str[str->length - 2] == '_')
-    {
-      str->length -= 4;
-      str->str += 2;
-    }
+  canonicalize_attr_name (str->str, str->length);
 }
 
 /* Insert SPECS into its namespace.  IGNORED_P is true iff all unknown
@@ -360,7 +355,7 @@ register_scoped_attribute (const struct attribute_spec *attr,
 
   /* Attribute names in the table must be in the form 'text' and not
      in the form '__text__'.  */
-  gcc_assert (str.length > 0 && str.str[0] != '_');
+  gcc_checking_assert (!canonicalize_attr_name (str.str, str.length));
 
   slot = name_space->attribute_hash
 	 ->find_slot_with_hash (&str, substring_hash (str.str, str.length),
