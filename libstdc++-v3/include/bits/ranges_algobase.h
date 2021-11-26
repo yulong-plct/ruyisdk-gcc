@@ -249,9 +249,7 @@ namespace ranges
 	}
       else if constexpr (sized_sentinel_for<_Sent, _Iter>)
 	{
-#ifdef __cpp_lib_is_constant_evaluated
-	  if (!std::is_constant_evaluated())
-#endif
+	  if (!std::__is_constant_evaluated())
 	    {
 	      if constexpr (__memcpyable<_Iter, _Out>::__value)
 		{
@@ -386,9 +384,7 @@ namespace ranges
 	}
       else if constexpr (sized_sentinel_for<_Sent, _Iter>)
 	{
-#ifdef __cpp_lib_is_constant_evaluated
-	  if (!std::is_constant_evaluated())
-#endif
+	  if (!std::__is_constant_evaluated())
 	    {
 	      if constexpr (__memcpyable<_Out, _Iter>::__value)
 		{
@@ -533,9 +529,7 @@ namespace ranges
 			  && __is_byte<remove_pointer_t<_Out>>::__value
 			  && integral<_Tp>)
 	      {
-#ifdef __cpp_lib_is_constant_evaluated
-		if (!std::is_constant_evaluated())
-#endif
+		if (!std::__is_constant_evaluated())
 		  {
 		    __builtin_memset(__first,
 				     static_cast<unsigned char>(__value),

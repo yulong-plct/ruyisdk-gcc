@@ -459,6 +459,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  pointer __p = this->_M_data() + __pos;
 
 	  const size_type __how_much = __old_size - __pos - __len1;
+#if __cpp_lib_is_constant_evaluated
+	  if (std::is_constant_evaluated())
+	    {
+	      auto __newp = _Alloc_traits::allocate(_M_get_allocator(),
+						    __new_size);
+	      _S_copy(__newp, this->_M_data(), __pos);
+	      _S_copy(__newp + __pos, __s, __len2);
+	      _S_copy(__newp + __pos + __len2, __p + __len1, __how_much);
+	      _S_copy(this->_M_data(), __newp, __new_size);
+	      this->_M_get_allocator().deallocate(__newp, __new_size);
+	    }
+	  else
+#endif
 	  if (_M_disjunct(__s))
 	    {
 	      if (__how_much && __len1 != __len2)
@@ -933,6 +946,32 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     reserve(size_type __res)
     {
       const size_type __capacity = capacity();
+      _CharT* __p;
+      if (__n > __capacity)
+	{
+	  __p = _M_create(__n, __capacity);
+	  this->_S_copy(__p, _M_data(), length()); // exclude trailing null
+#if __cpp_lib_is_constant_evaluated
+	  if (std::is_constant_evaluated())
+	    traits_type::assign(__p + length(), __n - length(), _CharT());
+#endif
+	  _M_dispose();
+	  _M_data(__p);
+	  _M_capacity(__n);
+	}
+      else
+	__p = _M_data();
+      struct _Terminator {
+	constexpr ~_Terminator() { _M_this->_M_set_length(_M_r); }
+	basic_string* _M_this;
+	size_type _M_r;
+      };
+      _Terminator __term{this};
+      const size_type __n2 [[maybe_unused]] = __n;
+      __term._M_r = std::move(__op)(__p, __n);
+      _GLIBCXX_DEBUG_ASSERT(__term._M_r >= 0 && __term._M_r <= __n2);
+    }
+#endif // C++23
 
       // _GLIBCXX_RESOLVE_LIB_DEFECTS
       // 2968. Inconsistencies between basic_string reserve and

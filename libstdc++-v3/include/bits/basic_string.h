@@ -53,9 +53,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #ifdef __cpp_lib_is_constant_evaluated
-// Support P1032R1 in C++20 (but not P0980R1 yet).
-# define __cpp_lib_constexpr_string 201811L
-#elif __cplusplus >= 201703L
+// Support P0980R1 in C++20.
+# define __cpp_lib_constexpr_string 201907L
+#elif __cplusplus >= 201703L && _GLIBCXX_HAVE_IS_CONSTANT_EVALUATED
 // Support P0426R1 changes to char_traits in C++17.
 # define __cpp_lib_constexpr_string 201611L
 #elif __cplusplus > 201703L
@@ -87,6 +87,34 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       typedef typename __gnu_cxx::__alloc_traits<_Alloc>::template
 	rebind<_CharT>::other _Char_alloc_type;
       typedef __gnu_cxx::__alloc_traits<_Char_alloc_type> _Alloc_traits;
+#else
+      template<typename _Traits2, typename _Dummy_for_PR85282>
+	struct _Alloc_traits_impl : __gnu_cxx::__alloc_traits<_Char_alloc_type>
+	{
+	  typedef __gnu_cxx::__alloc_traits<_Char_alloc_type> _Base;
+
+	  [[__gnu__::__always_inline__]]
+	  static constexpr typename _Base::pointer
+	  allocate(_Char_alloc_type& __a, typename _Base::size_type __n)
+	  {
+	    pointer __p = _Base::allocate(__a, __n);
+	    if (std::is_constant_evaluated())
+	      // Begin the lifetime of characters in allocated storage.
+	      for (size_type __i = 0; __i < __n; ++__i)
+		std::construct_at(__builtin_addressof(__p[__i]));
+	    return __p;
+	  }
+	};
+
+      template<typename _Dummy_for_PR85282>
+	struct _Alloc_traits_impl<char_traits<_CharT>, _Dummy_for_PR85282>
+	: __gnu_cxx::__alloc_traits<_Char_alloc_type>
+	{
+	  // std::char_traits begins the lifetime of characters.
+	};
+
+      using _Alloc_traits = _Alloc_traits_impl<_Traits, void>;
+#endif
 
       // Types:
     public:
@@ -297,6 +325,19 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       const allocator_type&
       _M_get_allocator() const
       { return _M_dataplus; }
+
+      // Ensure that _M_local_buf is the active member of the union.
+      __attribute__((__always_inline__))
+      _GLIBCXX14_CONSTEXPR
+      pointer
+      _M_use_local_data() _GLIBCXX_NOEXCEPT
+      {
+#if __cpp_lib_is_constant_evaluated
+	if (std::is_constant_evaluated())
+	  _M_local_buf[0] = _CharT();
+#endif
+	return _M_local_data();
+      }
 
     private:
 
