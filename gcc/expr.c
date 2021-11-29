@@ -1294,9 +1294,7 @@ op_by_pieces_d::run ()
 	  mode = get_usable_mode (mode, length);
 	}
     }
-
-  /* The code above should have handled everything.  */
-  gcc_assert (!length);
+  while (1);
 }
 
 /* Derived class from op_by_pieces_d, providing support for block move
