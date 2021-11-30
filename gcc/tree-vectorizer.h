@@ -28,6 +28,7 @@ typedef class _stmt_vec_info *stmt_vec_info;
 #include "target.h"
 #include "internal-fn.h"
 #include "tree-ssa-operands.h"
+#include "gimple-match.h"
 
 /* Used for naming of new temporaries.  */
 enum vect_var_kind {
@@ -1188,7 +1189,7 @@ public:
   enum vect_reduction_type reduc_type;
 
   /* The original reduction code, to be used in the epilogue.  */
-  enum tree_code reduc_code;
+  code_helper reduc_code;
   /* An internal function we should use in the epilogue.  */
   internal_fn reduc_fn;
 
@@ -2128,7 +2129,8 @@ extern tree vect_create_addr_base_for_vector_ref (vec_info *,
 						  stmt_vec_info, gimple_seq *,
 						  tree, tree = NULL_TREE);
 
-/* In tree-vect-loop.cc.  */
+/* In tree-vect-loop.c.  */
+extern tree neutral_op_for_reduction (tree, code_helper, tree);
 extern widest_int vect_iv_limit_for_partial_vectors (loop_vec_info loop_vinfo);
 bool vect_rgroup_iv_might_wrap_p (loop_vec_info, rgroup_controls *);
 /* Used in tree-vect-loop-manip.cc */
@@ -2137,7 +2139,7 @@ extern opt_result vect_determine_partial_vectors_and_peeling (loop_vec_info,
 /* Used in gimple-loop-interchange.cc and tree-parloops.cc.  */
 extern bool check_reduction_path (dump_user_location_t, loop_p, gphi *, tree,
 				  enum tree_code);
-extern bool needs_fold_left_reduction_p (tree, tree_code);
+extern bool needs_fold_left_reduction_p (tree, code_helper);
 /* Drive for loop analysis stage.  */
 extern opt_loop_vec_info vect_analyze_loop (class loop *, vec_info_shared *);
 extern tree vect_build_loop_niters (loop_vec_info, bool * = NULL);
@@ -2155,6 +2157,7 @@ extern tree vect_get_loop_len (loop_vec_info, vec_loop_lens *, unsigned int,
 			       unsigned int);
 extern gimple_seq vect_gen_len (tree, tree, tree, tree);
 extern stmt_vec_info info_for_reduction (vec_info *, stmt_vec_info);
+extern bool reduction_fn_for_scalar_code (code_helper, internal_fn *);
 
 /* Drive for loop transformation stage.  */
 extern class loop *vect_transform_loop (loop_vec_info, gimple *);
@@ -2180,7 +2183,9 @@ extern bool vectorizable_lc_phi (loop_vec_info, stmt_vec_info,
 				 gimple **, slp_tree);
 extern bool vectorizable_phi (vec_info *, stmt_vec_info, gimple **, slp_tree,
 			      stmt_vector_for_cost *);
-extern bool vect_worthwhile_without_simd_p (vec_info *, tree_code);
+extern bool vect_emulated_vector_p (tree);
+extern bool vect_can_vectorize_without_simd_p (tree_code);
+extern bool vect_can_vectorize_without_simd_p (code_helper);
 extern int vect_get_known_peeling_cost (loop_vec_info, int, int *,
 					stmt_vector_for_cost *,
 					stmt_vector_for_cost *,

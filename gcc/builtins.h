@@ -144,6 +144,7 @@ extern char target_percent_c[3];
 extern char target_percent_s_newline[4];
 extern bool target_char_cst_p (tree t, char *p);
 
+extern internal_fn associated_internal_fn (combined_fn, tree);
 extern internal_fn associated_internal_fn (tree);
 extern internal_fn replacement_internal_fn (gcall *);
 
