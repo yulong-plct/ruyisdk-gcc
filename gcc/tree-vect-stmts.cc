@@ -1648,6 +1648,7 @@ check_load_store_for_partial_vectors (loop_vec_info loop_vinfo, tree vectype,
 				      int group_size,
 				      vect_memory_access_type
 				      memory_access_type,
+				      unsigned int ncopies,
 				      gather_scatter_info *gs_info,
 				      tree scalar_mask)
 {
@@ -1672,7 +1673,6 @@ check_load_store_for_partial_vectors (loop_vec_info loop_vinfo, tree vectype,
 	  LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo) = false;
 	  return;
 	}
-      unsigned int ncopies = vect_get_num_copies (loop_vinfo, vectype);
       vect_record_loop_mask (loop_vinfo, masks, ncopies, vectype, scalar_mask);
       return;
     }
@@ -1695,7 +1695,6 @@ check_load_store_for_partial_vectors (loop_vec_info loop_vinfo, tree vectype,
 	  LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo) = false;
 	  return;
 	}
-      unsigned int ncopies = vect_get_num_copies (loop_vinfo, vectype);
       vect_record_loop_mask (loop_vinfo, masks, ncopies, vectype, scalar_mask);
       return;
     }
@@ -2899,6 +2898,7 @@ vect_build_gather_load_calls (vec_info *vinfo, stmt_vec_info stmt_info,
 static void
 vect_get_gather_scatter_ops (vec_info *vinfo,
 			     class loop *loop, stmt_vec_info stmt_info,
+			     slp_tree slp_node, unsigned int ncopies,
 			     gather_scatter_info *gs_info,
 			     tree *dataref_ptr, vec<tree> *vec_offset,
 			     unsigned ncopies)
@@ -2912,8 +2912,12 @@ vect_get_gather_scatter_ops (vec_info *vinfo,
       new_bb = gsi_insert_seq_on_edge_immediate (pe, stmts);
       gcc_assert (!new_bb);
     }
-  vect_get_vec_defs_for_operand (vinfo, stmt_info, ncopies, gs_info->offset,
-				 vec_offset, gs_info->offset_vectype);
+  if (slp_node)
+    vect_get_slp_defs (SLP_TREE_CHILDREN (slp_node)[0], vec_offset);
+  else
+    vect_get_vec_defs_for_operand (loop_vinfo, stmt_info, ncopies,
+				   gs_info->offset, vec_offset,
+				   gs_info->offset_vectype);
 }
 
 /* Prepare to implement a grouped or strided load or store using
@@ -7408,7 +7412,7 @@ vectorizable_store (vec_info *vinfo,
 	  && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo))
 	check_load_store_for_partial_vectors (loop_vinfo, vectype, vls_type,
 					      group_size, memory_access_type,
-					      &gs_info, mask);
+					      ncopies, &gs_info, mask);
 
       if (slp_node
 	  && !vect_maybe_update_slp_op_vectype (SLP_TREE_CHILDREN (slp_node)[0],
@@ -8077,8 +8081,9 @@ vectorizable_store (vec_info *vinfo,
 	    }
 	  else if (STMT_VINFO_GATHER_SCATTER_P (stmt_info))
 	    {
-	      vect_get_gather_scatter_ops (vinfo, loop, stmt_info, &gs_info,
-					   &dataref_ptr, &vec_offsets, ncopies);
+	      vect_get_gather_scatter_ops (loop_vinfo, loop, stmt_info,
+					   slp_node, ncopies, &gs_info,
+					   &dataref_ptr, &vec_offsets);
 	      vec_offset = vec_offsets[0];
 	    }
 	  else
@@ -8760,7 +8765,7 @@ vectorizable_load (vec_info *vinfo,
 	  && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo))
 	check_load_store_for_partial_vectors (loop_vinfo, vectype, VLS_LOAD,
 					      group_size, memory_access_type,
-					      &gs_info, mask);
+					      ncopies, &gs_info, mask);
 
       if (dump_enabled_p ()
 	  && memory_access_type != VMAT_ELEMENTWISE
@@ -9381,9 +9386,9 @@ vectorizable_load (vec_info *vinfo,
 	    }
 	  else if (STMT_VINFO_GATHER_SCATTER_P (stmt_info))
 	    {
-	      vect_get_gather_scatter_ops (vinfo, loop, stmt_info, &gs_info,
-					   &dataref_ptr, &vec_offsets, ncopies);
-	      vec_offset = vec_offsets[0];
+	      vect_get_gather_scatter_ops (loop_vinfo, loop, stmt_info,
+					   slp_node, ncopies, &gs_info,
+					   &dataref_ptr, &vec_offsets);
 	    }
 	  else
 	    dataref_ptr
