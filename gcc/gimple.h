@@ -4664,7 +4664,20 @@ gimple_arg (const gimple *gs, unsigned int i)
     return gimple_phi_arg_def (phi, i);
   if (auto call = dyn_cast<const gcall *> (gs))
     return gimple_call_arg (call, i);
-  return gimple_op (as_a <const gassign *> (gs), i + 1);                                                                                                                                                                                                                       }
+  return gimple_op (as_a <const gassign *> (gs), i + 1);
+}
+
+/* Return a pointer to gimple_arg (GS, I).  */
+
+static inline tree *
+gimple_arg_ptr (gimple *gs, unsigned int i)
+{
+  if (auto phi = dyn_cast<gphi *> (gs))
+    return gimple_phi_arg_def_ptr (phi, i);
+  if (auto call = dyn_cast<gcall *> (gs))
+    return gimple_call_arg_ptr (call, i);
+  return gimple_op_ptr (as_a <gassign *> (gs), i + 1);
+}
 
 /* Return the region number for GIMPLE_RESX RESX_STMT.  */
 
