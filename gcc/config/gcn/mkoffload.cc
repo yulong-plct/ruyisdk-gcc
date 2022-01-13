@@ -735,7 +735,7 @@ process_obj (FILE *in, FILE *cfile)
 	   "  const struct global_var_info *global_variables;\n"
 	   "} target_data = {\n"
 	   "  &gcn_image,\n"
-	   "  sizeof (gcn_kernels) / sizeof (gcn_kernels[0]),\n"
+	   "  ARRAY_SIZE (gcn_kernels),\n"
 	   "  gcn_kernels,\n"
 	   "  sizeof (vars) / sizeof (vars[0]),\n"
 	   "  vars\n"

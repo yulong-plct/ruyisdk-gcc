@@ -1655,7 +1655,7 @@ c_bind (location_t loc, tree decl, bool is_global)
    Used only by match_builtin_function_types.  */
 
 static const unsigned builtin_structptr_type_count
-  = sizeof builtin_structptr_types / sizeof builtin_structptr_types[0];
+  = ARRAY_SIZE (builtin_structptr_types);
 
 static GTY(()) tree last_structptr_types[builtin_structptr_type_count];
 
@@ -1702,10 +1702,8 @@ match_builtin_function_types (tree newtype, tree oldtype,
   tree newargs = TYPE_ARG_TYPES (newtype);
   tree tryargs = newargs;
 
-  const unsigned nlst
-    = sizeof last_structptr_types / sizeof last_structptr_types[0];
-  const unsigned nbst
-    = sizeof builtin_structptr_types / sizeof builtin_structptr_types[0];
+  const unsigned nlst = ARRAY_SIZE (last_structptr_types);
+  const unsigned nbst = ARRAY_SIZE (builtin_structptr_types);
 
   gcc_checking_assert (nlst == nbst);
 

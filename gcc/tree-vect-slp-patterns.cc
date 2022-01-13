@@ -1638,4 +1638,4 @@ vect_pattern_decl_t slp_patterns[]
 #undef SLP_PATTERN
 
 /* Set the number of SLP pattern matchers available.  */
-size_t num__slp_patterns = sizeof(slp_patterns)/sizeof(vect_pattern_decl_t);
+size_t num__slp_patterns = ARRAY_SIZE (slp_patterns);

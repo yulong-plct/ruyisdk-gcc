@@ -3203,7 +3203,7 @@ check_tokens (const token_t *tokens, unsigned ntoks,
   else
     {
       /* Diagnose some common misspellings.  */
-      for (unsigned i = 0; i != sizeof badwords / sizeof *badwords; ++i)
+      for (unsigned i = 0; i != ARRAY_SIZE (badwords); ++i)
 	{
 	  unsigned badwlen = strspn (badwords[i].name, " -");
 	  if (wlen >= badwlen
@@ -3399,14 +3399,14 @@ check_plain (location_t format_string_loc, tree format_string_cst,
 
   if (ISPUNCT (format_chars[0]))
     {
-      size_t nelts = sizeof c_opers / sizeof *c_opers;
+      size_t nelts = ARRAY_SIZE (c_opers);
       if (const char *ret = check_tokens (c_opers, nelts,
 					  format_string_loc, format_string_cst,
 					  orig_format_chars, format_chars,
 					  baltoks))
 	return ret;
 
-      nelts = c_dialect_cxx () ? sizeof cxx_opers / sizeof *cxx_opers : 0;
+      nelts = c_dialect_cxx () ? ARRAY_SIZE (cxx_opers) : 0;
       if (const char *ret = check_tokens (cxx_opers, nelts,
 					  format_string_loc, format_string_cst,
 					  orig_format_chars, format_chars,
@@ -3416,14 +3416,14 @@ check_plain (location_t format_string_loc, tree format_string_cst,
 
   if (ISALPHA (format_chars[0]))
     {
-      size_t nelts = sizeof c_keywords / sizeof *c_keywords;
+      size_t nelts = ARRAY_SIZE (c_keywords);
       if (const char *ret = check_tokens (c_keywords, nelts,
 					  format_string_loc, format_string_cst,
 					  orig_format_chars, format_chars,
 					  baltoks))
 	return ret;
 
-      nelts = c_dialect_cxx () ? sizeof cxx_keywords / sizeof *cxx_keywords : 0;
+      nelts = c_dialect_cxx () ? ARRAY_SIZE (cxx_keywords) : 0;
       if (const char *ret = check_tokens (cxx_keywords, nelts,
 					  format_string_loc, format_string_cst,
 					  orig_format_chars, format_chars,
@@ -3542,7 +3542,7 @@ check_plain (location_t format_string_loc, tree format_string_cst,
 	  && ISALPHA (format_chars[1]))
 	{
 	  /* Diagnose a subset of contractions that are best avoided.  */
-	  for (unsigned i = 0; i != sizeof contrs / sizeof *contrs; ++i)
+	  for (unsigned i = 0; i != ARRAY_SIZE (contrs); ++i)
 	    {
 	      const char *apos = strchr (contrs[i].name, '\'');
 	      gcc_assert (apos != NULL);

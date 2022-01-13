@@ -1445,7 +1445,7 @@ arm_lookup_simd_builtin_type (machine_mode mode,
 			      enum arm_type_qualifiers q)
 {
   int i;
-  int nelts = sizeof (arm_simd_types) / sizeof (arm_simd_types[0]);
+  int nelts = ARRAY_SIZE (arm_simd_types);
 
   /* Non-poly scalar modes map to standard types not in the table.  */
   if (q != qualifier_poly && !VECTOR_MODE_P (mode))
@@ -1477,7 +1477,7 @@ static void
 arm_init_simd_builtin_types (void)
 {
   int i;
-  int nelts = sizeof (arm_simd_types) / sizeof (arm_simd_types[0]);
+  int nelts = ARRAY_SIZE (arm_simd_types);
   tree tdecl;
 
   /* Poly types are a world of their own.  In order to maintain legacy
