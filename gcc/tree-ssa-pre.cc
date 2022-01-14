@@ -52,9 +52,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-cfgcleanup.h"
 #include "alias.h"
 
-/* Even though this file is called tree-ssa-pre.c, we actually
+/* Even though this file is called tree-ssa-pre.cc, we actually
    implement a bit more than just PRE here.  All of them piggy-back
-   on GVN which is implemented in tree-ssa-sccvn.c.
+   on GVN which is implemented in tree-ssa-sccvn.cc.
 
      1. Full Redundancy Elimination (FRE)
 	This is the elimination phase of GVN.

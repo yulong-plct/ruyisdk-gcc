@@ -1443,7 +1443,7 @@ split_block_before_cond_jump (basic_block bb)
   return cfg_hooks->split_block_before_cond_jump (bb);
 }
 
-/* Work-horse for passes.c:check_profile_consistency.
+/* Work-horse for passes.cc:check_profile_consistency.
    Do book-keeping of the CFG for the profile consistency checker.
    Store the counting in RECORD.  */
 
@@ -1495,7 +1495,7 @@ profile_record_check_consistency (profile_record *record)
    }
 }
 
-/* Work-horse for passes.c:acount_profile.
+/* Work-horse for passes.cc:acount_profile.
    Do book-keeping of the CFG for the profile accounting.
    Store the counting in RECORD.  */
 

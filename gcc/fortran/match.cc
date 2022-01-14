@@ -633,7 +633,7 @@ gfc_match_label (void)
 
 /* See if the current input looks like a name of some sort.  Modifies
    the passed buffer which must be GFC_MAX_SYMBOL_LEN+1 bytes long.
-   Note that options.c restricts max_identifier_length to not more
+   Note that options.cc restricts max_identifier_length to not more
    than GFC_MAX_SYMBOL_LEN.  */
 
 match
@@ -736,7 +736,7 @@ gfc_match_symbol (gfc_symbol **matched_symbol, int host_assoc)
 
 /* Match an intrinsic operator.  Returns an INTRINSIC enum. While matching,
    we always find INTRINSIC_PLUS before INTRINSIC_UPLUS. We work around this
-   in matchexp.c.  */
+   in matchexp.cc.  */
 
 match
 gfc_match_intrinsic_op (gfc_intrinsic_op *result)
@@ -2106,7 +2106,7 @@ match_derived_type_spec (gfc_typespec *ts)
 
 
 /* Match a Fortran 2003 type-spec (F03:R401).  This is similar to
-   gfc_match_decl_type_spec() from decl.c, with the following exceptions:
+   gfc_match_decl_type_spec() from decl.cc, with the following exceptions:
    It only includes the intrinsic types from the Fortran 2003 standard
    (thus, neither BYTE nor forms like REAL*4 are allowed). Additionally,
    the implicit_flag is not needed, so it was removed. Derived types are
@@ -6230,7 +6230,7 @@ copy_ts_from_selector_to_associate (gfc_expr *associate, gfc_expr *selector)
     {
       /* Ensure that the array reference type is set.  We cannot use
 	 gfc_resolve_expr at this point, so the usable parts of
-	 resolve.c(resolve_array_ref) are employed to do it.  */
+	 resolve.cc(resolve_array_ref) are employed to do it.  */
       if (ref->u.ar.type == AR_UNKNOWN)
 	{
 	  ref->u.ar.type = AR_ELEMENT;
@@ -6865,7 +6865,7 @@ syntax:
   gfc_error ("Syntax error in CASE specification at %C");
 
 cleanup:
-  gfc_free_case_list (head);  /* new_st is cleaned up in parse.c.  */
+  gfc_free_case_list (head);  /* new_st is cleaned up in parse.cc.  */
   return MATCH_ERROR;
 }
 
@@ -6938,7 +6938,7 @@ syntax:
 
 cleanup:
   if (c != NULL)
-    gfc_free_case_list (c);  /* new_st is cleaned up in parse.c.  */
+    gfc_free_case_list (c);  /* new_st is cleaned up in parse.cc.  */
   return MATCH_ERROR;
 }
 
@@ -7014,7 +7014,7 @@ syntax:
 
 cleanup:
   if (c != NULL)
-    gfc_free_case_list (c);  /* new_st is cleaned up in parse.c.  */
+    gfc_free_case_list (c);  /* new_st is cleaned up in parse.cc.  */
   return MATCH_ERROR;
 }
 
@@ -7116,7 +7116,7 @@ syntax:
 
 cleanup:
   if (c != NULL)
-    gfc_free_case_list (c);  /* new_st is cleaned up in parse.c.  */
+    gfc_free_case_list (c);  /* new_st is cleaned up in parse.cc.  */
   return MATCH_ERROR;
 }
 

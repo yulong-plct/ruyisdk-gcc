@@ -897,7 +897,7 @@ c_cpp_builtins (cpp_reader *pfile)
     cpp_define_formatted (pfile, "__GNUG__=%d", major);
   }
 
-  /* For stddef.h.  They require macros defined in c-common.c.  */
+  /* For stddef.h.  They require macros defined in c-common.cc.  */
   c_stddef_cpp_builtins ();
 
   if (c_dialect_cxx ())

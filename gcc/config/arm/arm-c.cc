@@ -143,7 +143,7 @@ arm_resolve_overloaded_builtin (location_t loc, tree fndecl, void *arglist)
 }
 
 /* Output C specific EABI object attributes.  These cannot be done in
-   arm.c because they require information from the C frontend.  */
+   arm.cc because they require information from the C frontend.  */
 
 static void
 arm_output_c_attributes (void)
@@ -467,7 +467,7 @@ arm_pragma_target_parse (tree args, tree pop_target)
 }
 
 /* Register target pragmas.  We need to add the hook for parsing #pragma GCC
-   option here rather than in arm.c since it will pull in various preprocessor
+   option here rather than in arm.cc since it will pull in various preprocessor
    functions, and those are not present in languages like fortran without a
    preprocessor.  */
 

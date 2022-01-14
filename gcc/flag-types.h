@@ -25,12 +25,12 @@ along with GCC; see the file COPYING3.  If not see
 enum debug_info_type
 {
   NO_DEBUG,	    /* Write no debug info.  */
-  DBX_DEBUG,	    /* Write BSD .stabs for DBX (using dbxout.c).  */
-  DWARF2_DEBUG,	    /* Write Dwarf v2 debug info (using dwarf2out.c).  */
-  XCOFF_DEBUG,	    /* Write IBM/Xcoff debug info (using dbxout.c).  */
-  VMS_DEBUG,        /* Write VMS debug info (using vmsdbgout.c).  */
-  VMS_AND_DWARF2_DEBUG /* Write VMS debug info (using vmsdbgout.c).
-                          and DWARF v2 debug info (using dwarf2out.c).  */
+  DBX_DEBUG,	    /* Write BSD .stabs for DBX (using dbxout.cc).  */
+  DWARF2_DEBUG,	    /* Write Dwarf v2 debug info (using dwarf2out.cc).  */
+  XCOFF_DEBUG,	    /* Write IBM/Xcoff debug info (using dbxout.cc).  */
+  VMS_DEBUG,        /* Write VMS debug info (using vmsdbgout.cc).  */
+  VMS_AND_DWARF2_DEBUG /* Write VMS debug info (using vmsdbgout.cc).
+                          and DWARF v2 debug info (using dwarf2out.cc).  */
 };
 
 enum debug_info_levels
@@ -47,7 +47,7 @@ enum debug_info_levels
    The following function determines whether or not debug information
    should be generated for a given struct.  The indirect parameter
    indicates that the struct is being handled indirectly, via
-   a pointer.  See opts.c for the implementation. */
+   a pointer.  See opts.cc for the implementation. */
 
 enum debug_info_usage
 {

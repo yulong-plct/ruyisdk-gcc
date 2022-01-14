@@ -2627,7 +2627,7 @@ expand_MUL_OVERFLOW (internal_fn, gcall *stmt)
   expand_arith_overflow (MULT_EXPR, stmt);
 }
 
-/* This should get folded in tree-vectorizer.c.  */
+/* This should get folded in tree-vectorizer.cc.  */
 
 static void
 expand_LOOP_VECTORIZED (internal_fn, gcall *)
@@ -2635,7 +2635,7 @@ expand_LOOP_VECTORIZED (internal_fn, gcall *)
   gcc_unreachable ();
 }
 
-/* This should get folded in tree-vectorizer.c.  */
+/* This should get folded in tree-vectorizer.cc.  */
 
 static void
 expand_LOOP_DIST_ALIAS (internal_fn, gcall *)

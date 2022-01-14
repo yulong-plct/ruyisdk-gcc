@@ -664,7 +664,7 @@ append_compiler_options (obstack *argv_obstack, struct cl_decoded_option *opts,
     {
       struct cl_decoded_option *option = &opts[j];
 
-      /* File options have been properly filtered by lto-opts.c.  */
+      /* File options have been properly filtered by lto-opts.cc.  */
       switch (option->opt_index)
 	{
 	/* Drop arguments that we want to take from the link line.  */

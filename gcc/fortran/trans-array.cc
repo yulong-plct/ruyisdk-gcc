@@ -19,7 +19,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-/* trans-array.c-- Various array related code, including scalarization,
+/* trans-array.cc-- Various array related code, including scalarization,
                    allocation, initialization and other support routines.  */
 
 /* How the scalarizer works.
@@ -111,7 +111,7 @@ gfc_array_dataptr_type (tree desc)
    of an array descriptor.
 
    To understand these magic numbers, look at the comments
-   before gfc_build_array_type() in trans-types.c.
+   before gfc_build_array_type() in trans-types.cc.
 
    The code within these defines should be the only code which knows the format
    of an array descriptor.
@@ -464,7 +464,7 @@ gfc_conv_shift_descriptor_lbound (stmtblock_t* block, tree desc,
 }
 
 
-/* Obtain offsets for trans-types.c(gfc_get_array_descr_info).  */
+/* Obtain offsets for trans-types.cc(gfc_get_array_descr_info).  */
 
 void
 gfc_get_descriptor_offsets_for_info (const_tree desc_type, tree *data_off,
@@ -4549,7 +4549,7 @@ done:
 
 	      desc = info->descriptor;
 
-	      /* This is the run-time equivalent of resolve.c's
+	      /* This is the run-time equivalent of resolve.cc's
 		 check_dimension().  The logical is more readable there
 		 than it is here, with all the trees.  */
 	      lbound = gfc_conv_array_lbound (desc, dim);
@@ -4885,7 +4885,7 @@ gfc_could_be_alias (gfc_ss * lss, gfc_ss * rss)
 
 /* Resolve array data dependencies.  Creates a temporary if required.  */
 /* TODO: Calc dependencies with gfc_expr rather than gfc_ss, and move to
-   dependency.c.  */
+   dependency.cc.  */
 
 void
 gfc_conv_resolve_dependencies (gfc_loopinfo * loop, gfc_ss * dest,
@@ -7068,7 +7068,7 @@ gfc_get_dataptr_offset (stmtblock_t *block, tree parm, tree desc, tree offset,
    by adding up the string lengths of all the elements in the
    expression.  Function with non-constant expressions have their
    string lengths mapped onto the actual arguments using the
-   interface mapping machinery in trans-expr.c.  */
+   interface mapping machinery in trans-expr.cc.  */
 static void
 get_array_charlen (gfc_expr *expr, gfc_se *se)
 {

@@ -125,7 +125,7 @@ add_decls_addresses_to_decl_constructor (vec<tree, va_gc> *v_decls,
 #endif
 	  && lookup_attribute ("omp declare target link", DECL_ATTRIBUTES (it));
 
-      /* See also omp_finish_file and output_offload_tables in lto-cgraph.c.  */
+      /* See also omp_finish_file and output_offload_tables in lto-cgraph.cc.  */
       if (!in_lto_p && !symtab_node::get (it))
 	continue;
 
@@ -444,7 +444,7 @@ omp_finish_file (void)
 	{
 	  tree it = (*offload_funcs)[i];
 	  /* See also add_decls_addresses_to_decl_constructor
-	     and output_offload_tables in lto-cgraph.c.  */
+	     and output_offload_tables in lto-cgraph.cc.  */
 	  if (!in_lto_p && !symtab_node::get (it))
 	    continue;
 	  targetm.record_offload_symbol (it);
@@ -1840,7 +1840,7 @@ execute_oacc_device_lower ()
   if (is_oacc_kernels && is_oacc_kernels_parallelized)
     {
       /* Parallelized OpenACC kernels constructs use gang parallelism.  See
-	 also tree-parloops.c:create_parallel_loop.  */
+	 also tree-parloops.cc:create_parallel_loop.  */
       used_mask |= GOMP_DIM_MASK (GOMP_DIM_GANG);
     }
 

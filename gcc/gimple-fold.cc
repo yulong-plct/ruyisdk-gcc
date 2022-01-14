@@ -1,6 +1,6 @@
 /* Statement simplification on GIMPLE.
    Copyright (C) 2010-2022 Free Software Foundation, Inc.
-   Split out from tree-ssa-ccp.c.
+   Split out from tree-ssa-ccp.cc.
 
 This file is part of GCC.
 
@@ -1486,7 +1486,7 @@ get_range_strlen_tree (tree arg, bitmap *visited, strlen_range_kind rkind,
 	     flexible array members that can be initialized to arbitrary
 	     numbers of elements as an extension (static structs are okay).
 	     FIXME: Make this less conservative -- see
-	     component_ref_size in tree.c.  */
+	     component_ref_size in tree.cc.  */
 	  tree ref = TREE_OPERAND (TREE_OPERAND (arg, 0), 0);
 	  if ((TREE_CODE (ref) == PARM_DECL || VAR_P (ref))
 	      && (decl_binds_to_current_def_p (ref)

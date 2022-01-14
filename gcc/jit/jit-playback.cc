@@ -138,7 +138,7 @@ playback::context::~context ()
    ("by hand", rather than by gengtype).
 
    This is called on the active playback context (if any) by the
-   my_ggc_walker hook in the jit_root_table in dummy-frontend.c.  */
+   my_ggc_walker hook in the jit_root_table in dummy-frontend.cc.  */
 
 void
 playback::context::
@@ -276,7 +276,7 @@ new_field (location *loc,
   gcc_assert (type);
   gcc_assert (name);
 
-  /* compare with c/c-decl.c:grokfield and grokdeclarator.  */
+  /* compare with c/c-decl.cc:grokfield and grokdeclarator.  */
   tree decl = build_decl (UNKNOWN_LOCATION, FIELD_DECL,
 			  get_identifier (name), type->as_tree ());
 
@@ -299,7 +299,7 @@ new_bitfield (location *loc,
   gcc_assert (name);
   gcc_assert (width);
 
-  /* compare with c/c-decl.c:grokfield,  grokdeclarator and
+  /* compare with c/c-decl.cc:grokfield,  grokdeclarator and
      check_bitfield_type_and_width.  */
 
   tree tree_type = type->as_tree ();
@@ -336,7 +336,7 @@ new_compound_type (location *loc,
 {
   gcc_assert (name);
 
-  /* Compare with c/c-decl.c: start_struct. */
+  /* Compare with c/c-decl.cc: start_struct. */
 
   tree t = make_node (is_struct ? RECORD_TYPE : UNION_TYPE);
   TYPE_NAME (t) = get_identifier (name);
@@ -351,7 +351,7 @@ new_compound_type (location *loc,
 void
 playback::compound_type::set_fields (const auto_vec<playback::field *> *fields)
 {
-  /* Compare with c/c-decl.c: finish_struct. */
+  /* Compare with c/c-decl.cc: finish_struct. */
   tree t = as_tree ();
 
   tree fieldlist = NULL;
@@ -603,7 +603,7 @@ load_blob_in_ctor (vec<constructor_elt, va_gc> *&constructor_elements,
 		   size_t num_elem,
 		   const void *initializer)
 {
-  /* Loosely based on 'output_init_element' c-typeck.c:9691.  */
+  /* Loosely based on 'output_init_element' c-typeck.cc:9691.  */
   const T *p = (const T *)initializer;
   tree node = make_unsigned_type (BITS_PER_UNIT * sizeof (T));
   for (size_t i = 0; i < num_elem; i++)
@@ -655,11 +655,11 @@ new_global_initialized (location *loc,
 	 these are all covered by the previous cases.  */
       gcc_unreachable ();
     }
-  /* Compare with 'pop_init_level' c-typeck.c:8780.  */
+  /* Compare with 'pop_init_level' c-typeck.cc:8780.  */
   tree ctor = build_constructor (type->as_tree (), constructor_elements);
   constructor_elements = NULL;
 
-  /* Compare with 'store_init_value' c-typeck.c:7555.  */
+  /* Compare with 'store_init_value' c-typeck.cc:7555.  */
   DECL_INITIAL (inner) = ctor;
 
   return global_finalize_lvalue (inner);
@@ -738,7 +738,7 @@ new_rvalue_from_const <double> (type *type,
 
   /* We have a "double", we want a REAL_VALUE_TYPE.
 
-     real.c:real_from_target appears to require the representation to be
+     real.cc:real_from_target appears to require the representation to be
      split into 32-bit values, and then sent as an pair of host long
      ints.  */
   REAL_VALUE_TYPE real_value;
@@ -782,7 +782,7 @@ playback::rvalue *
 playback::context::
 new_string_literal (const char *value)
 {
-  /* Compare with c-family/c-common.c: fix_string_type.  */
+  /* Compare with c-family/c-common.cc: fix_string_type.  */
   size_t len = strlen (value);
   tree i_type = build_index_type (size_int (len));
   tree a_type = build_array_type (char_type_node, i_type);
@@ -792,7 +792,7 @@ new_string_literal (const char *value)
   TREE_TYPE (t_str) = a_type;
 
   /* Convert to (const char*), loosely based on
-     c/c-typeck.c: array_to_pointer_conversion,
+     c/c-typeck.cc: array_to_pointer_conversion,
      by taking address of start of string.  */
   tree t_addr = build1 (ADDR_EXPR, m_const_char_ptr, t_str);
 
@@ -821,7 +821,7 @@ tree
 playback::context::
 as_truth_value (tree expr, location *loc)
 {
-  /* Compare to c-typeck.c:c_objc_common_truthvalue_conversion */
+  /* Compare to c-typeck.cc:c_objc_common_truthvalue_conversion */
   tree typed_zero = fold_build1 (CONVERT_EXPR,
 				 TREE_TYPE (expr),
 				 integer_zero_node);
@@ -1075,13 +1075,13 @@ build_call (location *loc,
 
   return new rvalue (this, call);
 
-  /* see c-typeck.c: build_function_call
+  /* see c-typeck.cc: build_function_call
      which calls build_function_call_vec
 
      which does lots of checking, then:
     result = build_call_array_loc (loc, TREE_TYPE (fntype),
 				   function, nargs, argarray);
-    which is in tree.c
+    which is in tree.cc
     (see also build_call_vec)
    */
 }
@@ -1133,8 +1133,8 @@ playback::context::build_cast (playback::location *loc,
 			       playback::type *type_)
 {
   /* For comparison, see:
-     - c/c-typeck.c:build_c_cast
-     - c/c-convert.c: convert
+     - c/c-typeck.cc:build_c_cast
+     - c/c-convert.cc: convert
      - convert.h
 
      Only some kinds of cast are currently supported here.  */
@@ -1213,8 +1213,8 @@ new_array_access (location *loc,
   gcc_assert (index);
 
   /* For comparison, see:
-       c/c-typeck.c: build_array_ref
-       c-family/c-common.c: pointer_int_sum
+       c/c-typeck.cc: build_array_ref
+       c-family/c-common.cc: pointer_int_sum
   */
   tree t_ptr = ptr->as_tree ();
   tree t_index = index->as_tree ();
@@ -1263,7 +1263,7 @@ new_field_access (location *loc,
   gcc_assert (datum);
   gcc_assert (field);
 
-  /* Compare with c/c-typeck.c:lookup_field, build_indirect_ref, and
+  /* Compare with c/c-typeck.cc:lookup_field, build_indirect_ref, and
      build_component_ref. */
   tree type = TREE_TYPE (datum);
   gcc_assert (type);
@@ -1381,7 +1381,7 @@ dereference (location *loc)
 
 /* Mark the lvalue saying that we need to be able to take the
    address of it; it should not be allocated in a register.
-   Compare with e.g. c/c-typeck.c: c_mark_addressable really_atomic_lvalue.
+   Compare with e.g. c/c-typeck.cc: c_mark_addressable really_atomic_lvalue.
    Returns false if a failure occurred (an error will already have been
    added to the active context for this case).  */
 
@@ -1625,7 +1625,7 @@ postprocess ()
   if (m_ctxt->get_bool_option (GCC_JIT_BOOL_OPTION_DUMP_INITIAL_TREE))
     debug_tree (m_stmt_list);
 
-  /* Do we need this to force cgraphunit.c to output the function? */
+  /* Do we need this to force cgraphunit.cc to output the function? */
   if (m_kind == GCC_JIT_FUNCTION_EXPORTED)
     {
       DECL_EXTERNAL (m_inner_fndecl) = 0;
@@ -1641,7 +1641,7 @@ postprocess ()
 
   if (m_kind != GCC_JIT_FUNCTION_IMPORTED)
     {
-      /* Seem to need this in gimple-low.c: */
+      /* Seem to need this in gimple-low.cc: */
       gcc_assert (m_inner_block);
       DECL_INITIAL (m_inner_fndecl) = m_inner_block;
 
@@ -1813,7 +1813,7 @@ add_jump (location *loc,
   add_stmt (stmt);
 
   /*
-  from c-typeck.c:
+  from c-typeck.cc:
 tree
 c_finish_goto_label (location_t loc, tree label)
 {
@@ -1896,11 +1896,11 @@ add_switch (location *loc,
 	    const auto_vec <case_> *cases)
 {
   /* Compare with:
-     - c/c-typeck.c: c_start_case
-     - c-family/c-common.c:c_add_case_label
-     - java/expr.c:expand_java_switch and expand_java_add_case
+     - c/c-typeck.cc: c_start_case
+     - c-family/c-common.cc:c_add_case_label
+     - java/expr.cc:expand_java_switch and expand_java_add_case
      We've already rejected overlaps and duplicates in
-     libgccjit.c:case_range_validator::validate.  */
+     libgccjit.cc:case_range_validator::validate.  */
 
   tree t_expr = expr->as_tree ();
   tree t_type = TREE_TYPE (t_expr);
@@ -1986,8 +1986,8 @@ build_goto_operands (const auto_vec <playback::block *> *blocks)
 
 /* Add an extended asm statement to this block.
 
-   Compare with c_parser_asm_statement (in c/c-parser.c)
-   and build_asm_expr (in c/c-typeck.c).  */
+   Compare with c_parser_asm_statement (in c/c-parser.cc)
+   and build_asm_expr (in c/c-typeck.cc).  */
 
 void
 playback::block::add_extended_asm (location *loc,
@@ -2678,7 +2678,7 @@ playback::context::read_dump_file (const char *path)
 /* Part of playback::context::compile ().
 
    We have a .s file; we want a .so file.
-   We could reuse parts of gcc/gcc.c to do this.
+   We could reuse parts of gcc/gcc.cc to do this.
    For now, just use the driver binary from the install, as
    named in gcc-driver-name.h
    e.g. "x86_64-unknown-linux-gnu-gcc-5.0.0".  */

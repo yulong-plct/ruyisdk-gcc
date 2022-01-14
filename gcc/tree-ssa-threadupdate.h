@@ -21,7 +21,7 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef _TREE_SSA_THREADUPDATE_H
 #define _TREE_SSA_THREADUPDATE_H 1
 
-/* In tree-ssa-threadupdate.c.  */
+/* In tree-ssa-threadupdate.cc.  */
 extern bool thread_through_all_blocks (bool);
 enum jump_thread_edge_type
 {

@@ -57,7 +57,7 @@ OBJC_OBJS = objc/objc-lang.o objc/objc-act.o hash-table.o \
 
 objc_OBJS = $(OBJC_OBJS) cc1obj-checksum.o
 
-cc1obj-checksum.c : build/genchecksum$(build_exeext) checksum-options \
+cc1obj-checksum.cc : build/genchecksum$(build_exeext) checksum-options \
         $(OBJC_OBJS) $(C_AND_OBJC_OBJS) $(BACKEND) $(LIBDEPS)
 	build/genchecksum$(build_exeext) $(OBJC_OBJS) $(C_AND_OBJC_OBJS) \
         $(BACKEND) $(LIBDEPS) checksum-options > cc1obj-checksum.c.tmp && \

@@ -34,7 +34,7 @@ struct ipa_dfs_info {
 };
 
 
-/* In ipa-utils.c  */
+/* In ipa-utils.cc  */
 void ipa_print_order (FILE*, const char *, struct cgraph_node**, int);
 int ipa_reduced_postorder (struct cgraph_node **, bool,
 			  bool (*ignore_edge) (struct cgraph_edge *));
@@ -47,10 +47,10 @@ void ipa_merge_profiles (struct cgraph_node *dst,
 			 struct cgraph_node *src, bool preserve_body = false);
 bool recursive_call_p (tree, tree);
 
-/* In ipa-profile.c  */
+/* In ipa-profile.cc  */
 bool ipa_propagate_frequency (struct cgraph_node *node);
 
-/* In ipa-devirt.c  */
+/* In ipa-devirt.cc  */
 
 struct odr_type_d;
 typedef odr_type_d *odr_type;

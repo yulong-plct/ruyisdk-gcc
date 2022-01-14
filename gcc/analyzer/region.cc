@@ -375,7 +375,7 @@ region::calc_offset () const
 	      = (const field_region *)iter_region;
 	    iter_region = iter_region->get_parent_region ();
 
-	    /* Compare with e.g. gimple-fold.c's
+	    /* Compare with e.g. gimple-fold.cc's
 	       fold_nonarray_ctor_reference.  */
 	    tree field = field_reg->get_field ();
 	    tree byte_offset = DECL_FIELD_OFFSET (field);

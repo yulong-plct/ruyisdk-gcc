@@ -356,7 +356,7 @@ struct _list_node
 
 /* _list_t functions.
    All of _*list_* functions are used through accessor macros, thus
-   we can't move them in sel-sched-ir.c.  */
+   we can't move them in sel-sched-ir.cc.  */
 extern object_allocator<_list_node> sched_lists_pool;
 
 static inline _list_t
@@ -597,7 +597,7 @@ struct idata_def
      o USE - INSN that can be cloned
      o SET - INSN that can be cloned and separable into lhs and rhs
      o PC - simplejump.  Insns that simply redirect control flow should not
-     have any dependencies.  Sched-deps.c, though, might consider them as
+     have any dependencies.  Sched-deps.cc, though, might consider them as
      producers or consumers of certain registers.  To avoid that we handle
      dependency for simple jumps ourselves.  */
   int type;
@@ -609,7 +609,7 @@ struct idata_def
   rtx rhs;
 
   /* Registers that are set/used by this insn.  This info is now gathered
-     via sched-deps.c.  The downside of this is that we also use live info
+     via sched-deps.cc.  The downside of this is that we also use live info
      from flow that is accumulated in the basic blocks.  These two infos
      can be slightly inconsistent, hence in the beginning we make a pass
      through CFG and calculating the conservative solution for the info in
@@ -874,7 +874,7 @@ extern bitmap blocks_to_reschedule;
 
 
 /* A variable to track which part of rtx we are scanning in
-   sched-deps.c: sched_analyze_insn ().  */
+   sched-deps.cc: sched_analyze_insn ().  */
 enum deps_where_t
 {
   DEPS_IN_INSN,
