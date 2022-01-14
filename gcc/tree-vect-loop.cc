@@ -2992,7 +2992,107 @@ vect_analyze_loop (class loop *loop, vec_info_shared *shared)
 	      LOOP_VINFO_ORIG_LOOP_INFO (loop_vinfo) = NULL;
 	      simdlen = 0;
 	    }
-	  else if (pick_lowest_cost_p && first_loop_vinfo)
+	  else if (pick_lowest_cost_p
+		   && first_loop_vinfo
+		   && vect_joust_loop_vinfos (loop_vinfo, first_loop_vinfo))
+	    {
+	      /* Pick loop_vinfo over first_loop_vinfo.  */
+	      delete first_loop_vinfo;
+	      first_loop_vinfo = opt_loop_vec_info::success (NULL);
+	    }
+	  if (first_loop_vinfo == NULL)
+	    first_loop_vinfo = loop_vinfo;
+	  else
+	    {
+	      delete loop_vinfo;
+	      loop_vinfo = opt_loop_vec_info::success (NULL);
+	    }
+
+	  /* Commit to first_loop_vinfo if we have no reason to try
+	     alternatives.  */
+	  if (!simdlen && !pick_lowest_cost_p)
+	    break;
+	}
+      if (mode_i == vector_modes.length ()
+	  || autodetected_vector_mode == VOIDmode)
+	break;
+
+      /* Try the next biggest vector size.  */
+      if (dump_enabled_p ())
+	dump_printf_loc (MSG_NOTE, vect_location,
+			 "***** Re-trying analysis with vector mode %s\n",
+			 GET_MODE_NAME (vector_modes[mode_i]));
+    }
+  if (!first_loop_vinfo)
+    return opt_loop_vec_info::propagate_failure (res);
+
+  if (dump_enabled_p ())
+    dump_printf_loc (MSG_NOTE, vect_location,
+		     "***** Choosing vector mode %s\n",
+		     GET_MODE_NAME (first_loop_vinfo->vector_mode));
+
+  /* Only vectorize epilogues if PARAM_VECT_EPILOGUES_NOMASK is
+     enabled, SIMDUID is not set, it is the innermost loop and we have
+     either already found the loop's SIMDLEN or there was no SIMDLEN to
+     begin with.
+     TODO: Enable epilogue vectorization for loops with SIMDUID set.  */
+  bool vect_epilogues = (!simdlen
+			 && loop->inner == NULL
+			 && param_vect_epilogues_nomask
+			 && LOOP_VINFO_PEELING_FOR_NITER (first_loop_vinfo)
+			 && !loop->simduid);
+  if (!vect_epilogues)
+    return first_loop_vinfo;
+
+  /* Now analyze first_loop_vinfo for epilogue vectorization.  */
+  poly_uint64 lowest_th = LOOP_VINFO_VERSIONING_THRESHOLD (first_loop_vinfo);
+
+  /* For epilogues start the analysis from the first mode.  The motivation
+     behind starting from the beginning comes from cases where the VECTOR_MODES
+     array may contain length-agnostic and length-specific modes.  Their
+     ordering is not guaranteed, so we could end up picking a mode for the main
+     loop that is after the epilogue's optimal mode.  */
+  vector_modes[0] = autodetected_vector_mode;
+  mode_i = 0;
+
+  bool supports_partial_vectors =
+    partial_vectors_supported_p () && param_vect_partial_vector_usage != 0;
+  poly_uint64 first_vinfo_vf = LOOP_VINFO_VECT_FACTOR (first_loop_vinfo);
+
+  while (1)
+    {
+      /* If the target does not support partial vectors we can shorten the
+	 number of modes to analyze for the epilogue as we know we can't pick a
+	 mode that has at least as many NUNITS as the main loop's vectorization
+	 factor, since that would imply the epilogue's vectorization factor
+	 would be at least as high as the main loop's and we would be
+	 vectorizing for more scalar iterations than there would be left.  */
+      if (!supports_partial_vectors
+	  && maybe_ge (GET_MODE_NUNITS (vector_modes[mode_i]), first_vinfo_vf))
+	{
+	  mode_i++;
+	  if (mode_i == vector_modes.length ())
+	    break;
+	  continue;
+	}
+
+      if (dump_enabled_p ())
+	dump_printf_loc (MSG_NOTE, vect_location,
+			 "***** Re-trying epilogue analysis with vector "
+			 "mode %s\n", GET_MODE_NAME (vector_modes[mode_i]));
+
+      bool fatal;
+      opt_loop_vec_info loop_vinfo
+	= vect_analyze_loop_1 (loop, shared, &loop_form_info,
+			       first_loop_vinfo,
+			       vector_modes, mode_i,
+			       autodetected_vector_mode, fatal);
+      if (fatal)
+	break;
+
+      if (loop_vinfo)
+	{
+	  if (pick_lowest_cost_p)
 	    {
 	      /* Keep trying to roll back vectorization attempts while the
 		 loop_vec_infos they produced were worse than this one.  */
