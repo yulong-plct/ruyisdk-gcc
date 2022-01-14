@@ -546,7 +546,7 @@ static const format_length_info strfmon_length_specs[] =
 };
 
 
-/* For now, the Fortran front-end routines only use l as length modifier.  */
+/* Length modifiers used by the fortran/error.cc routines.  */
 static const format_length_info gcc_gfc_length_specs[] =
 {
   { "l", FMT_LEN_l, STD_C89, NO_FMT, 0 },

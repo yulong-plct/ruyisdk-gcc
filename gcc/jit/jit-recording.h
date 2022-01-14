@@ -1004,7 +1004,7 @@ private:
 /* An abstract base class for operations that visit all rvalues within an
    expression tree.
    Currently the only implementation is class rvalue_usage_validator within
-   jit-recording.c.  */
+   jit-recording.cc.  */
 
 class rvalue_visitor
 {

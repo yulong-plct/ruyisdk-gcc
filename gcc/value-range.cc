@@ -2073,26 +2073,20 @@ vrp_operand_equal_p (const_tree val1, const_tree val2)
   return true;
 }
 
-#define DEFINE_INT_RANGE_GC_STUBS(N)		\
-  void						\
-  gt_pch_nx (int_range<N> *&x)			\
-  {						\
-    for (unsigned i = 0; i < N; ++i)		\
-      {						\
-	gt_pch_nx (x->m_ranges[i * 2]);		\
-	gt_pch_nx (x->m_ranges[i * 2 + 1]);	\
-      }		  		       		\
-  }						\
-						\
-  void						\
-  gt_ggc_mx (int_range<N> *&x)			\
-  {	    	       				\
-    for (unsigned i = 0; i < N; ++i)		\
-      {						\
-	  gt_ggc_mx (x->m_ranges[i * 2]);	\
-	  gt_ggc_mx (x->m_ranges[i * 2 + 1]);	\
-      }						\
-  }
+// ?? These stubs are for ipa-prop.cc which use a value_range in a
+// hash_traits.  hash-traits.h defines an extern of gt_ggc_mx (T &)
+// instead of picking up the gt_ggc_mx (T *) version.
+void
+gt_pch_nx (int_range<1> *&x)
+{
+  return gt_pch_nx ((irange *) x);
+}
+
+void
+gt_ggc_mx (int_range<1> *&x)
+{
+  return gt_ggc_mx ((irange *) x);
+}
 
 #define DEFINE_INT_RANGE_INSTANCE(N)					\
   template int_range<N>::int_range(tree, tree, value_range_kind);	\

@@ -654,7 +654,7 @@ initialize_tree_contains_struct (void)
 }
 
 
-/* Init tree.c.  */
+/* Init tree.cc.  */
 
 void
 init_ttree (void)
@@ -706,6 +706,112 @@ overwrite_decl_assembler_name (tree decl, tree name)
 {
   if (DECL_ASSEMBLER_NAME_RAW (decl) != name)
     lang_hooks.overwrite_decl_assembler_name (decl, name);
+}
+
+/* Return true if DECL may need an assembler name to be set.  */
+
+static inline bool
+need_assembler_name_p (tree decl)
+{
+  /* We use DECL_ASSEMBLER_NAME to hold mangled type names for One Definition
+     Rule merging.  This makes type_odr_p to return true on those types during
+     LTO and by comparing the mangled name, we can say what types are intended
+     to be equivalent across compilation unit.
+
+     We do not store names of type_in_anonymous_namespace_p.
+
+     Record, union and enumeration type have linkage that allows use
+     to check type_in_anonymous_namespace_p. We do not mangle compound types
+     that always can be compared structurally.
+
+     Similarly for builtin types, we compare properties of their main variant.
+     A special case are integer types where mangling do make differences
+     between char/signed char/unsigned char etc.  Storing name for these makes
+     e.g.  -fno-signed-char/-fsigned-char mismatches to be handled well.
+     See cp/mangle.cc:write_builtin_type for details.  */
+
+  if (TREE_CODE (decl) == TYPE_DECL)
+    {
+      if (DECL_NAME (decl)
+	  && decl == TYPE_NAME (TREE_TYPE (decl))
+	  && TYPE_MAIN_VARIANT (TREE_TYPE (decl)) == TREE_TYPE (decl)
+	  && !TYPE_ARTIFICIAL (TREE_TYPE (decl))
+	  && ((TREE_CODE (TREE_TYPE (decl)) != RECORD_TYPE
+	       && TREE_CODE (TREE_TYPE (decl)) != UNION_TYPE)
+	      || TYPE_CXX_ODR_P (TREE_TYPE (decl)))
+	  && (type_with_linkage_p (TREE_TYPE (decl))
+	      || TREE_CODE (TREE_TYPE (decl)) == INTEGER_TYPE)
+	  && !variably_modified_type_p (TREE_TYPE (decl), NULL_TREE))
+	return !DECL_ASSEMBLER_NAME_SET_P (decl);
+      return false;
+    }
+  /* Only FUNCTION_DECLs and VAR_DECLs are considered.  */
+  if (!VAR_OR_FUNCTION_DECL_P (decl))
+    return false;
+
+  /* If DECL already has its assembler name set, it does not need a
+     new one.  */
+  if (!HAS_DECL_ASSEMBLER_NAME_P (decl)
+      || DECL_ASSEMBLER_NAME_SET_P (decl))
+    return false;
+
+  /* Abstract decls do not need an assembler name.  */
+  if (DECL_ABSTRACT_P (decl))
+    return false;
+
+  /* For VAR_DECLs, only static, public and external symbols need an
+     assembler name.  */
+  if (VAR_P (decl)
+      && !TREE_STATIC (decl)
+      && !TREE_PUBLIC (decl)
+      && !DECL_EXTERNAL (decl))
+    return false;
+
+  if (TREE_CODE (decl) == FUNCTION_DECL)
+    {
+      /* Do not set assembler name on builtins.  Allow RTL expansion to
+	 decide whether to expand inline or via a regular call.  */
+      if (fndecl_built_in_p (decl)
+	  && DECL_BUILT_IN_CLASS (decl) != BUILT_IN_FRONTEND)
+	return false;
+
+      /* Functions represented in the callgraph need an assembler name.  */
+      if (cgraph_node::get (decl) != NULL)
+	return true;
+
+      /* Unused and not public functions don't need an assembler name.  */
+      if (!TREE_USED (decl) && !TREE_PUBLIC (decl))
+	return false;
+    }
+
+  return true;
+}
+
+/* If T needs an assembler name, have one created for it.  */
+
+void
+assign_assembler_name_if_needed (tree t)
+{
+  if (need_assembler_name_p (t))
+    {
+      /* When setting DECL_ASSEMBLER_NAME, the C++ mangler may emit
+	 diagnostics that use input_location to show locus
+	 information.  The problem here is that, at this point,
+	 input_location is generally anchored to the end of the file
+	 (since the parser is long gone), so we don't have a good
+	 position to pin it to.
+
+	 To alleviate this problem, this uses the location of T's
+	 declaration.  Examples of this are
+	 testsuite/g++.dg/template/cond2.C and
+	 testsuite/g++.dg/template/pr35240.C.  */
+      location_t saved_location = input_location;
+      input_location = DECL_SOURCE_LOCATION (t);
+
+      decl_assembler_name (t);
+
+      input_location = saved_location;
+    }
 }
 
 /* When the target supports COMDAT groups, this indicates which group the
@@ -14282,7 +14388,7 @@ type_with_interoperable_signedness (const_tree type)
 
 /* Return true iff T1 and T2 are structurally identical for what
    TBAA is concerned.  
-   This function is used both by lto.c canonical type merging and by the
+   This function is used both by lto.cc canonical type merging and by the
    verifier.  If TRUST_TYPE_CANONICAL we do not look into structure of types
    that have TYPE_CANONICAL defined and assume them equivalent.  This is useful
    only for LTO because only in these cases TYPE_CANONICAL equivalence

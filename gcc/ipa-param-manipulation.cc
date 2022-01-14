@@ -971,6 +971,243 @@ ipa_param_body_adjustments::carry_over_param (tree t)
   return new_parm;
 }
 
+/* Populate m_dead_stmts given that DEAD_PARAM is going to be removed without
+   any replacement or splitting.  REPL is the replacement VAR_SECL to base any
+   remaining uses of a removed parameter on.  Push all removed SSA names that
+   are used within debug statements to DEBUGSTACK.  */
+
+void
+ipa_param_body_adjustments::mark_dead_statements (tree dead_param,
+						  vec<tree> *debugstack)
+{
+  /* Current IPA analyses which remove unused parameters never remove a
+     non-gimple register ones which have any use except as parameters in other
+     calls, so we can safely leve them as they are.  */
+  if (!is_gimple_reg (dead_param))
+    return;
+  tree parm_ddef = ssa_default_def (m_id->src_cfun, dead_param);
+  if (!parm_ddef || has_zero_uses (parm_ddef))
+    return;
+
+  auto_vec<tree, 4> stack;
+  hash_set<tree> used_in_debug;
+  m_dead_ssas.add (parm_ddef);
+  stack.safe_push (parm_ddef);
+  while (!stack.is_empty ())
+    {
+      imm_use_iterator imm_iter;
+      use_operand_p use_p;
+      tree t = stack.pop ();
+
+      insert_decl_map (m_id, t, error_mark_node);
+      FOR_EACH_IMM_USE_FAST (use_p, imm_iter, t)
+	{
+	  gimple *stmt = USE_STMT (use_p);
+
+	  /* Calls containing dead arguments cannot be deleted,
+	     modify_call_stmt will instead remove just the argument later on.
+	     If isra_track_scalar_value_uses in ipa-sra.cc is extended to look
+	     through const functions, we will need to do so here too.  */
+	  if (is_gimple_call (stmt)
+	      || (m_id->blocks_to_copy
+		  && !bitmap_bit_p (m_id->blocks_to_copy,
+				    gimple_bb (stmt)->index)))
+	    continue;
+
+	  if (is_gimple_debug (stmt))
+	    {
+	      m_dead_stmts.add (stmt);
+	      gcc_assert (gimple_debug_bind_p (stmt));
+	      if (!used_in_debug.contains (t))
+		{
+		  used_in_debug.add (t);
+		  debugstack->safe_push (t);
+		}
+	    }
+	  else if (gimple_code (stmt) == GIMPLE_PHI)
+	    {
+	      gphi *phi = as_a <gphi *> (stmt);
+	      int ix = PHI_ARG_INDEX_FROM_USE (use_p);
+
+	      if (!m_id->blocks_to_copy
+		  || bitmap_bit_p (m_id->blocks_to_copy,
+				   gimple_phi_arg_edge (phi, ix)->src->index))
+		{
+		  m_dead_stmts.add (phi);
+		  tree res = gimple_phi_result (phi);
+		  if (!m_dead_ssas.add (res))
+		    stack.safe_push (res);
+		}
+	    }
+	  else if (is_gimple_assign (stmt))
+	    {
+	      m_dead_stmts.add (stmt);
+	      if (!gimple_clobber_p (stmt))
+		{
+		  tree lhs = gimple_assign_lhs (stmt);
+		  gcc_assert (TREE_CODE (lhs) == SSA_NAME);
+		  if (!m_dead_ssas.add (lhs))
+		    stack.safe_push (lhs);
+		}
+	    }
+	  else
+	    /* IPA-SRA does not analyze other types of statements.  */
+	    gcc_unreachable ();
+	}
+    }
+
+  if (!MAY_HAVE_DEBUG_STMTS)
+    {
+      gcc_assert (debugstack->is_empty ());
+      return;
+    }
+
+  tree dp_ddecl = build_debug_expr_decl (TREE_TYPE (dead_param));
+  /* FIXME: Is setting the mode really necessary? */
+  SET_DECL_MODE (dp_ddecl, DECL_MODE (dead_param));
+  m_dead_ssa_debug_equiv.put (parm_ddef, dp_ddecl);
+}
+
+/* Callback to walk_tree.  If REMAP is an SSA_NAME that is present in hash_map
+   passed in DATA, replace it with unshared version of what it was mapped to.
+   If an SSA argument would be remapped to NULL, the whole operation needs to
+   abort which is signaled by returning error_mark_node.  */
+
+static tree
+replace_with_mapped_expr (tree *remap, int *walk_subtrees, void *data)
+{
+  if (TYPE_P (*remap))
+    {
+      *walk_subtrees = 0;
+      return 0;
+    }
+  if (TREE_CODE (*remap) != SSA_NAME)
+    return 0;
+
+  *walk_subtrees = 0;
+
+  hash_map<tree, tree> *equivs = (hash_map<tree, tree> *) data;
+  if (tree *p = equivs->get (*remap))
+    {
+      if (!*p)
+	return error_mark_node;
+      *remap = unshare_expr (*p);
+    }
+  return 0;
+}
+
+/* Replace all occurances of SSAs in m_dead_ssa_debug_equiv in t with what they
+   are mapped to.  */
+
+void
+ipa_param_body_adjustments::remap_with_debug_expressions (tree *t)
+{
+  /* If *t is an SSA_NAME which should have its debug statements reset, it is
+     mapped to NULL in the hash_map.
+
+     It is perhaps simpler to handle the SSA_NAME cases directly and only
+     invoke walk_tree on more complex expressions.  When
+     remap_with_debug_expressions is called from tree-inline.cc, a to-be-reset
+     SSA_NAME can be an operand to such expressions and the entire debug
+     variable we are remapping should be reset.  This is signaled by walk_tree
+     returning error_mark_node and done by setting *t to NULL.  */
+  if (TREE_CODE (*t) == SSA_NAME)
+    {
+      if (tree *p = m_dead_ssa_debug_equiv.get (*t))
+	*t = *p;
+    }
+  else if (walk_tree (t, replace_with_mapped_expr,
+		      &m_dead_ssa_debug_equiv, NULL) == error_mark_node)
+    *t = NULL_TREE;
+}
+
+/* For an SSA_NAME DEAD_SSA which is about to be DCEd because it is based on a
+   useless parameter, prepare an expression that should represent it in
+   debug_binds in the cloned function and add a mapping from DEAD_SSA to
+   m_dead_ssa_debug_equiv.  That mapping is to NULL when the associated
+   debug_statement has to be reset instead.  In such case return false,
+   ottherwise return true.  If DEAD_SSA comes from a basic block which is not
+   about to be copied, ignore it and return true.  */
+
+bool
+ipa_param_body_adjustments::prepare_debug_expressions (tree dead_ssa)
+{
+  gcc_checking_assert (m_dead_ssas.contains (dead_ssa));
+  if (tree *d = m_dead_ssa_debug_equiv.get (dead_ssa))
+    return (*d != NULL_TREE);
+
+  gcc_assert (!SSA_NAME_IS_DEFAULT_DEF (dead_ssa));
+  gimple *def = SSA_NAME_DEF_STMT (dead_ssa);
+  if (m_id->blocks_to_copy
+      && !bitmap_bit_p (m_id->blocks_to_copy, gimple_bb (def)->index))
+    return true;
+
+  if (gimple_code (def) == GIMPLE_PHI)
+    {
+      /* In theory, we could ignore all SSAs coming from BBs not in
+	 m_id->blocks_to_copy but at the time of the writing this code that
+	 should never really be the case because only fnsplit uses that bitmap,
+	 so don't bother.  */
+      tree value = degenerate_phi_result (as_a <gphi *> (def));
+      if (!value
+	  || (m_dead_ssas.contains (value)
+	      && !prepare_debug_expressions (value)))
+	{
+	  m_dead_ssa_debug_equiv.put (dead_ssa, NULL_TREE);
+	  return false;
+	}
+
+      gcc_assert (TREE_CODE (value) == SSA_NAME);
+      tree *d = m_dead_ssa_debug_equiv.get (value);
+      m_dead_ssa_debug_equiv.put (dead_ssa, *d);
+      return true;
+    }
+
+  bool lost = false;
+  use_operand_p use_p;
+  ssa_op_iter oi;
+  FOR_EACH_PHI_OR_STMT_USE (use_p, def, oi, SSA_OP_USE)
+    {
+      tree use = USE_FROM_PTR (use_p);
+      if (m_dead_ssas.contains (use)
+	  && !prepare_debug_expressions (use))
+	{
+	  lost = true;
+	  break;
+	}
+    }
+
+  if (lost)
+    {
+      m_dead_ssa_debug_equiv.put (dead_ssa, NULL_TREE);
+      return false;
+    }
+
+  if (is_gimple_assign (def))
+    {
+      gcc_assert (!gimple_clobber_p (def));
+      if (gimple_assign_copy_p (def)
+	  && TREE_CODE (gimple_assign_rhs1 (def)) == SSA_NAME)
+	{
+	  tree d = *m_dead_ssa_debug_equiv.get (gimple_assign_rhs1 (def));
+	  gcc_assert (d);
+	  m_dead_ssa_debug_equiv.put (dead_ssa, d);
+	  return true;
+	}
+
+      tree val
+	= unshare_expr_without_location (gimple_assign_rhs_to_tree (def));
+      remap_with_debug_expressions (&val);
+
+      tree vexpr = build_debug_expr_decl (TREE_TYPE (val));
+      m_dead_stmt_debug_equiv.put (def, val);
+      m_dead_ssa_debug_equiv.put (dead_ssa, vexpr);
+      return true;
+    }
+  else
+    gcc_unreachable ();
+}
+
 /* Common initialization performed by all ipa_param_body_adjustments
    constructors.  OLD_FNDECL is the declaration we take original arguments
    from, (it may be the same as M_FNDECL).  VARS, if non-NULL, is a pointer to

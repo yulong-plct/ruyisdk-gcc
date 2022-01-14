@@ -10424,7 +10424,7 @@ concat_name (tree gnu_name, const char *suffix)
   return get_identifier_with_length (new_name, len);
 }
 
-/* Initialize the data structures of the decl.c module.  */
+/* Initialize the data structures of the decl.cc module.  */
 
 void
 init_gnat_decl (void)
@@ -10436,7 +10436,7 @@ init_gnat_decl (void)
   dummy_to_subprog_map = hash_table<dummy_type_hasher>::create_ggc (512);
 }
 
-/* Destroy the data structures of the decl.c module.  */
+/* Destroy the data structures of the decl.cc module.  */
 
 void
 destroy_gnat_decl (void)

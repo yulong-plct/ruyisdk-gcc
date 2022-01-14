@@ -87,6 +87,43 @@ namespace jit {
  Playback.
  **********************************************************************/
 
+/* Fold a readonly non-volatile variable with an initial constant value,
+   to that value.
+
+   Otherwise return the argument unchanged.
+
+   This fold is needed for setting a variable's DECL_INITIAL to the value
+   of a const variable.  The c-frontend does this in its own special
+   fold (), so we lift this part out and do it explicitly where there is a
+   potential for variables to be used as rvalues.  */
+static tree
+fold_const_var (tree node)
+{
+  /* See c_fully_fold_internal in c-fold.cc and decl_constant_value_1
+     in c-typeck.cc.  */
+  if (VAR_P (node)
+      && TREE_READONLY (node)
+      && !TREE_THIS_VOLATILE (node)
+      && DECL_INITIAL (node) != NULL_TREE
+      /* "This is invalid if initial value is not constant.
+	  If it has either a function call, a memory reference,
+	  or a variable, then re-evaluating it could give different
+	  results."  */
+      && TREE_CONSTANT (DECL_INITIAL (node)))
+    {
+      tree ret = DECL_INITIAL (node);
+      /* "Avoid unwanted tree sharing between the initializer and current
+	  function's body where the tree can be modified e.g. by the
+	  gimplifier."  */
+      if (TREE_STATIC (node))
+	ret = unshare_expr (ret);
+
+      return ret;
+    }
+
+  return node;
+}
+
 /* Build a STRING_CST tree for STR, or return NULL if it is NULL.
    The TREE_TYPE is not initialized.  */
 
@@ -138,7 +175,7 @@ playback::context::~context ()
    ("by hand", rather than by gengtype).
 
    This is called on the active playback context (if any) by the
-   my_ggc_walker hook in the jit_root_table in dummy-frontend.c.  */
+   my_ggc_walker hook in the jit_root_table in dummy-frontend.cc.  */
 
 void
 playback::context::
@@ -276,7 +313,7 @@ new_field (location *loc,
   gcc_assert (type);
   gcc_assert (name);
 
-  /* compare with c/c-decl.c:grokfield and grokdeclarator.  */
+  /* compare with c/c-decl.cc:grokfield and grokdeclarator.  */
   tree decl = build_decl (UNKNOWN_LOCATION, FIELD_DECL,
 			  get_identifier (name), type->as_tree ());
 
@@ -299,7 +336,7 @@ new_bitfield (location *loc,
   gcc_assert (name);
   gcc_assert (width);
 
-  /* compare with c/c-decl.c:grokfield,  grokdeclarator and
+  /* compare with c/c-decl.cc:grokfield,  grokdeclarator and
      check_bitfield_type_and_width.  */
 
   tree tree_type = type->as_tree ();
@@ -336,7 +373,7 @@ new_compound_type (location *loc,
 {
   gcc_assert (name);
 
-  /* Compare with c/c-decl.c: start_struct. */
+  /* Compare with c/c-decl.cc: start_struct. */
 
   tree t = make_node (is_struct ? RECORD_TYPE : UNION_TYPE);
   TYPE_NAME (t) = get_identifier (name);
@@ -351,7 +388,7 @@ new_compound_type (location *loc,
 void
 playback::compound_type::set_fields (const auto_vec<playback::field *> *fields)
 {
-  /* Compare with c/c-decl.c: finish_struct. */
+  /* Compare with c/c-decl.cc: finish_struct. */
   tree t = as_tree ();
 
   tree fieldlist = NULL;
@@ -593,6 +630,112 @@ new_global (location *loc,
   return global_finalize_lvalue (inner);
 }
 
+void
+playback::context::
+global_set_init_rvalue (lvalue* variable,
+			rvalue* init)
+{
+  tree inner = variable->as_tree ();
+
+  /* We need to fold all expressions as much as possible.  The code
+     for a DECL_INITIAL only handles some operations,
+     etc addition, minus, 'address of'.  See output_addressed_constants ()
+     in varasm.cc.  */
+  tree init_tree = init->as_tree ();
+  tree folded = fold_const_var (init_tree);
+
+  if (!TREE_CONSTANT (folded))
+    {
+      tree name = DECL_NAME (inner);
+
+      if (name != NULL_TREE)
+	add_error (NULL,
+		   "unable to convert initial value for the global variable %s"
+		   " to a compile-time constant",
+		   IDENTIFIER_POINTER (name));
+      else
+	add_error (NULL,
+		   "unable to convert initial value for global variable"
+		   " to a compile-time constant");
+      return;
+    }
+
+  DECL_INITIAL (inner) = folded;
+}
+
+playback::rvalue *
+playback::context::
+new_ctor (location *loc,
+	  type *type,
+	  const auto_vec<field*> *fields,
+	  const auto_vec<rvalue*> *rvalues)
+{
+  tree type_tree = type->as_tree ();
+
+  /* Handle empty ctors first.  I.e. set everything to 0.  */
+  if (rvalues->length () == 0)
+    return new rvalue (this, build_constructor (type_tree, NULL));
+
+  /* Handle arrays (and return).  */
+  if (TREE_CODE (type_tree) == ARRAY_TYPE)
+    {
+      int n = rvalues->length ();
+      /* The vec for the constructor node.  */
+      vec<constructor_elt, va_gc> *v = NULL;
+      vec_alloc (v, n);
+
+      for (int i = 0; i < n; i++)
+	{
+	  rvalue *rv = (*rvalues)[i];
+	  /* null rvalues indicate that the element should be zeroed.  */
+	  if (rv)
+	    CONSTRUCTOR_APPEND_ELT (v,
+				    build_int_cst (size_type_node, i),
+				    rv->as_tree ());
+	  else
+	    CONSTRUCTOR_APPEND_ELT (v,
+				    build_int_cst (size_type_node, i),
+				    build_zero_cst (TREE_TYPE (type_tree)));
+	}
+
+      tree ctor = build_constructor (type_tree, v);
+
+      if (loc)
+	set_tree_location (ctor, loc);
+
+      return new rvalue (this, ctor);
+    }
+
+  /* Handle structs and unions.  */
+  int n = fields->length ();
+
+  /* The vec for the constructor node.  */
+  vec<constructor_elt, va_gc> *v = NULL;
+  vec_alloc (v, n);
+
+  /* Iterate over the fields, building initializations.  */
+  for (int i = 0;i < n; i++)
+    {
+      tree field = (*fields)[i]->as_tree ();
+      rvalue *rv = (*rvalues)[i];
+      /* If the value is NULL, it means we should zero the field.  */
+      if (rv)
+	CONSTRUCTOR_APPEND_ELT (v, field, rv->as_tree ());
+      else
+	{
+	  tree zero_cst = build_zero_cst (TREE_TYPE (field));
+	  CONSTRUCTOR_APPEND_ELT (v, field, zero_cst);
+	}
+    }
+
+  tree ctor = build_constructor (type_tree, v);
+
+  if (loc)
+    set_tree_location (ctor, loc);
+
+  return new rvalue (this, build_constructor (type_tree, v));
+}
+
 /* Fill 'constructor_elements' with the memory content of
    'initializer'.  Each element of the initializer is of the size of
    type T.  In use by new_global_initialized.*/
@@ -603,7 +746,7 @@ load_blob_in_ctor (vec<constructor_elt, va_gc> *&constructor_elements,
 		   size_t num_elem,
 		   const void *initializer)
 {
-  /* Loosely based on 'output_init_element' c-typeck.c:9691.  */
+  /* Loosely based on 'output_init_element' c-typeck.cc:9691.  */
   const T *p = (const T *)initializer;
   tree node = make_unsigned_type (BITS_PER_UNIT * sizeof (T));
   for (size_t i = 0; i < num_elem; i++)
@@ -655,11 +798,11 @@ new_global_initialized (location *loc,
 	 these are all covered by the previous cases.  */
       gcc_unreachable ();
     }
-  /* Compare with 'pop_init_level' c-typeck.c:8780.  */
+  /* Compare with 'pop_init_level' c-typeck.cc:8780.  */
   tree ctor = build_constructor (type->as_tree (), constructor_elements);
   constructor_elements = NULL;
 
-  /* Compare with 'store_init_value' c-typeck.c:7555.  */
+  /* Compare with 'store_init_value' c-typeck.cc:7555.  */
   DECL_INITIAL (inner) = ctor;
 
   return global_finalize_lvalue (inner);
@@ -738,7 +881,7 @@ new_rvalue_from_const <double> (type *type,
 
   /* We have a "double", we want a REAL_VALUE_TYPE.
 
-     real.c:real_from_target appears to require the representation to be
+     real.cc:real_from_target appears to require the representation to be
      split into 32-bit values, and then sent as an pair of host long
      ints.  */
   REAL_VALUE_TYPE real_value;
@@ -782,7 +925,7 @@ playback::rvalue *
 playback::context::
 new_string_literal (const char *value)
 {
-  /* Compare with c-family/c-common.c: fix_string_type.  */
+  /* Compare with c-family/c-common.cc: fix_string_type.  */
   size_t len = strlen (value);
   tree i_type = build_index_type (size_int (len));
   tree a_type = build_array_type (char_type_node, i_type);
@@ -792,7 +935,7 @@ new_string_literal (const char *value)
   TREE_TYPE (t_str) = a_type;
 
   /* Convert to (const char*), loosely based on
-     c/c-typeck.c: array_to_pointer_conversion,
+     c/c-typeck.cc: array_to_pointer_conversion,
      by taking address of start of string.  */
   tree t_addr = build1 (ADDR_EXPR, m_const_char_ptr, t_str);
 
@@ -821,7 +964,7 @@ tree
 playback::context::
 as_truth_value (tree expr, location *loc)
 {
-  /* Compare to c-typeck.c:c_objc_common_truthvalue_conversion */
+  /* Compare to c-typeck.cc:c_objc_common_truthvalue_conversion */
   tree typed_zero = fold_build1 (CONVERT_EXPR,
 				 TREE_TYPE (expr),
 				 integer_zero_node);
@@ -1075,13 +1218,13 @@ build_call (location *loc,
 
   return new rvalue (this, call);
 
-  /* see c-typeck.c: build_function_call
+  /* see c-typeck.cc: build_function_call
      which calls build_function_call_vec
 
      which does lots of checking, then:
     result = build_call_array_loc (loc, TREE_TYPE (fntype),
 				   function, nargs, argarray);
-    which is in tree.c
+    which is in tree.cc
     (see also build_call_vec)
    */
 }
@@ -1133,8 +1276,8 @@ playback::context::build_cast (playback::location *loc,
 			       playback::type *type_)
 {
   /* For comparison, see:
-     - c/c-typeck.c:build_c_cast
-     - c/c-convert.c: convert
+     - c/c-typeck.cc:build_c_cast
+     - c/c-convert.cc: convert
      - convert.h
 
      Only some kinds of cast are currently supported here.  */
@@ -1213,8 +1356,8 @@ new_array_access (location *loc,
   gcc_assert (index);
 
   /* For comparison, see:
-       c/c-typeck.c: build_array_ref
-       c-family/c-common.c: pointer_int_sum
+       c/c-typeck.cc: build_array_ref
+       c-family/c-common.cc: pointer_int_sum
   */
   tree t_ptr = ptr->as_tree ();
   tree t_index = index->as_tree ();
@@ -1263,7 +1406,7 @@ new_field_access (location *loc,
   gcc_assert (datum);
   gcc_assert (field);
 
-  /* Compare with c/c-typeck.c:lookup_field, build_indirect_ref, and
+  /* Compare with c/c-typeck.cc:lookup_field, build_indirect_ref, and
      build_component_ref. */
   tree type = TREE_TYPE (datum);
   gcc_assert (type);
@@ -1381,7 +1524,7 @@ dereference (location *loc)
 
 /* Mark the lvalue saying that we need to be able to take the
    address of it; it should not be allocated in a register.
-   Compare with e.g. c/c-typeck.c: c_mark_addressable really_atomic_lvalue.
+   Compare with e.g. c/c-typeck.cc: c_mark_addressable really_atomic_lvalue.
    Returns false if a failure occurred (an error will already have been
    added to the active context for this case).  */
 
@@ -1625,7 +1768,7 @@ postprocess ()
   if (m_ctxt->get_bool_option (GCC_JIT_BOOL_OPTION_DUMP_INITIAL_TREE))
     debug_tree (m_stmt_list);
 
-  /* Do we need this to force cgraphunit.c to output the function? */
+  /* Do we need this to force cgraphunit.cc to output the function? */
   if (m_kind == GCC_JIT_FUNCTION_EXPORTED)
     {
       DECL_EXTERNAL (m_inner_fndecl) = 0;
@@ -1641,7 +1784,7 @@ postprocess ()
 
   if (m_kind != GCC_JIT_FUNCTION_IMPORTED)
     {
-      /* Seem to need this in gimple-low.c: */
+      /* Seem to need this in gimple-low.cc: */
       gcc_assert (m_inner_block);
       DECL_INITIAL (m_inner_fndecl) = m_inner_block;
 
@@ -1813,7 +1956,7 @@ add_jump (location *loc,
   add_stmt (stmt);
 
   /*
-  from c-typeck.c:
+  from c-typeck.cc:
 tree
 c_finish_goto_label (location_t loc, tree label)
 {
@@ -1896,11 +2039,11 @@ add_switch (location *loc,
 	    const auto_vec <case_> *cases)
 {
   /* Compare with:
-     - c/c-typeck.c: c_start_case
-     - c-family/c-common.c:c_add_case_label
-     - java/expr.c:expand_java_switch and expand_java_add_case
+     - c/c-typeck.cc: c_start_case
+     - c-family/c-common.cc:c_add_case_label
+     - java/expr.cc:expand_java_switch and expand_java_add_case
      We've already rejected overlaps and duplicates in
-     libgccjit.c:case_range_validator::validate.  */
+     libgccjit.cc:case_range_validator::validate.  */
 
   tree t_expr = expr->as_tree ();
   tree t_type = TREE_TYPE (t_expr);
@@ -1986,8 +2129,8 @@ build_goto_operands (const auto_vec <playback::block *> *blocks)
 
 /* Add an extended asm statement to this block.
 
-   Compare with c_parser_asm_statement (in c/c-parser.c)
-   and build_asm_expr (in c/c-typeck.c).  */
+   Compare with c_parser_asm_statement (in c/c-parser.cc)
+   and build_asm_expr (in c/c-typeck.cc).  */
 
 void
 playback::block::add_extended_asm (location *loc,
@@ -2678,7 +2821,7 @@ playback::context::read_dump_file (const char *path)
 /* Part of playback::context::compile ().
 
    We have a .s file; we want a .so file.
-   We could reuse parts of gcc/gcc.c to do this.
+   We could reuse parts of gcc/gcc.cc to do this.
    For now, just use the driver binary from the install, as
    named in gcc-driver-name.h
    e.g. "x86_64-unknown-linux-gnu-gcc-5.0.0".  */
@@ -3071,6 +3214,50 @@ location_comparator (const void *lhs, const void *rhs)
   const playback::location *loc_rhs = \
     *static_cast<const playback::location * const *> (rhs);
   return loc_lhs->get_column_num () - loc_rhs->get_column_num ();
+}
+
+/* Initialize the NAME_TYPE of the primitive types as well as some
+   others. */
+void
+playback::context::
+init_types ()
+{
+  /* See lto_init() in lto-lang.cc or void visit (TypeBasic *t) in D's types.cc 
+     for reference. If TYPE_NAME is not set, debug info will not contain types */
+#define NAME_TYPE(t,n) \
+if (t) \
+  TYPE_NAME (t) = build_decl (UNKNOWN_LOCATION, TYPE_DECL, \
+                              get_identifier (n), t)
+
+  NAME_TYPE (integer_type_node, "int");
+  NAME_TYPE (char_type_node, "char");
+  NAME_TYPE (long_integer_type_node, "long int");
+  NAME_TYPE (unsigned_type_node, "unsigned int");
+  NAME_TYPE (long_unsigned_type_node, "long unsigned int");
+  NAME_TYPE (long_long_integer_type_node, "long long int");
+  NAME_TYPE (long_long_unsigned_type_node, "long long unsigned int");
+  NAME_TYPE (short_integer_type_node, "short int");
+  NAME_TYPE (short_unsigned_type_node, "short unsigned int");
+  if (signed_char_type_node != char_type_node)
+    NAME_TYPE (signed_char_type_node, "signed char");
+  if (unsigned_char_type_node != char_type_node)
+    NAME_TYPE (unsigned_char_type_node, "unsigned char");
+  NAME_TYPE (float_type_node, "float");
+  NAME_TYPE (double_type_node, "double");
+  NAME_TYPE (long_double_type_node, "long double");
+  NAME_TYPE (void_type_node, "void");
+  NAME_TYPE (boolean_type_node, "bool");
+  NAME_TYPE (complex_float_type_node, "complex float");
+  NAME_TYPE (complex_double_type_node, "complex double");
+  NAME_TYPE (complex_long_double_type_node, "complex long double");
+  
+  m_const_char_ptr = build_pointer_type(
+    build_qualified_type (char_type_node, TYPE_QUAL_CONST));
+
+  NAME_TYPE (m_const_char_ptr, "char");
+  NAME_TYPE (size_type_node, "size_t");
+  NAME_TYPE (fileptr_type_node, "FILE");
+#undef NAME_TYPE
 }
 
 /* Our API allows locations to be created in arbitrary orders, but the

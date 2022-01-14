@@ -51,7 +51,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "profile.h"
 #include "diagnostic.h"
 
-#include "gcov-io.c"
+#include "gcov-io.cc"
 
 struct GTY((chain_next ("%h.next"))) coverage_data
 {

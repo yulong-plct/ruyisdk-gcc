@@ -3614,6 +3614,34 @@ gcn_init_builtins (void)
 #endif
 }
 
+/* Implement TARGET_INIT_LIBFUNCS.  */
+
+static void
+gcn_init_libfuncs (void)
+{
+  /* BITS_PER_UNIT * 2 is 64 bits, which causes
+     optabs-libfuncs.cc:gen_int_libfunc to omit TImode (i.e 128 bits)
+     libcalls that we need to support operations for that type.  Initialise
+     them here instead.  */
+  set_optab_libfunc (udiv_optab, TImode, "__udivti3");
+  set_optab_libfunc (umod_optab, TImode, "__umodti3");
+  set_optab_libfunc (sdiv_optab, TImode, "__divti3");
+  set_optab_libfunc (smod_optab, TImode, "__modti3");
+  set_optab_libfunc (smul_optab, TImode, "__multi3");
+  set_optab_libfunc (addv_optab, TImode, "__addvti3");
+  set_optab_libfunc (subv_optab, TImode, "__subvti3");
+  set_optab_libfunc (negv_optab, TImode, "__negvti2");
+  set_optab_libfunc (absv_optab, TImode, "__absvti2");
+  set_optab_libfunc (smulv_optab, TImode, "__mulvti3");
+  set_optab_libfunc (ffs_optab, TImode, "__ffsti2");
+  set_optab_libfunc (clz_optab, TImode, "__clzti2");
+  set_optab_libfunc (ctz_optab, TImode, "__ctzti2");
+  set_optab_libfunc (clrsb_optab, TImode, "__clrsbti2");
+  set_optab_libfunc (popcount_optab, TImode, "__popcountti2");
+  set_optab_libfunc (parity_optab, TImode, "__parityti2");
+  set_optab_libfunc (bswap_optab, TImode, "__bswapti2");
+}
+
 /* Expand the CMP_SWAP GCN builtins.  We have our own versions that do
    not require taking the address of any object, other than the memory
    cell being operated on.

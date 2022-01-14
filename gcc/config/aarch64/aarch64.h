@@ -607,7 +607,7 @@ extern unsigned aarch64_architecture_version;
 #define DBX_REGISTER_NUMBER(REGNO)	aarch64_dbx_register_number (REGNO)
 /* Provide a definition of DWARF_FRAME_REGNUM here so that fallback unwinders
    can use DWARF_ALT_FRAME_RETURN_COLUMN defined below.  This is just the same
-   as the default definition in dwarf2out.c.  */
+   as the default definition in dwarf2out.cc.  */
 #undef DWARF_FRAME_REGNUM
 #define DWARF_FRAME_REGNUM(REGNO)	DBX_REGISTER_NUMBER (REGNO)
 
@@ -1263,14 +1263,14 @@ extern const char *host_detect_local_cpu (int argc, const char **argv);
 #define ASM_OUTPUT_POOL_EPILOGUE  aarch64_asm_output_pool_epilogue
 
 /* This type is the user-visible __fp16, and a pointer to that type.  We
-   need it in many places in the backend.  Defined in aarch64-builtins.c.  */
-extern tree aarch64_fp16_type_node;
-extern tree aarch64_fp16_ptr_type_node;
+   need it in many places in the backend.  Defined in aarch64-builtins.cc.  */
+extern GTY(()) tree aarch64_fp16_type_node;
+extern GTY(()) tree aarch64_fp16_ptr_type_node;
 
 /* This type is the user-visible __bf16, and a pointer to that type.  Defined
-   in aarch64-builtins.c.  */
-extern tree aarch64_bf16_type_node;
-extern tree aarch64_bf16_ptr_type_node;
+   in aarch64-builtins.cc.  */
+extern GTY(()) tree aarch64_bf16_type_node;
+extern GTY(()) tree aarch64_bf16_ptr_type_node;
 
 /* The generic unwind code in libgcc does not initialize the frame pointer.
    So in order to unwind a function using a frame pointer, the very first

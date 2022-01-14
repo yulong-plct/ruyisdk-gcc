@@ -1,6 +1,6 @@
 /* Statement simplification on GIMPLE.
    Copyright (C) 2010-2021 Free Software Foundation, Inc.
-   Split out from tree-ssa-ccp.c.
+   Split out from tree-ssa-ccp.cc.
 
 This file is part of GCC.
 
@@ -340,6 +340,123 @@ maybe_fold_reference (tree expr, bool is_lhs)
     return result;
 
   return NULL_TREE;
+}
+
+/* Return true if EXPR is an acceptable right-hand-side for a
+   GIMPLE assignment.  We validate the entire tree, not just
+   the root node, thus catching expressions that embed complex
+   operands that are not permitted in GIMPLE.  This function
+   is needed because the folding routines in fold-const.cc
+   may return such expressions in some cases, e.g., an array
+   access with an embedded index addition.  It may make more
+   sense to have folding routines that are sensitive to the
+   constraints on GIMPLE operands, rather than abandoning any
+   any attempt to fold if the usual folding turns out to be too
+   aggressive.  */
+
+bool
+valid_gimple_rhs_p (tree expr)
+{
+  enum tree_code code = TREE_CODE (expr);
+
+  switch (TREE_CODE_CLASS (code))
+    {
+    case tcc_declaration:
+      if (!is_gimple_variable (expr))
+	return false;
+      break;
+
+    case tcc_constant:
+      /* All constants are ok.  */
+      break;
+
+    case tcc_comparison:
+      /* GENERIC allows comparisons with non-boolean types, reject
+	 those for GIMPLE.  Let vector-typed comparisons pass - rules
+	 for GENERIC and GIMPLE are the same here.  */
+      if (!(INTEGRAL_TYPE_P (TREE_TYPE (expr))
+	    && (TREE_CODE (TREE_TYPE (expr)) == BOOLEAN_TYPE
+		|| TYPE_PRECISION (TREE_TYPE (expr)) == 1))
+	  && ! VECTOR_TYPE_P (TREE_TYPE (expr)))
+	return false;
+
+      /* Fallthru.  */
+    case tcc_binary:
+      if (!is_gimple_val (TREE_OPERAND (expr, 0))
+	  || !is_gimple_val (TREE_OPERAND (expr, 1)))
+	return false;
+      break;
+
+    case tcc_unary:
+      if (!is_gimple_val (TREE_OPERAND (expr, 0)))
+	return false;
+      break;
+
+    case tcc_expression:
+      switch (code)
+	{
+	case ADDR_EXPR:
+	  {
+	    tree t;
+	    if (is_gimple_min_invariant (expr))
+	      return true;
+	    t = TREE_OPERAND (expr, 0);
+	    while (handled_component_p (t))
+	      {
+		/* ??? More checks needed, see the GIMPLE verifier.  */
+		if ((TREE_CODE (t) == ARRAY_REF
+		     || TREE_CODE (t) == ARRAY_RANGE_REF)
+		    && !is_gimple_val (TREE_OPERAND (t, 1)))
+		  return false;
+		t = TREE_OPERAND (t, 0);
+	      }
+	    if (!is_gimple_id (t))
+	      return false;
+	  }
+	  break;
+
+	default:
+	  if (get_gimple_rhs_class (code) == GIMPLE_TERNARY_RHS)
+	    {
+	      if ((code == COND_EXPR
+		   ? !is_gimple_condexpr (TREE_OPERAND (expr, 0))
+		   : !is_gimple_val (TREE_OPERAND (expr, 0)))
+		  || !is_gimple_val (TREE_OPERAND (expr, 1))
+		  || !is_gimple_val (TREE_OPERAND (expr, 2)))
+		return false;
+	      break;
+	    }
+	  return false;
+	}
+      break;
+
+    case tcc_vl_exp:
+      return false;
+
+    case tcc_exceptional:
+      if (code == CONSTRUCTOR)
+	{
+	  unsigned i;
+	  tree elt;
+	  FOR_EACH_CONSTRUCTOR_VALUE (CONSTRUCTOR_ELTS (expr), i, elt)
+	    if (!is_gimple_val (elt))
+	      return false;
+	  return true;
+	}
+      if (code != SSA_NAME)
+	return false;
+      break;
+
+    case tcc_reference:
+      if (code == BIT_FIELD_REF)
+	return is_gimple_val (TREE_OPERAND (expr, 0));
+      return false;
+
+    default:
+      return false;
+    }
+
+  return true;
 }
 
 
@@ -1491,7 +1608,7 @@ get_range_strlen_tree (tree arg, bitmap *visited, strlen_range_kind rkind,
 	     flexible array members that can be initialized to arbitrary
 	     numbers of elements as an extension (static structs are okay).
 	     FIXME: Make this less conservative -- see
-	     component_ref_size in tree.c.  */
+	     component_ref_size in tree.cc.  */
 	  tree ref = TREE_OPERAND (TREE_OPERAND (arg, 0), 0);
 	  if ((TREE_CODE (ref) == PARM_DECL || VAR_P (ref))
 	      && (decl_binds_to_current_def_p (ref)

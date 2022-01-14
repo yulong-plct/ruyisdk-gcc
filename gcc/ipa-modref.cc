@@ -1214,11 +1214,27 @@ analyze_stmt (modref_summary *summary, modref_summary_lto *summary_lto,
   /* In general we can not ignore clobbers because they are barriers for code
      motion, however after inlining it is safe to do because local optimization
      passes do not consider clobbers from other functions.
-     Similar logic is in ipa-pure-const.c.  */
-  if ((ipa || cfun->after_inlining) && gimple_clobber_p (stmt))
-    return true;
-
-  struct summary_ptrs sums = {summary, summary_lto};
+     Similar logic is in ipa-pure-const.cc.  */
+  if ((m_ipa || cfun->after_inlining) && gimple_clobber_p (stmt))
+    {
+      if (always_executed && record_access_p (gimple_assign_lhs (stmt)))
+	{
+	  ao_ref r;
+	  ao_ref_init (&r, gimple_assign_lhs (stmt));
+	  modref_access_node a = get_access (&r);
+	  if (a.useful_for_kill_p ())
+	    {
+	      if (dump_file)
+		fprintf (dump_file, "   - Recording kill\n");
+	      if (m_summary)
+		modref_access_node::insert_kill (m_summary->kills, a, false);
+	      if (m_summary_lto)
+		modref_access_node::insert_kill (m_summary_lto->kills,
+						 a, false);
+	    }
+	}
+      return;
+    }
 
   /* Analyze all loads and stores in STMT.  */
   walk_stmt_load_store_ops (stmt, &sums,
@@ -1617,7 +1633,7 @@ analyze_ssa_name_flags (tree name, vec<modref_lattice> &lattice, int depth,
 	}
 
       /* Gimple return may load the return value.
-	 Returning name counts as an use by tree-ssa-structalias.c  */
+	 Returning name counts as an use by tree-ssa-structalias.cc  */
       if (greturn *ret = dyn_cast <greturn *> (use_stmt))
 	{
 	  if (gimple_return_retval (ret) == name)
@@ -1763,15 +1779,12 @@ analyze_ssa_name_flags (tree name, vec<modref_lattice> &lattice, int depth,
 	      /* In general we can not ignore clobbers because they are
 		 barriers for code motion, however after inlining it is safe to
 		 do because local optimization passes do not consider clobbers
-		 from other functions.  Similar logic is in ipa-pure-const.c.  */
+		 from other functions.
+		 Similar logic is in ipa-pure-const.cc.  */
 	      if (!cfun->after_inlining || !gimple_clobber_p (assign))
 		lattice[index].merge_direct_store ();
-	    }
-	  /* ASM statements etc.  */
-	  else if (!assign)
 	    {
 	      if (dump_file)
-		fprintf (dump_file, "%*s  Unhandled store\n",
 			 depth * 4, "");
 	      lattice[index].merge (0);
 	    }
@@ -1781,7 +1794,7 @@ analyze_ssa_name_flags (tree name, vec<modref_lattice> &lattice, int depth,
 	  enum tree_code code = gimple_assign_rhs_code (assign);
 
 	  /* See if operation is a merge as considered by
-	     tree-ssa-structalias.c:find_func_aliases.  */
+	     tree-ssa-structalias.cc:find_func_aliases.  */
 	  if (!truth_value_p (code)
 	      && code != POINTER_DIFF_EXPR
 	      && (code != POINTER_PLUS_EXPR

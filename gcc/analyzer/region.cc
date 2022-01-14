@@ -1030,6 +1030,26 @@ field_region::dump_to_pp (pretty_printer *pp, bool simple) const
     }
 }
 
+/* Implementation of region::get_relative_concrete_offset vfunc
+   for field_region.  */
+
+bool
+field_region::get_relative_concrete_offset (bit_offset_t *out) const
+{
+  /* Compare with e.g. gimple-fold.cc's
+     fold_nonarray_ctor_reference.  */
+  tree byte_offset = DECL_FIELD_OFFSET (m_field);
+  if (TREE_CODE (byte_offset) != INTEGER_CST)
+    return false;
+  tree field_offset = DECL_FIELD_BIT_OFFSET (m_field);
+  /* Compute bit offset of the field.  */
+  offset_int bitoffset
+    = (wi::to_offset (field_offset)
+       + (wi::to_offset (byte_offset) << LOG2_BITS_PER_UNIT));
+  *out = bitoffset;
+  return true;
+}
+
 /* class element_region : public region.  */
 
 /* Implementation of region::accept vfunc for element_region.  */

@@ -2269,7 +2269,7 @@ remove_bb (basic_block bb)
     {
       /* Walk backwards so as to get a chance to substitute all
 	 released DEFs into debug stmts.  See
-	 eliminate_unnecessary_stmts() in tree-ssa-dce.c for more
+	 eliminate_unnecessary_stmts() in tree-ssa-dce.cc for more
 	 details.  */
       for (i = gsi_last_bb (bb); !gsi_end_p (i);)
 	{
@@ -4870,7 +4870,7 @@ verify_gimple_debug (gimple *stmt ATTRIBUTE_UNUSED)
      a VAR_DECL or a PARM_DECL, but that could also be some scalarized
      component or member of an aggregate type, to another tree, that
      can be an arbitrary expression.  These stmts expand into debug
-     insns, and are converted to debug notes by var-tracking.c.  */
+     insns, and are converted to debug notes by var-tracking.cc.  */
   return false;
 }
 
@@ -8777,7 +8777,7 @@ remove_edge_and_dominated_blocks (edge e)
     {
       /* Walk backwards so as to get a chance to substitute all
 	 released DEFs into debug stmts.  See
-	 eliminate_unnecessary_stmts() in tree-ssa-dce.c for more
+	 eliminate_unnecessary_stmts() in tree-ssa-dce.cc for more
 	 details.  */
       for (i = bbs_to_remove.length (); i-- > 0; )
 	delete_basic_block (bbs_to_remove[i]);
@@ -9867,7 +9867,7 @@ push_fndecl (const char *name)
 }
 
 /* These tests directly create CFGs.
-   Compare with the static fns within tree-cfg.c:
+   Compare with the static fns within tree-cfg.cc:
      - build_gimple_cfg
      - make_blocks: calls create_basic_block (seq, bb);
      - make_edges.   */
