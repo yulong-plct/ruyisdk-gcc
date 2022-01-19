@@ -3588,30 +3588,50 @@ noce_convert_multiple_sets (struct noce_if_info *if_info)
 	  old_val = lowpart_subreg (dst_mode, old_val, src_mode);
 	}
 
-      rtx temp_dest = NULL_RTX;
+      /* Try emitting a conditional move passing the backend the
+	 canonicalized comparison.  The backend is then able to
+	 recognize expressions like
 
-      if (need_cmov)
+	   if (x > y)
+	     y = x;
+
+	 as min/max and emit an insn, accordingly.  */
+      unsigned cost1 = 0, cost2 = 0;
+      rtx_insn *seq, *seq1, *seq2;
+      rtx temp_dest = NULL_RTX, temp_dest1 = NULL_RTX, temp_dest2 = NULL_RTX;
+
+      seq1 = try_emit_cmove_seq (if_info, temp, cond,
+				 new_val, old_val, need_cmov,
+				 &cost1, &temp_dest1);
+
+      /* Here, we try to pass the backend a non-canonicalized cc comparison
+	 as well.  This allows the backend to emit a cmov directly without
+	 creating an additional compare for each.  If successful, costing
+	 is easier and this sequence is usually preferred.  */
+      seq2 = try_emit_cmove_seq (if_info, target, cond,
+				 new_val, old_val, need_cmov,
+				 &cost2, &temp_dest2, cc_cmp, rev_cc_cmp);
+
+      /* Check which version is less expensive.  */
+      if (seq1 != NULL_RTX && (cost1 <= cost2 || seq2 == NULL_RTX))
 	{
-	  /* Actually emit the conditional move.  */
-	  temp_dest = noce_emit_cmove (if_info, temp, cond_code,
-				       x, y, new_val, old_val);
-
-	  /* If we failed to expand the conditional move, drop out and don't
-	     try to continue.  */
-	  if (temp_dest == NULL_RTX)
-	    {
-	      end_sequence ();
-	      return FALSE;
-	    }
+	  seq = seq1;
+	  temp_dest = temp_dest1;
+	}
+      else if (seq2 != NULL_RTX)
+	{
+	  seq = seq2;
+	  temp_dest = temp_dest2;
 	}
       else
 	{
-	  if (if_info->then_else_reversed)
-	    noce_emit_move_insn (temp, old_val);
-	  else
-	    noce_emit_move_insn (temp, new_val);
-	  temp_dest = temp;
+	  /* Nothing worked, bail out.  */
+	  end_sequence ();
+	  return FALSE;
 	}
+
+      /* End the sub sequence and emit to the main sequence.  */
+      emit_insn (seq);
 
       /* Bookkeeping.  */
       count++;
@@ -3626,7 +3646,8 @@ noce_convert_multiple_sets (struct noce_if_info *if_info)
 
   /* Now fixup the assignments.  */
   for (int i = 0; i < count; i++)
-    noce_emit_move_insn (targets[i], temporaries[i]);
+    if (targets[i] != temporaries[i])
+      noce_emit_move_insn (targets[i], temporaries[i]);
 
   /* Actually emit the sequence if it isn't too expensive.  */
   rtx_insn *seq = get_insns ();
