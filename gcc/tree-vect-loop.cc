@@ -2899,90 +2899,38 @@ vect_analyze_loop (class loop *loop, vec_info_shared *shared)
   bool pick_lowest_cost_p = ((autovec_flags & VECT_COMPARE_COSTS)
 			     && !unlimited_cost_model (loop));
 
-  bool vect_epilogues = false;
-  opt_result res = opt_result::success ();
-  unsigned HOST_WIDE_INT simdlen = loop->simdlen;
+  /* Keep track of the VF for each mode.  Initialize all to 0 which indicates
+     a mode has not been analyzed.  */
+  auto_vec<poly_uint64, 8> cached_vf_per_mode;
+  for (unsigned i = 0; i < vector_modes.length (); ++i)
+    cached_vf_per_mode.safe_push (0);
+
+  /* First determine the main loop vectorization mode, either the first
+     one that works, starting with auto-detecting the vector mode and then
+     following the targets order of preference, or the one with the
+     lowest cost if pick_lowest_cost_p.  */
   while (1)
     {
-      /* Check the CFG characteristics of the loop (nesting, entry/exit).  */
-      opt_loop_vec_info loop_vinfo = vect_analyze_loop_form (loop, shared);
-      if (!loop_vinfo)
+      bool fatal;
+      unsigned int last_mode_i = mode_i;
+      /* Set cached VF to -1 prior to analysis, which indicates a mode has
+	 failed.  */
+      cached_vf_per_mode[last_mode_i] = -1;
+      opt_loop_vec_info loop_vinfo
+	= vect_analyze_loop_1 (loop, shared, &loop_form_info,
+			       NULL, vector_modes, mode_i,
+			       autodetected_vector_mode, fatal);
+      if (fatal)
+	break;
+
+      if (loop_vinfo)
 	{
-	  if (dump_enabled_p ())
-	    dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
-			     "bad loop form.\n");
-	  gcc_checking_assert (first_loop_vinfo == NULL);
-	  return loop_vinfo;
-	}
-      loop_vinfo->vector_mode = next_vector_mode;
-
-      bool fatal = false;
-
-      /* When pick_lowest_cost_p is true, we should in principle iterate
-	 over all the loop_vec_infos that LOOP_VINFO could replace and
-	 try to vectorize LOOP_VINFO under the same conditions.
-	 E.g. when trying to replace an epilogue loop, we should vectorize
-	 LOOP_VINFO as an epilogue loop with the same VF limit.  When trying
-	 to replace the main loop, we should vectorize LOOP_VINFO as a main
-	 loop too.
-
-	 However, autovectorize_vector_modes is usually sorted as follows:
-
-	 - Modes that naturally produce lower VFs usually follow modes that
-	   naturally produce higher VFs.
-
-	 - When modes naturally produce the same VF, maskable modes
-	   usually follow unmaskable ones, so that the maskable mode
-	   can be used to vectorize the epilogue of the unmaskable mode.
-
-	 This order is preferred because it leads to the maximum
-	 epilogue vectorization opportunities.  Targets should only use
-	 a different order if they want to make wide modes available while
-	 disparaging them relative to earlier, smaller modes.  The assumption
-	 in that case is that the wider modes are more expensive in some
-	 way that isn't reflected directly in the costs.
-
-	 There should therefore be few interesting cases in which
-	 LOOP_VINFO fails when treated as an epilogue loop, succeeds when
-	 treated as a standalone loop, and ends up being genuinely cheaper
-	 than FIRST_LOOP_VINFO.  */
-      if (vect_epilogues)
-	LOOP_VINFO_ORIG_LOOP_INFO (loop_vinfo) = first_loop_vinfo;
-
-      res = vect_analyze_loop_2 (loop_vinfo, fatal, &n_stmts);
-      if (mode_i == 0)
-	autodetected_vector_mode = loop_vinfo->vector_mode;
-      if (dump_enabled_p ())
-	{
-	  if (res)
-	    dump_printf_loc (MSG_NOTE, vect_location,
-			     "***** Analysis succeeded with vector mode %s\n",
-			     GET_MODE_NAME (loop_vinfo->vector_mode));
-	  else
-	    dump_printf_loc (MSG_NOTE, vect_location,
-			     "***** Analysis failed with vector mode %s\n",
-			     GET_MODE_NAME (loop_vinfo->vector_mode));
-	}
-
-      loop->aux = NULL;
-
-      if (!fatal)
-	while (mode_i < vector_modes.length ()
-	       && vect_chooses_same_modes_p (loop_vinfo, vector_modes[mode_i]))
-	  {
-	    if (dump_enabled_p ())
-	      dump_printf_loc (MSG_NOTE, vect_location,
-			       "***** The result for vector mode %s would"
-			       " be the same\n",
-			       GET_MODE_NAME (vector_modes[mode_i]));
-	    mode_i += 1;
-	  }
-
-      if (res)
-	{
-	  LOOP_VINFO_VECTORIZABLE_P (loop_vinfo) = 1;
-	  vectorized_loops++;
-
+	  /*  Analyzis has been successful so update the VF value.  The
+	      VF should always be a multiple of unroll_factor and we want to
+	      capture the original VF here.  */
+	  cached_vf_per_mode[last_mode_i]
+	    = exact_div (LOOP_VINFO_VECT_FACTOR (loop_vinfo),
+			 loop_vinfo->suggested_unroll_factor);
 	  /* Once we hit the desired simdlen for the first time,
 	     discard any previous attempts.  */
 	  if (simdlen
@@ -3064,12 +3012,10 @@ vect_analyze_loop (class loop *loop, vec_info_shared *shared)
     {
       /* If the target does not support partial vectors we can shorten the
 	 number of modes to analyze for the epilogue as we know we can't pick a
-	 mode that has at least as many NUNITS as the main loop's vectorization
-	 factor, since that would imply the epilogue's vectorization factor
-	 would be at least as high as the main loop's and we would be
-	 vectorizing for more scalar iterations than there would be left.  */
+	 mode that would lead to a VF at least as big as the
+	 FIRST_VINFO_VF.  */
       if (!supports_partial_vectors
-	  && maybe_ge (GET_MODE_NUNITS (vector_modes[mode_i]), first_vinfo_vf))
+	  && maybe_ge (cached_vf_per_mode[mode_i], first_vinfo_vf))
 	{
 	  mode_i++;
 	  if (mode_i == vector_modes.length ())
