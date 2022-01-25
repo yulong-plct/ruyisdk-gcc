@@ -1395,17 +1395,65 @@ tree_transform_and_unroll_loop (class loop *loop, unsigned factor,
   freq_e = (loop_preheader_edge (loop))->count ();
   if (freq_h.nonzero_p ())
     {
-      /* Avoid dropping loop body profile counter to 0 because of zero count
-	 in loop's preheader.  */
-      if (freq_h.nonzero_p () && !(freq_e == profile_count::zero ()))
-        freq_e = freq_e.force_nonzero ();
-      scale_loop_frequencies (loop, freq_e.probability_in (freq_h));
+      /* Ensure that the frequencies in the loop match the new estimated
+	 number of iterations, and change the probability of the new
+	 exit edge.  */
+
+      profile_count freq_h = loop->header->count;
+      profile_count freq_e = (loop_preheader_edge (loop))->count ();
+      if (freq_h.nonzero_p ())
+	{
+	  /* Avoid dropping loop body profile counter to 0 because of zero
+	     count in loop's preheader.  */
+	  if (freq_h.nonzero_p () && !(freq_e == profile_count::zero ()))
+	    freq_e = freq_e.force_nonzero ();
+	  scale_loop_frequencies (loop, freq_e.probability_in (freq_h));
+	}
+
+      basic_block rest = new_exit->dest;
+      new_exit->probability
+	= (profile_probability::always () / (new_est_niter + 1));
+
+      rest->count += new_exit->count ();
+
+      edge new_nonexit = single_pred_edge (loop->latch);
+      profile_probability prob = new_nonexit->probability;
+      new_nonexit->probability = new_exit->probability.invert ();
+      prob = new_nonexit->probability / prob;
+      if (prob.initialized_p ())
+	scale_bbs_frequencies (&loop->latch, 1, prob);
+
+      /* Finally create the new counter for number of iterations and add
+	 the new exit instruction.  */
+      tree ctr_before, ctr_after;
+      gimple_stmt_iterator bsi = gsi_last_nondebug_bb (new_exit->src);
+      exit_if = as_a <gcond *> (gsi_stmt (bsi));
+      create_iv (exit_base, exit_step, NULL_TREE, loop,
+		 &bsi, false, &ctr_before, &ctr_after);
+      gimple_cond_set_code (exit_if, exit_cmp);
+      gimple_cond_set_lhs (exit_if, ctr_after);
+      gimple_cond_set_rhs (exit_if, exit_bound);
+      update_stmt (exit_if);
     }
 
-  exit_bb = single_pred (loop->latch);
-  new_exit = find_edge (exit_bb, rest);
-  new_exit->probability = profile_probability::always ()
-				.apply_scale (1, new_est_niter + 1);
+	 Therefore, if the iteration count is known exactly, make sure that the
+	 profile counts of the loop header (and any other blocks that might be
+	 executed in the final iteration) are consistent with the combination
+	 of (a) the incoming profile count and (b) the new iteration count.  */
+      profile_count in_count = loop_preheader_edge (loop)->count ();
+      profile_count old_header_count = loop->header->count;
+      if (in_count.nonzero_p ()
+	  && old_header_count.nonzero_p ()
+	  && TREE_CODE (desc->niter) == INTEGER_CST)
+	{
+	  /* The + 1 converts latch counts to iteration counts.  */
+	  profile_count new_header_count = in_count * (new_est_niter + 1);
+	  basic_block *body = get_loop_body (loop);
+	  scale_bbs_frequencies_profile_count (body, loop->num_nodes,
+					       new_header_count,
+					       old_header_count);
+	  free (body);
+	}
 
   rest->count += new_exit->count ();
 
@@ -1416,16 +1464,29 @@ tree_transform_and_unroll_loop (class loop *loop, unsigned factor,
   if (prob.initialized_p ())
     scale_bbs_frequencies (&loop->latch, 1, prob);
 
-  /* Finally create the new counter for number of iterations and add the new
-     exit instruction.  */
-  bsi = gsi_last_nondebug_bb (exit_bb);
-  exit_if = as_a <gcond *> (gsi_stmt (bsi));
-  create_iv (exit_base, exit_step, NULL_TREE, loop,
-	     &bsi, false, &ctr_before, &ctr_after);
-  gimple_cond_set_code (exit_if, exit_cmp);
-  gimple_cond_set_lhs (exit_if, ctr_after);
-  gimple_cond_set_rhs (exit_if, exit_bound);
-  update_stmt (exit_if);
+	 Adjust the profile counts of all code in the loop body after
+	 the exit test so that the sum of the counts on entry to the
+	 header agree.  */
+      profile_count old_latch_count = loop_latch_edge (loop)->count ();
+      profile_count new_latch_count = loop->header->count - in_count;
+      if (old_latch_count.nonzero_p () && new_latch_count.nonzero_p ())
+	scale_dominated_blocks_in_loop (loop, new_exit->src, new_latch_count,
+					old_latch_count);
+
+      /* Set the probability of the exit edge based on NEW_EST_NITER
+	 (which estimates latch counts rather than iteration counts).
+	 Update the probabilities of other edges to match.
+
+	 If the profile counts are large enough to give the required
+	 precision, the updates above will have made
+
+	    e->dest->count / e->src->count ~= new e->probability
+
+	 for every outgoing edge e of NEW_EXIT->src.  */
+      profile_probability new_exit_prob
+	= profile_probability::always () / (new_est_niter + 1);
+      change_edge_frequency (new_exit, new_exit_prob);
+    }
 
   checking_verify_flow_info ();
   checking_verify_loop_structure ();
