@@ -1,5 +1,4 @@
 /* { dg-do compile } */
-/* { dg-require-effective-target vect_float } */
 /* { dg-add-options arm_v8_3a_complex_neon } */
 
 float f[12][100];
