@@ -7839,7 +7839,7 @@ c_parser_binary_expression (c_parser *parser, struct c_expr *after,
     stack[sp].expr							      \
       = convert_lvalue_to_rvalue (stack[sp].loc,			      \
 				  stack[sp].expr, true, true);		      \
-    if (__builtin_expect (omp_atomic_lhs != NULL_TREE, 0) && sp == 1	      \
+    if (UNLIKELY (omp_atomic_lhs != NULL_TREE) && sp == 1	      \
 	&& c_parser_peek_token (parser)->type == CPP_SEMICOLON		      \
 	&& ((1 << stack[sp].prec)					      \
 	    & ((1 << PREC_BITOR) | (1 << PREC_BITXOR) | (1 << PREC_BITAND)    \
