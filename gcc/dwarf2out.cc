@@ -31745,6 +31745,7 @@ dwarf2out_finish (const char *filename)
     FOR_EACH_CHILD (die, c, gcc_assert (! c->die_mark));
   }
 #endif
+  base_types.truncate (0);
   for (ctnode = comdat_type_list; ctnode != NULL; ctnode = ctnode->next)
     resolve_addr (ctnode->root_die);
   resolve_addr (comp_unit_die ());
@@ -32523,6 +32524,12 @@ dwarf2out_early_finish (const char *filename)
   /* The output below is modeled after dwarf2out_finish with all
      location related output removed and some LTO specific changes.
      Some refactoring might make both smaller and easier to match up.  */
+
+  base_types.truncate (0);
+  for (ctnode = comdat_type_list; ctnode != NULL; ctnode = ctnode->next)
+    mark_base_types (ctnode->root_die);
+  mark_base_types (comp_unit_die ());
+  move_marked_base_types ();
 
   /* Traverse the DIE's and add sibling attributes to those DIE's
      that have children.  */
