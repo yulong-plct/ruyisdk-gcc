@@ -16493,6 +16493,240 @@ tree_nonzero_bits (const_tree t)
   return wi::shwi (-1, TYPE_PRECISION (TREE_TYPE (t)));
 }
 
+/* Helper function for address compare simplifications in match.pd.
+   OP0 and OP1 are ADDR_EXPR operands being compared by CODE.
+   TYPE is the type of comparison operands.
+   BASE0, BASE1, OFF0 and OFF1 are set by the function.
+   GENERIC is true if GENERIC folding and false for GIMPLE folding.
+   Returns 0 if OP0 is known to be unequal to OP1 regardless of OFF{0,1},
+   1 if bases are known to be equal and OP0 cmp OP1 depends on OFF0 cmp OFF1,
+   and 2 if unknown.  */
+
+int
+address_compare (tree_code code, tree type, tree op0, tree op1,
+		 tree &base0, tree &base1, poly_int64 &off0, poly_int64 &off1,
+		 bool generic)
+{
+  gcc_checking_assert (TREE_CODE (op0) == ADDR_EXPR);
+  gcc_checking_assert (TREE_CODE (op1) == ADDR_EXPR);
+  base0 = get_addr_base_and_unit_offset (TREE_OPERAND (op0, 0), &off0);
+  base1 = get_addr_base_and_unit_offset (TREE_OPERAND (op1, 0), &off1);
+  if (base0 && TREE_CODE (base0) == MEM_REF)
+    {
+      off0 += mem_ref_offset (base0).force_shwi ();
+      base0 = TREE_OPERAND (base0, 0);
+    }
+  if (base1 && TREE_CODE (base1) == MEM_REF)
+    {
+      off1 += mem_ref_offset (base1).force_shwi ();
+      base1 = TREE_OPERAND (base1, 0);
+    }
+  if (base0 == NULL_TREE || base1 == NULL_TREE)
+    return 2;
+
+  int equal = 2;
+  /* Punt in GENERIC on variables with value expressions;
+     the value expressions might point to fields/elements
+     of other vars etc.  */
+  if (generic
+      && ((VAR_P (base0) && DECL_HAS_VALUE_EXPR_P (base0))
+	  || (VAR_P (base1) && DECL_HAS_VALUE_EXPR_P (base1))))
+    return 2;
+  else if (decl_in_symtab_p (base0) && decl_in_symtab_p (base1))
+    {
+      symtab_node *node0 = symtab_node::get_create (base0);
+      symtab_node *node1 = symtab_node::get_create (base1);
+      equal = node0->equal_address_to (node1);
+    }
+  else if ((DECL_P (base0)
+	    || TREE_CODE (base0) == SSA_NAME
+	    || TREE_CODE (base0) == STRING_CST)
+	   && (DECL_P (base1)
+	       || TREE_CODE (base1) == SSA_NAME
+	       || TREE_CODE (base1) == STRING_CST))
+    equal = (base0 == base1);
+  /* Assume different STRING_CSTs with the same content will be
+     merged.  */
+  if (equal == 0
+      && TREE_CODE (base0) == STRING_CST
+      && TREE_CODE (base1) == STRING_CST
+      && TREE_STRING_LENGTH (base0) == TREE_STRING_LENGTH (base1)
+      && memcmp (TREE_STRING_POINTER (base0), TREE_STRING_POINTER (base1),
+		 TREE_STRING_LENGTH (base0)) == 0)
+    equal = 1;
+  if (equal == 1)
+    {
+      if (code == EQ_EXPR
+	  || code == NE_EXPR
+	  /* If the offsets are equal we can ignore overflow.  */
+	  || known_eq (off0, off1)
+	  || TYPE_OVERFLOW_UNDEFINED (TREE_TYPE (op0))
+	  /* Or if we compare using pointers to decls or strings.  */
+	  || (POINTER_TYPE_P (type)
+	      && (DECL_P (base0) || TREE_CODE (base0) == STRING_CST)))
+	return 1;
+      return 2;
+    }
+  if (equal != 0)
+    return equal;
+  if (code != EQ_EXPR && code != NE_EXPR)
+    return 2;
+
+  /* At this point we know (or assume) the two pointers point at
+     different objects.  */
+  HOST_WIDE_INT ioff0 = -1, ioff1 = -1;
+  off0.is_constant (&ioff0);
+  off1.is_constant (&ioff1);
+  /* Punt on non-zero offsets from functions.  */
+  if ((TREE_CODE (base0) == FUNCTION_DECL && ioff0)
+      || (TREE_CODE (base1) == FUNCTION_DECL && ioff1))
+    return 2;
+  /* Or if the bases are neither decls nor string literals.  */
+  if (!DECL_P (base0) && TREE_CODE (base0) != STRING_CST)
+    return 2;
+  if (!DECL_P (base1) && TREE_CODE (base1) != STRING_CST)
+    return 2;
+  /* For initializers, assume addresses of different functions are
+     different.  */
+  if (folding_initializer
+      && TREE_CODE (base0) == FUNCTION_DECL
+      && TREE_CODE (base1) == FUNCTION_DECL)
+    return 0;
+
+  /* Compute whether one address points to the start of one
+     object and another one to the end of another one.  */
+  poly_int64 size0 = 0, size1 = 0;
+  if (TREE_CODE (base0) == STRING_CST)
+    {
+      if (ioff0 < 0 || ioff0 > TREE_STRING_LENGTH (base0))
+	equal = 2;
+      else
+	size0 = TREE_STRING_LENGTH (base0);
+    }
+  else if (TREE_CODE (base0) == FUNCTION_DECL)
+    size0 = 1;
+  else
+    {
+      tree sz0 = DECL_SIZE_UNIT (base0);
+      if (!tree_fits_poly_int64_p (sz0))
+	equal = 2;
+      else
+	size0 = tree_to_poly_int64 (sz0);
+    }
+  if (TREE_CODE (base1) == STRING_CST)
+    {
+      if (ioff1 < 0 || ioff1 > TREE_STRING_LENGTH (base1))
+	equal = 2;
+      else
+	size1 = TREE_STRING_LENGTH (base1);
+    }
+  else if (TREE_CODE (base1) == FUNCTION_DECL)
+    size1 = 1;
+  else
+    {
+      tree sz1 = DECL_SIZE_UNIT (base1);
+      if (!tree_fits_poly_int64_p (sz1))
+	equal = 2;
+      else
+	size1 = tree_to_poly_int64 (sz1);
+    }
+  if (equal == 0)
+    {
+      /* If one offset is pointing (or could be) to the beginning of one
+	 object and the other is pointing to one past the last byte of the
+	 other object, punt.  */
+      if (maybe_eq (off0, 0) && maybe_eq (off1, size1))
+	equal = 2;
+      else if (maybe_eq (off1, 0) && maybe_eq (off0, size0))
+	equal = 2;
+      /* If both offsets are the same, there are some cases we know that are
+	 ok.  Either if we know they aren't zero, or if we know both sizes
+	 are no zero.  */
+      if (equal == 2
+	  && known_eq (off0, off1)
+	  && (known_ne (off0, 0)
+	      || (known_ne (size0, 0) && known_ne (size1, 0))))
+	equal = 0;
+    }
+
+  /* At this point, equal is 2 if either one or both pointers are out of
+     bounds of their object, or one points to start of its object and the
+     other points to end of its object.  This is unspecified behavior
+     e.g. in C++.  Otherwise equal is 0.  */
+  if (folding_cxx_constexpr && equal)
+    return equal;
+
+  /* When both pointers point to string literals, even when equal is 0,
+     due to tail merging of string literals the pointers might be the same.  */
+  if (TREE_CODE (base0) == STRING_CST && TREE_CODE (base1) == STRING_CST)
+    {
+      if (ioff0 < 0
+	  || ioff1 < 0
+	  || ioff0 > TREE_STRING_LENGTH (base0)
+	  || ioff1 > TREE_STRING_LENGTH (base1))
+	return 2;
+
+      /* If the bytes in the string literals starting at the pointers
+	 differ, the pointers need to be different.  */
+      if (memcmp (TREE_STRING_POINTER (base0) + ioff0,
+		  TREE_STRING_POINTER (base1) + ioff1,
+		  MIN (TREE_STRING_LENGTH (base0) - ioff0,
+		       TREE_STRING_LENGTH (base1) - ioff1)) == 0)
+	{
+	  HOST_WIDE_INT ioffmin = MIN (ioff0, ioff1);
+	  if (memcmp (TREE_STRING_POINTER (base0) + ioff0 - ioffmin,
+		      TREE_STRING_POINTER (base1) + ioff1 - ioffmin,
+		      ioffmin) == 0)
+	    /* If even the bytes in the string literal before the
+	       pointers are the same, the string literals could be
+	       tail merged.  */
+	    return 2;
+	}
+      return 0;
+    }
+
+  if (folding_cxx_constexpr)
+    return 0;
+
+  /* If this is a pointer comparison, ignore for now even
+     valid equalities where one pointer is the offset zero
+     of one object and the other to one past end of another one.  */
+  if (!INTEGRAL_TYPE_P (type))
+    return 0;
+
+  /* Assume that string literals can't be adjacent to variables
+     (automatic or global).  */
+  if (TREE_CODE (base0) == STRING_CST || TREE_CODE (base1) == STRING_CST)
+    return 0;
+
+  /* Assume that automatic variables can't be adjacent to global
+     variables.  */
+  if (is_global_var (base0) != is_global_var (base1))
+    return 0;
+
+  return equal;
+}
+
+/* Return the single non-zero element of a CONSTRUCTOR or NULL_TREE.  */
+tree
+ctor_single_nonzero_element (const_tree t)
+{
+  unsigned HOST_WIDE_INT idx;
+  constructor_elt *ce;
+  tree elt = NULL_TREE;
+
+  if (TREE_CODE (t) != CONSTRUCTOR)
+    return NULL_TREE;
+  for (idx = 0; vec_safe_iterate (CONSTRUCTOR_ELTS (t), idx, &ce); idx++)
+    if (!integer_zerop (ce->value) && !real_zerop (ce->value))
+      {
+	if (elt)
+	  return NULL_TREE;
+	elt = ce->value;
+      }
+  return elt;
+}
+
 #if CHECKING_P
 
 namespace selftest {
