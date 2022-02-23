@@ -487,6 +487,49 @@ svalue::cmp_ptr (const svalue *sval1, const svalue *sval2)
 				conjured_sval2->get_id_region ());
       }
       break;
+    case SK_ASM_OUTPUT:
+      {
+	const asm_output_svalue *asm_output_sval1
+	  = (const asm_output_svalue *)sval1;
+	const asm_output_svalue *asm_output_sval2
+	  = (const asm_output_svalue *)sval2;
+	if (int asm_string_cmp = strcmp (asm_output_sval1->get_asm_string (),
+					 asm_output_sval2->get_asm_string ()))
+	  return asm_string_cmp;
+	if (int output_idx_cmp = ((int)asm_output_sval1->get_output_idx ()
+				  - (int)asm_output_sval2->get_output_idx ()))
+	  return output_idx_cmp;
+	if (int cmp = ((int)asm_output_sval1->get_num_inputs ()
+		       - (int)asm_output_sval2->get_num_inputs ()))
+	  return cmp;
+	for (unsigned i = 0; i < asm_output_sval1->get_num_inputs (); i++)
+	  if (int input_cmp
+	      = svalue::cmp_ptr (asm_output_sval1->get_input (i),
+				 asm_output_sval2->get_input (i)))
+	    return input_cmp;
+	return 0;
+      }
+      break;
+    case SK_CONST_FN_RESULT:
+      {
+	const const_fn_result_svalue *const_fn_result_sval1
+	  = (const const_fn_result_svalue *)sval1;
+	const const_fn_result_svalue *const_fn_result_sval2
+	  = (const const_fn_result_svalue *)sval2;
+	int d1 = DECL_UID (const_fn_result_sval1->get_fndecl ());
+	int d2 = DECL_UID (const_fn_result_sval2->get_fndecl ());
+	if (int cmp_fndecl = d1 - d2)
+	  return cmp_fndecl;
+	if (int cmp = ((int)const_fn_result_sval1->get_num_inputs ()
+		       - (int)const_fn_result_sval2->get_num_inputs ()))
+	  return cmp;
+	for (unsigned i = 0; i < const_fn_result_sval1->get_num_inputs (); i++)
+	  if (int input_cmp
+	      = svalue::cmp_ptr (const_fn_result_sval1->get_input (i),
+				 const_fn_result_sval2->get_input (i)))
+	    return input_cmp;
+	return 0;
+      }
     }
 }
 
@@ -1343,6 +1386,125 @@ conjured_svalue::accept (visitor *v) const
 {
   v->visit_conjured_svalue (this);
   m_id_reg->accept (v);
+}
+
+/* class asm_output_svalue : public svalue.  */
+
+/* Implementation of svalue::dump_to_pp vfunc for asm_output_svalue.  */
+
+void
+asm_output_svalue::dump_to_pp (pretty_printer *pp, bool simple) const
+{
+  if (simple)
+    {
+      pp_printf (pp, "ASM_OUTPUT(%qs, %%%i, {",
+		 get_asm_string (),
+		 get_output_idx ());
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	{
+	  if (i > 0)
+	    pp_string (pp, ", ");
+	  dump_input (pp, 0, m_input_arr[i], simple);
+	}
+      pp_string (pp, "})");
+    }
+  else
+    {
+      pp_printf (pp, "asm_output_svalue (%qs, %%%i, {",
+		 get_asm_string (),
+		 get_output_idx ());
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	{
+	  if (i > 0)
+	    pp_string (pp, ", ");
+	  dump_input (pp, 0, m_input_arr[i], simple);
+	}
+      pp_string (pp, "})");
+    }
+}
+
+/* Subroutine of asm_output_svalue::dump_to_pp.  */
+
+void
+asm_output_svalue::dump_input (pretty_printer *pp,
+			       unsigned input_idx,
+			       const svalue *sval,
+			       bool simple) const
+{
+  pp_printf (pp, "%%%i: ", input_idx_to_asm_idx (input_idx));
+  sval->dump_to_pp (pp, simple);
+}
+
+/* Convert INPUT_IDX from an index into the array of inputs
+   into the index of all operands for the asm stmt.  */
+
+unsigned
+asm_output_svalue::input_idx_to_asm_idx (unsigned input_idx) const
+{
+  return input_idx + m_num_outputs;
+}
+
+/* Implementation of svalue::accept vfunc for asm_output_svalue.  */
+
+void
+asm_output_svalue::accept (visitor *v) const
+{
+  v->visit_asm_output_svalue (this);
+  for (unsigned i = 0; i < m_num_inputs; i++)
+    m_input_arr[i]->accept (v);
+}
+
+/* class const_fn_result_svalue : public svalue.  */
+
+/* Implementation of svalue::dump_to_pp vfunc for const_fn_result_svalue.  */
+
+void
+const_fn_result_svalue::dump_to_pp (pretty_printer *pp, bool simple) const
+{
+  if (simple)
+    {
+      pp_printf (pp, "CONST_FN_RESULT(%qD, {", m_fndecl);
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	{
+	  if (i > 0)
+	    pp_string (pp, ", ");
+	  dump_input (pp, i, m_input_arr[i], simple);
+	}
+      pp_string (pp, "})");
+    }
+  else
+    {
+      pp_printf (pp, "CONST_FN_RESULT(%qD, {", m_fndecl);
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	{
+	  if (i > 0)
+	    pp_string (pp, ", ");
+	  dump_input (pp, i, m_input_arr[i], simple);
+	}
+      pp_string (pp, "})");
+    }
+}
+
+/* Subroutine of const_fn_result_svalue::dump_to_pp.  */
+
+void
+const_fn_result_svalue::dump_input (pretty_printer *pp,
+				    unsigned input_idx,
+				    const svalue *sval,
+				    bool simple) const
+{
+  pp_printf (pp, "arg%i: ", input_idx);
+  sval->dump_to_pp (pp, simple);
+}
+
+/* Implementation of svalue::accept vfunc for const_fn_result_svalue.  */
+
+void
+const_fn_result_svalue::accept (visitor *v) const
+{
+  v->visit_const_fn_result_svalue (this);
+  for (unsigned i = 0; i < m_num_inputs; i++)
+    m_input_arr[i]->accept (v);
 }
 
 } // namespace ana

@@ -170,6 +170,8 @@ public:
   virtual void visit_widening_svalue (const widening_svalue *) {}
   virtual void visit_compound_svalue (const compound_svalue *) {}
   virtual void visit_conjured_svalue (const conjured_svalue *) {}
+  virtual void visit_asm_output_svalue (const asm_output_svalue *) {}
+  virtual void visit_const_fn_result_svalue (const const_fn_result_svalue *) {}
 
   virtual void visit_region (const region *) {}
 };
@@ -217,6 +219,15 @@ public:
 					       const binding_map &map);
   const svalue *get_or_create_conjured_svalue (tree type, const gimple *stmt,
 					       const region *id_reg);
+  const svalue *
+  get_or_create_asm_output_svalue (tree type,
+				   const gasm *asm_stmt,
+				   unsigned output_idx,
+				   const vec<const svalue *> &inputs);
+  const svalue *
+  get_or_create_const_fn_result_svalue (tree type,
+					tree fndecl,
+					const vec<const svalue *> &inputs);
 
   const svalue *maybe_get_char_from_string_cst (tree string_cst,
 						tree byte_offset_cst);
@@ -333,6 +344,21 @@ private:
 		   conjured_svalue *> conjured_values_map_t;
   conjured_values_map_t m_conjured_values_map;
 
+  typedef hash_map<asm_output_svalue::key_t,
+		   asm_output_svalue *> asm_output_values_map_t;
+  asm_output_values_map_t m_asm_output_values_map;
+
+  typedef hash_map<const_fn_result_svalue::key_t,
+		   const_fn_result_svalue *> const_fn_result_values_map_t;
+  const_fn_result_values_map_t m_const_fn_result_values_map;
+
+  bool m_checking_feasibility;
+
+  /* "Dynamically-allocated" svalue instances.
+     The number of these within the analysis can grow arbitrarily.
+     They are still owned by the manager.  */
+  auto_delete_vec<svalue> m_managed_dynamic_svalues;
+
   /* Maximum complexity of svalues that weren't rejected.  */
   complexity m_max_complexity;
 
@@ -381,6 +407,7 @@ public:
   call_details (const gcall *call, region_model *model,
 		region_model_context *ctxt);
 
+  region_model_manager *get_manager () const;
   region_model_context *get_ctxt () const { return m_ctxt; }
   uncertainty_t *get_uncertainty () const;
   tree get_lhs_type () const { return m_lhs_type; }

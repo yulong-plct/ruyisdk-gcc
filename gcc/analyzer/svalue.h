@@ -45,7 +45,9 @@ enum svalue_kind
   SK_PLACEHOLDER,
   SK_WIDENING,
   SK_COMPOUND,
-  SK_CONJURED
+  SK_CONJURED,
+  SK_ASM_OUTPUT,
+  SK_CONST_FN_RESULT
 };
 
 /* svalue and its subclasses.
@@ -69,7 +71,11 @@ enum svalue_kind
      widening_svalue (SK_WIDENING): a merger of two svalues (possibly
        in an iteration).
      compound_svalue (SK_COMPOUND): a mapping of bit-ranges to svalues
-     conjured_svalue (SK_CONJURED): a value arising from a stmt.  */
+     conjured_svalue (SK_CONJURED): a value arising from a stmt
+     asm_output_svalue (SK_ASM_OUTPUT): an output from a deterministic
+       asm stmt.
+     const_fn_result_svalue (SK_CONST_FN_RESULT): the return value from
+       a function with __attribute((const)) for given inputs.  */
 
 /* An abstract base class representing a value held by a region of memory.  */
 
@@ -115,6 +121,10 @@ public:
   dyn_cast_compound_svalue () const { return NULL; }
   virtual const conjured_svalue *
   dyn_cast_conjured_svalue () const { return NULL; }
+  virtual const asm_output_svalue *
+  dyn_cast_asm_output_svalue () const { return NULL; }
+  virtual const const_fn_result_svalue *
+  dyn_cast_const_fn_result_svalue () const { return NULL; }
 
   tree maybe_get_constant () const;
   const svalue *maybe_undo_cast () const;
@@ -1147,6 +1157,266 @@ is_a_helper <conjured_svalue *>::test (svalue *sval)
 
 template <> struct default_hash_traits<conjured_svalue::key_t>
 : public member_function_hash_traits<conjured_svalue::key_t>
+{
+  static const bool empty_zero_p = true;
+};
+
+namespace ana {
+
+/* An output from a deterministic asm stmt, where we want to identify a
+   particular unknown value, rather than resorting to the unknown_value
+   singleton.
+
+   Comparisons of variables that share the same asm_output_svalue are known
+   to be equal, even if we don't know what the value is.  */
+
+class asm_output_svalue : public svalue
+{
+public:
+  /* Imposing an upper limit and using a (small) array allows key_t
+     to avoid memory management.  */
+  static const unsigned MAX_INPUTS = 2;
+
+  /* A support class for uniquifying instances of asm_output_svalue.  */
+  struct key_t
+  {
+    key_t (tree type,
+	   const char *asm_string,
+	   unsigned output_idx,
+	   const vec<const svalue *> &inputs)
+    : m_type (type), m_asm_string (asm_string), m_output_idx (output_idx),
+      m_num_inputs (inputs.length ())
+    {
+      gcc_assert (inputs.length () <= MAX_INPUTS);
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	m_input_arr[i] = inputs[i];
+    }
+
+    hashval_t hash () const
+    {
+      inchash::hash hstate;
+      hstate.add_ptr (m_type);
+      /* We don't bother hashing m_asm_str.  */
+      hstate.add_int (m_output_idx);
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	hstate.add_ptr (m_input_arr[i]);
+      return hstate.end ();
+    }
+
+    bool operator== (const key_t &other) const
+    {
+      if (!(m_type == other.m_type
+	    && 0 == (strcmp (m_asm_string, other.m_asm_string))
+	    && m_output_idx == other.m_output_idx
+	    && m_num_inputs == other.m_num_inputs))
+	return false;
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	if (m_input_arr[i] != other.m_input_arr[i])
+	  return false;
+      return true;
+    }
+
+    /* Use m_asm_string to mark empty/deleted, as m_type can be NULL for
+       legitimate instances.  */
+    void mark_deleted () { m_asm_string = reinterpret_cast<const char *> (1); }
+    void mark_empty () { m_asm_string = NULL; }
+    bool is_deleted () const
+    {
+      return m_asm_string == reinterpret_cast<const char *> (1);
+    }
+    bool is_empty () const { return m_asm_string == NULL; }
+
+    tree m_type;
+    const char *m_asm_string;
+    unsigned m_output_idx;
+    unsigned m_num_inputs;
+    const svalue *m_input_arr[MAX_INPUTS];
+  };
+
+  asm_output_svalue (tree type,
+		     const char *asm_string,
+		     unsigned output_idx,
+		     unsigned num_outputs,
+		     const vec<const svalue *> &inputs)
+  : svalue (complexity::from_vec_svalue (inputs), type),
+    m_asm_string (asm_string),
+    m_output_idx (output_idx),
+    m_num_outputs (num_outputs),
+    m_num_inputs (inputs.length ())
+  {
+    gcc_assert (inputs.length () <= MAX_INPUTS);
+    for (unsigned i = 0; i < m_num_inputs; i++)
+      m_input_arr[i] = inputs[i];
+  }
+
+  enum svalue_kind get_kind () const FINAL OVERRIDE { return SK_ASM_OUTPUT; }
+  const asm_output_svalue *
+  dyn_cast_asm_output_svalue () const FINAL OVERRIDE
+  {
+    return this;
+  }
+
+  void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
+  void accept (visitor *v) const FINAL OVERRIDE;
+
+  const char *get_asm_string () const { return m_asm_string; }
+  unsigned get_output_idx () const { return m_output_idx; }
+  unsigned get_num_inputs () const { return m_num_inputs; }
+  const svalue *get_input (unsigned idx) const { return m_input_arr[idx]; }
+
+ private:
+  void dump_input (pretty_printer *pp,
+		   unsigned input_idx,
+		   const svalue *sval,
+		   bool simple) const;
+  unsigned input_idx_to_asm_idx (unsigned input_idx) const;
+
+  const char *m_asm_string;
+  unsigned m_output_idx;
+
+  /* We capture this so that we can offset the input indices
+     to match the %0, %1, %2 in the asm_string when dumping.  */
+  unsigned m_num_outputs;
+
+  unsigned m_num_inputs;
+  const svalue *m_input_arr[MAX_INPUTS];
+};
+
+} // namespace ana
+
+template <>
+template <>
+inline bool
+is_a_helper <const asm_output_svalue *>::test (const svalue *sval)
+{
+  return sval->get_kind () == SK_ASM_OUTPUT;
+}
+
+template <> struct default_hash_traits<asm_output_svalue::key_t>
+: public member_function_hash_traits<asm_output_svalue::key_t>
+{
+  static const bool empty_zero_p = true;
+};
+
+namespace ana {
+
+/* The return value from a function with __attribute((const)) for given
+   inputs, provided that we don't have too many inputs, and all of them
+   are deterministic.
+
+   Comparisons of variables that share the same const_fn_result_svalue are known
+   to be equal, even if we don't know what the value is.  */
+
+class const_fn_result_svalue : public svalue
+{
+public:
+  /* Imposing an upper limit and using a (small) array allows key_t
+     to avoid memory management.  */
+  static const unsigned MAX_INPUTS = 2;
+
+  /* A support class for uniquifying instances of const_fn_result_svalue.  */
+  struct key_t
+  {
+    key_t (tree type,
+	   tree fndecl,
+	   const vec<const svalue *> &inputs)
+    : m_type (type), m_fndecl (fndecl),
+      m_num_inputs (inputs.length ())
+    {
+      gcc_assert (inputs.length () <= MAX_INPUTS);
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	m_input_arr[i] = inputs[i];
+    }
+
+    hashval_t hash () const
+    {
+      inchash::hash hstate;
+      hstate.add_ptr (m_type);
+      hstate.add_ptr (m_fndecl);
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	hstate.add_ptr (m_input_arr[i]);
+      return hstate.end ();
+    }
+
+    bool operator== (const key_t &other) const
+    {
+      if (!(m_type == other.m_type
+	    && m_fndecl == other.m_fndecl
+	    && m_num_inputs == other.m_num_inputs))
+	return false;
+      for (unsigned i = 0; i < m_num_inputs; i++)
+	if (m_input_arr[i] != other.m_input_arr[i])
+	  return false;
+      return true;
+    }
+
+    /* Use m_fndecl to mark empty/deleted.  */
+    void mark_deleted () { m_fndecl = reinterpret_cast<tree> (1); }
+    void mark_empty () { m_fndecl = NULL; }
+    bool is_deleted () const
+    {
+      return m_fndecl == reinterpret_cast<tree> (1);
+    }
+    bool is_empty () const { return m_fndecl == NULL; }
+
+    tree m_type;
+    tree m_fndecl;
+    unsigned m_num_inputs;
+    const svalue *m_input_arr[MAX_INPUTS];
+  };
+
+  const_fn_result_svalue (tree type,
+			  tree fndecl,
+			  const vec<const svalue *> &inputs)
+  : svalue (complexity::from_vec_svalue (inputs), type),
+    m_fndecl (fndecl),
+    m_num_inputs (inputs.length ())
+  {
+    gcc_assert (inputs.length () <= MAX_INPUTS);
+    for (unsigned i = 0; i < m_num_inputs; i++)
+      m_input_arr[i] = inputs[i];
+  }
+
+  enum svalue_kind get_kind () const FINAL OVERRIDE
+  {
+    return SK_CONST_FN_RESULT;
+  }
+  const const_fn_result_svalue *
+  dyn_cast_const_fn_result_svalue () const FINAL OVERRIDE
+  {
+    return this;
+  }
+
+  void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
+  void accept (visitor *v) const FINAL OVERRIDE;
+
+  tree get_fndecl () const { return m_fndecl; }
+  unsigned get_num_inputs () const { return m_num_inputs; }
+  const svalue *get_input (unsigned idx) const { return m_input_arr[idx]; }
+
+ private:
+  void dump_input (pretty_printer *pp,
+		   unsigned input_idx,
+		   const svalue *sval,
+		   bool simple) const;
+
+  tree m_fndecl;
+  unsigned m_num_inputs;
+  const svalue *m_input_arr[MAX_INPUTS];
+};
+
+} // namespace ana
+
+template <>
+template <>
+inline bool
+is_a_helper <const const_fn_result_svalue *>::test (const svalue *sval)
+{
+  return sval->get_kind () == SK_CONST_FN_RESULT;
+}
+
+template <> struct default_hash_traits<const_fn_result_svalue::key_t>
+: public member_function_hash_traits<const_fn_result_svalue::key_t>
 {
   static const bool empty_zero_p = true;
 };

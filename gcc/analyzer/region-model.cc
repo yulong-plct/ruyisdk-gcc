@@ -732,6 +732,169 @@ region_model::on_assignment (const gassign *assign, region_model_context *ctxt)
     }
 }
 
+/* A pending_diagnostic subclass for implementing "__analyzer_dump_path".  */
+
+class dump_path_diagnostic
+  : public pending_diagnostic_subclass<dump_path_diagnostic>
+{
+public:
+  bool emit (rich_location *richloc) FINAL OVERRIDE
+  {
+    inform (richloc, "path");
+    return true;
+  }
+
+  const char *get_kind () const FINAL OVERRIDE { return "dump_path_diagnostic"; }
+
+  bool operator== (const dump_path_diagnostic &) const
+  {
+    return true;
+  }
+};
+
+/* Handle the pre-sm-state part of STMT, modifying this object in-place.
+   Write true to *OUT_TERMINATE_PATH if the path should be terminated.
+   Write true to *OUT_UNKNOWN_SIDE_EFFECTS if the stmt has unknown
+   side effects.  */
+
+void
+region_model::on_stmt_pre (const gimple *stmt,
+			   bool *out_terminate_path,
+			   bool *out_unknown_side_effects,
+			   region_model_context *ctxt)
+{
+  switch (gimple_code (stmt))
+    {
+    default:
+      /* No-op for now.  */
+      break;
+
+    case GIMPLE_ASSIGN:
+      {
+	const gassign *assign = as_a <const gassign *> (stmt);
+	on_assignment (assign, ctxt);
+      }
+      break;
+
+    case GIMPLE_ASM:
+      {
+	const gasm *asm_stmt = as_a <const gasm *> (stmt);
+	on_asm_stmt (asm_stmt, ctxt);
+      }
+      break;
+
+    case GIMPLE_CALL:
+      {
+	/* Track whether we have a gcall to a function that's not recognized by
+	   anything, for which we don't have a function body, or for which we
+	   don't know the fndecl.  */
+	const gcall *call = as_a <const gcall *> (stmt);
+
+	/* Debugging/test support.  */
+	if (is_special_named_call_p (call, "__analyzer_describe", 2))
+	  impl_call_analyzer_describe (call, ctxt);
+	else if (is_special_named_call_p (call, "__analyzer_dump_capacity", 1))
+	  impl_call_analyzer_dump_capacity (call, ctxt);
+	else if (is_special_named_call_p (call, "__analyzer_dump_escaped", 0))
+	  impl_call_analyzer_dump_escaped (call);
+	else if (is_special_named_call_p (call, "__analyzer_dump_path", 0))
+	  {
+	    /* Handle the builtin "__analyzer_dump_path" by queuing a
+	       diagnostic at this exploded_node.  */
+	    ctxt->warn (new dump_path_diagnostic ());
+	  }
+	else if (is_special_named_call_p (call, "__analyzer_dump_region_model",
+					  0))
+	  {
+	    /* Handle the builtin "__analyzer_dump_region_model" by dumping
+	       the region model's state to stderr.  */
+	    dump (false);
+	  }
+	else if (is_special_named_call_p (call, "__analyzer_eval", 1))
+	  impl_call_analyzer_eval (call, ctxt);
+	else if (is_special_named_call_p (call, "__analyzer_break", 0))
+	  {
+	    /* Handle the builtin "__analyzer_break" by triggering a
+	       breakpoint.  */
+	    /* TODO: is there a good cross-platform way to do this?  */
+	    raise (SIGINT);
+	  }
+	else if (is_special_named_call_p (call,
+					  "__analyzer_dump_exploded_nodes",
+					  1))
+	  {
+	    /* This is handled elsewhere.  */
+	  }
+	else
+	  *out_unknown_side_effects = on_call_pre (call, ctxt,
+						   out_terminate_path);
+      }
+      break;
+
+    case GIMPLE_RETURN:
+      {
+	const greturn *return_ = as_a <const greturn *> (stmt);
+	on_return (return_, ctxt);
+      }
+      break;
+    }
+}
+
+/* Ensure that all arguments at the call described by CD are checked
+   for poisoned values, by calling get_rvalue on each argument.  */
+
+void
+region_model::check_call_args (const call_details &cd) const
+{
+  for (unsigned arg_idx = 0; arg_idx < cd.num_args (); arg_idx++)
+    cd.get_arg_svalue (arg_idx);
+}
+
+/* Return true if CD is known to be a call to a function with
+   __attribute__((const)).  */
+
+static bool
+const_fn_p (const call_details &cd)
+{
+  tree fndecl = cd.get_fndecl_for_call ();
+  if (!fndecl)
+    return false;
+  gcc_assert (DECL_P (fndecl));
+  return TREE_READONLY (fndecl);
+}
+
+/* If this CD is known to be a call to a function with
+   __attribute__((const)), attempt to get a const_fn_result_svalue
+   based on the arguments, or return NULL otherwise.  */
+
+static const svalue *
+maybe_get_const_fn_result (const call_details &cd)
+{
+  if (!const_fn_p (cd))
+    return NULL;
+
+  unsigned num_args = cd.num_args ();
+  if (num_args > const_fn_result_svalue::MAX_INPUTS)
+    /* Too many arguments.  */
+    return NULL;
+
+  auto_vec<const svalue *> inputs (num_args);
+  for (unsigned arg_idx = 0; arg_idx < num_args; arg_idx++)
+    {
+      const svalue *arg_sval = cd.get_arg_svalue (arg_idx);
+      if (!arg_sval->can_have_associated_state_p ())
+	return NULL;
+      inputs.quick_push (arg_sval);
+    }
+
+  region_model_manager *mgr = cd.get_manager ();
+  const svalue *sval
+    = mgr->get_or_create_const_fn_result_svalue (cd.get_lhs_type (),
+						 cd.get_fndecl_for_call (),
+						 inputs);
+  return sval;
+}
+
 /* Update this model for the CALL stmt, using CTXT to report any
    diagnostics - the first half.
 
@@ -751,6 +914,49 @@ region_model::on_call_pre (const gcall *call, region_model_context *ctxt,
 			   bool *out_terminate_path)
 {
   bool unknown_side_effects = false;
+
+  /* Special-case for IFN_DEFERRED_INIT.
+     We want to report uninitialized variables with -fanalyzer (treating
+     -ftrivial-auto-var-init= as purely a mitigation feature).
+     Handle IFN_DEFERRED_INIT by treating it as no-op: don't touch the
+     lhs of the call, so that it is still uninitialized from the point of
+     view of the analyzer.  */
+  if (gimple_call_internal_p (call)
+      && gimple_call_internal_fn (call) == IFN_DEFERRED_INIT)
+    return false;
+
+  /* Some of the cases below update the lhs of the call based on the
+     return value, but not all.  Provide a default value, which may
+     get overwritten below.  */
+  if (tree lhs = gimple_call_lhs (call))
+    {
+      const region *lhs_region = get_lvalue (lhs, ctxt);
+      const svalue *sval = maybe_get_const_fn_result (cd);
+      if (!sval)
+	{
+	  /* For the common case of functions without __attribute__((const)),
+	     use a conjured value, and purge any prior state involving that
+	     value (in case this is in a loop).  */
+	  sval = m_mgr->get_or_create_conjured_svalue (TREE_TYPE (lhs), call,
+						       lhs_region);
+	  purge_state_involving (sval, ctxt);
+	}
+      set_value (lhs_region, sval, ctxt);
+    }
+
+  if (gimple_call_internal_p (call))
+    {
+      switch (gimple_call_internal_fn (call))
+       {
+       default:
+	 break;
+       case IFN_BUILTIN_EXPECT:
+	 impl_call_builtin_expect (cd);
+	 return false;
+       case IFN_UBSAN_BOUNDS:
+	 return false;
+       }
+    }
 
   if (tree callee_fndecl = get_fndecl_for_call (call, ctxt))
     {
