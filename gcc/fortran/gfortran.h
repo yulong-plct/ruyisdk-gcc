@@ -1951,7 +1951,10 @@ typedef struct gfc_namespace
   /* Linked list of !$omp declare simd constructs.  */
   struct gfc_omp_declare_simd *omp_declare_simd;
 
-  /* A hash set for the the gfc expressions that have already
+  /* Linked list of !$omp declare variant constructs.  */
+  struct gfc_omp_declare_variant *omp_declare_variant;
+
+  /* A hash set for the gfc expressions that have already
      been finalized in this namespace.  */
 
   gfc_was_finalized *was_finalized;

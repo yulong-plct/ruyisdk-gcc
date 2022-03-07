@@ -3159,6 +3159,56 @@ exploded_graph::process_node (exploded_node *node)
 						 point.get_call_string ());
 	    program_state next_state (state);
 	    uncertainty_t uncertainty;
+
+            /* Make use the current state and try to discover and analyse
+               indirect function calls (a call that doesn't have an underlying
+               cgraph edge representing call).
+
+               Some examples of such calls are virtual function calls
+               and calls that happen via a function pointer.  */
+            if (succ->m_kind == SUPEREDGE_INTRAPROCEDURAL_CALL
+            	&& !(succ->get_any_callgraph_edge ()))
+              {
+                const gcall *call
+                  = point.get_supernode ()->get_final_call ();
+
+                impl_region_model_context ctxt (*this,
+                                                node,
+                                                &state,
+                                                &next_state,
+                                                &uncertainty,
+						NULL,
+                                                point.get_stmt());
+
+                region_model *model = state.m_region_model;
+                bool call_discovered = false;
+
+                if (tree fn_decl = model->get_fndecl_for_call(call,&ctxt))
+                  call_discovered = maybe_create_dynamic_call (call,
+                                                               fn_decl,
+                                                               node,
+                                                               next_state,
+                                                               next_point,
+                                                               &uncertainty,
+                                                               logger);
+                if (!call_discovered)
+                  {
+                     /* An unknown function or a special function was called 
+                        at this point, in such case, don't terminate the 
+                        analysis of the current function.
+
+                        The analyzer handles calls to such functions while
+                        analysing the stmt itself, so the function call
+                        must have been handled by the anlyzer till now.  */
+                     exploded_node *next
+                       = get_or_create_node (next_point,
+                                             next_state,
+                                             node);
+                     if (next)
+                       add_edge (node, next, succ);
+                  }
+              }
+
 	    if (!node->on_edge (*this, succ, &next_point, &next_state,
 				&uncertainty))
 	      {

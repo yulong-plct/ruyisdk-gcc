@@ -324,6 +324,118 @@ taint_state_machine::can_purge_p (state_t s ATTRIBUTE_UNUSED) const
   return true;
 }
 
+/* If STATE is a tainted state, write the bounds to *OUT and return true.
+   Otherwise return false.
+   Use the signedness of TYPE to determine if "has_ub" is tainted.  */
+
+bool
+taint_state_machine::get_taint (state_t state, tree type,
+				enum bounds *out) const
+{
+  /* Unsigned types have an implicit lower bound.  */
+  bool is_unsigned = false;
+  if (type)
+    if (INTEGRAL_TYPE_P (type))
+      is_unsigned = TYPE_UNSIGNED (type);
+
+  /* Can't use a switch as the states are non-const.  */
+  if (state == m_tainted)
+    {
+      *out = is_unsigned ? BOUNDS_LOWER : BOUNDS_NONE;
+      return true;
+    }
+  else if (state == m_has_lb)
+    {
+      *out = BOUNDS_LOWER;
+      return true;
+    }
+  else if (state == m_has_ub && !is_unsigned)
+    {
+      /* Missing lower bound.  */
+      *out = BOUNDS_UPPER;
+      return true;
+    }
+  return false;
+}
+
+/* Find the most tainted state of S0 and S1.  */
+
+state_machine::state_t
+taint_state_machine::combine_states (state_t s0, state_t s1) const
+{
+  gcc_assert (s0);
+  gcc_assert (s1);
+  if (s0 == s1)
+    return s0;
+  if (s0 == m_tainted || s1 == m_tainted)
+    return m_tainted;
+  if (s0 == m_start)
+    return s1;
+  if (s1 == m_start)
+    return s0;
+  if (s0 == m_stop)
+    return s1;
+  if (s1 == m_stop)
+    return s0;
+  /* The only remaining combinations are one of has_ub and has_lb
+     (in either order).  */
+  gcc_assert ((s0 == m_has_lb && s1 == m_has_ub)
+	      || (s0 == m_has_ub && s1 == m_has_lb));
+  return m_tainted;
+}
+
+/* Check for calls to external functions marked with
+   __attribute__((access)) with a size-index: complain about
+   tainted values passed as a size to such a function.  */
+
+void
+taint_state_machine::check_for_tainted_size_arg (sm_context *sm_ctxt,
+						 const supernode *node,
+						 const gcall *call,
+						 tree callee_fndecl) const
+{
+  tree fntype = TREE_TYPE (callee_fndecl);
+  if (!fntype)
+    return;
+
+  if (!TYPE_ATTRIBUTES (fntype))
+    return;
+
+  /* Initialize a map of attribute access specifications for arguments
+     to the function call.  */
+  rdwr_map rdwr_idx;
+  init_attr_rdwr_indices (&rdwr_idx, TYPE_ATTRIBUTES (fntype));
+
+  unsigned argno = 0;
+
+  for (tree iter = TYPE_ARG_TYPES (fntype); iter;
+       iter = TREE_CHAIN (iter), ++argno)
+    {
+      const attr_access* access = rdwr_idx.get (argno);
+      if (!access)
+	continue;
+
+      if (access->sizarg == UINT_MAX)
+	continue;
+
+      tree size_arg = gimple_call_arg (call, access->sizarg);
+
+      state_t state = sm_ctxt->get_state (call, size_arg);
+      enum bounds b;
+      if (get_taint (state, TREE_TYPE (size_arg), &b))
+	{
+	  const char* const access_str =
+	    TREE_STRING_POINTER (access->to_external_string ());
+	  tree diag_size = sm_ctxt->get_diagnostic_tree (size_arg);
+	  sm_ctxt->warn (node, call, size_arg,
+			 new tainted_access_attrib_size (*this, diag_size, b,
+							 callee_fndecl,
+							 access->sizarg,
+							 access_str));
+	}
+    }
+}
+
 } // anonymous namespace
 
 /* Internal interface to this file. */

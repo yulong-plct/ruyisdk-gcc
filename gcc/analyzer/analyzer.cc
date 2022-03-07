@@ -64,7 +64,7 @@ static tree
 fixup_tree_for_diagnostic_1 (tree expr, hash_set<tree> *visited);
 
 /*  Subroutine of fixup_tree_for_diagnostic_1, called on SSA names.
-    Attempt to reconstruct a a tree expression for SSA_NAME
+    Attempt to reconstruct a tree expression for SSA_NAME
     based on its def-stmt.
     SSA_NAME must be non-NULL.
     VISITED must be non-NULL; it is used to ensure termination.

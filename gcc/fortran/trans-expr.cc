@@ -5479,7 +5479,266 @@ gfc_conv_gfc_desc_to_cfi_desc (gfc_se *parmse, gfc_expr *e, gfc_symbol *fsym)
       && !fsym->attr.pointer && !fsym->attr.allocatable)
    cfi_attribute = 2;
   else
-   cfi_attribute = attribute;
+    {
+      /* If the actual argument can be noncontiguous, copy-in/out is required,
+	 if the dummy has either the CONTIGUOUS attribute or is an assumed-
+	 length assumed-length/assumed-size CHARACTER array.  This only
+	 applies if the actual argument is a "variable"; if it's some
+	 non-lvalue expression, we are going to evaluate it to a
+	 temporary below anyway.  */
+      se.force_no_tmp = 1;
+      if ((fsym->attr.contiguous
+	   || (fsym->ts.type == BT_CHARACTER && !fsym->ts.u.cl->length
+	       && (fsym->as->type == AS_ASSUMED_SIZE
+		   || fsym->as->type == AS_EXPLICIT)))
+	  && !gfc_is_simply_contiguous (e, false, true)
+	  && gfc_expr_is_variable (e))
+	{
+	  bool optional = fsym->attr.optional;
+	  fsym->attr.optional = 0;
+	  gfc_conv_subref_array_arg (&se, e, false, fsym->attr.intent,
+				     fsym->attr.pointer, fsym,
+				     fsym->ns->proc_name->name, NULL,
+				     /* check_contiguous= */ true);
+	  fsym->attr.optional = optional;
+	}
+      else
+	gfc_conv_expr_descriptor (&se, e);
+      gfc = se.expr;
+      /* For dt(:)%var the elem_len*stride != sm, hence, GFC uses
+	 elem_len = sizeof(dt) and base_addr = dt(lb) instead.
+	 gfc_get_dataptr_offset fixes the base_addr; for elem_len, see below.
+	 While sm is fine as it uses span*stride and not elem_len.  */
+      if (POINTER_TYPE_P (TREE_TYPE (gfc)))
+	gfc = build_fold_indirect_ref_loc (input_location, gfc);
+      else if (is_subref_array (e) && e->ts.type != BT_CHARACTER)
+	 gfc_get_dataptr_offset (&se.pre, gfc, gfc, NULL, true, e);
+    }
+  if (e->ts.type == BT_CHARACTER)
+    {
+      if (se.string_length)
+	gfc_strlen = se.string_length;
+      else if (e->ts.u.cl->backend_decl)
+	gfc_strlen = e->ts.u.cl->backend_decl;
+      else
+	gcc_unreachable ();
+    }
+  gfc_add_block_to_block (&block, &se.pre);
+
+  /* Create array decriptor and set version, rank, attribute, type. */
+  cfi = gfc_create_var (gfc_get_cfi_type (e->rank < 0
+					  ? GFC_MAX_DIMENSIONS : e->rank,
+					  false), "cfi");
+  /* Convert to CFI_cdesc_t, which has dim[] to avoid TBAA issues,*/
+  if (fsym->attr.dimension && fsym->as->type == AS_ASSUMED_RANK)
+    {
+      tmp = gfc_get_cfi_type (-1, !fsym->attr.pointer && !fsym->attr.target);
+      tmp = build_pointer_type (tmp);
+      parmse->expr = cfi = gfc_build_addr_expr (tmp, cfi);
+      cfi = build_fold_indirect_ref_loc (input_location, cfi);
+    }
+  else
+    parmse->expr = gfc_build_addr_expr (NULL, cfi);
+
+  tmp = gfc_get_cfi_desc_version (cfi);
+  gfc_add_modify (&block, tmp,
+		  build_int_cst (TREE_TYPE (tmp), CFI_VERSION));
+  if (e->rank < 0)
+    rank = fold_convert (signed_char_type_node, gfc_conv_descriptor_rank (gfc));
+  else
+    rank = build_int_cst (signed_char_type_node, e->rank);
+  tmp = gfc_get_cfi_desc_rank (cfi);
+  gfc_add_modify (&block, tmp, rank);
+  int itype = CFI_type_other;
+  if (e->ts.f90_type == BT_VOID)
+    itype = (e->ts.u.derived->intmod_sym_id == ISOCBINDING_FUNPTR
+	     ? CFI_type_cfunptr : CFI_type_cptr);
+  else
+    switch (e->ts.type)
+      {
+	case BT_INTEGER:
+	case BT_LOGICAL:
+	case BT_REAL:
+	case BT_COMPLEX:
+	  itype = CFI_type_from_type_kind (e->ts.type, e->ts.kind);
+	  break;
+	case BT_CHARACTER:
+	  itype = CFI_type_from_type_kind (CFI_type_Character, e->ts.kind);
+	  break;
+	case BT_DERIVED:
+	  itype = CFI_type_struct;
+	  break;
+	case BT_VOID:
+	  itype = (e->ts.u.derived->intmod_sym_id == ISOCBINDING_FUNPTR
+		   ? CFI_type_cfunptr : CFI_type_cptr);
+	  break;
+	case BT_ASSUMED:
+	  itype = CFI_type_other;  // FIXME: Or CFI_type_cptr ?
+	  break;
+	case BT_CLASS:
+	  if (UNLIMITED_POLY (e) && fsym->ts.type == BT_ASSUMED)
+	    {
+	      // F2017: 7.3.2.2: "An entity that is declared using the TYPE(*)
+	      // type specifier is assumed-type and is an unlimited polymorphic
+	      //  entity." The actual argument _data component is passed.
+	      itype = CFI_type_other;  // FIXME: Or CFI_type_cptr ?
+	      break;
+	    }
+	  else
+	    gcc_unreachable ();
+	case BT_PROCEDURE:
+	case BT_HOLLERITH:
+	case BT_UNION:
+	case BT_BOZ:
+	case BT_UNKNOWN:
+	  // FIXME: Really unreachable? Or reachable for type(*) ? If so, CFI_type_other?
+	  gcc_unreachable ();
+      }
+
+  tmp = gfc_get_cfi_desc_type (cfi);
+  gfc_add_modify (&block, tmp,
+		  build_int_cst (TREE_TYPE (tmp), itype));
+
+  int attr = CFI_attribute_other;
+  if (fsym->attr.pointer)
+    attr = CFI_attribute_pointer;
+  else if (fsym->attr.allocatable)
+    attr = CFI_attribute_allocatable;
+  tmp = gfc_get_cfi_desc_attribute (cfi);
+  gfc_add_modify (&block, tmp,
+		  build_int_cst (TREE_TYPE (tmp), attr));
+
+  if (e->rank == 0)
+    {
+      tmp = gfc_get_cfi_desc_base_addr (cfi);
+      gfc_add_modify (&block, tmp, fold_convert (TREE_TYPE (tmp), gfc));
+    }
+  else
+    {
+      tmp = gfc_get_cfi_desc_base_addr (cfi);
+      tmp2 = gfc_conv_descriptor_data_get (gfc);
+      gfc_add_modify (&block, tmp, fold_convert (TREE_TYPE (tmp), tmp2));
+    }
+
+  /* Set elem_len if known - must be before the next if block.
+     Note that allocatable implies 'len=:'.  */
+  if (e->ts.type != BT_ASSUMED && e->ts.type != BT_CHARACTER )
+    {
+      /* Length is known at compile time; use 'block' for it.  */
+      tmp = size_in_bytes (gfc_typenode_for_spec (&e->ts));
+      tmp2 = gfc_get_cfi_desc_elem_len (cfi);
+      gfc_add_modify (&block, tmp2, fold_convert (TREE_TYPE (tmp2), tmp));
+    }
+
+  /* When allocatable + intent out, free the cfi descriptor.  */
+  if (fsym->attr.allocatable && fsym->attr.intent == INTENT_OUT)
+    {
+      tmp = gfc_get_cfi_desc_base_addr (cfi);
+      tree call = builtin_decl_explicit (BUILT_IN_FREE);
+      call = build_call_expr_loc (input_location, call, 1, tmp);
+      gfc_add_expr_to_block (&block, fold_convert (void_type_node, call));
+      gfc_add_modify (&block, tmp,
+		      fold_convert (TREE_TYPE (tmp), null_pointer_node));
+      goto done;
+    }
+
+  /* If not unallocated/unassociated. */
+  gfc_init_block (&block2);
+
+  /* Set elem_len, which may be only known at run time. */
+  if (e->ts.type == BT_CHARACTER)
+    {
+      gcc_assert (gfc_strlen);
+      tmp = gfc_strlen;
+      if (e->ts.kind != 1)
+	tmp = fold_build2_loc (input_location, MULT_EXPR,
+			       gfc_charlen_type_node, tmp,
+			       build_int_cst (gfc_charlen_type_node,
+					      e->ts.kind));
+      tmp2 = gfc_get_cfi_desc_elem_len (cfi);
+      gfc_add_modify (&block2, tmp2, fold_convert (TREE_TYPE (tmp2), tmp));
+    }
+  else if (e->ts.type == BT_ASSUMED)
+    {
+      tmp = gfc_conv_descriptor_elem_len (gfc);
+      tmp2 = gfc_get_cfi_desc_elem_len (cfi);
+      gfc_add_modify (&block2, tmp2, fold_convert (TREE_TYPE (tmp2), tmp));
+    }
+
+  if (e->ts.type == BT_ASSUMED)
+    {
+      /* Note: type(*) implies assumed-shape/assumed-rank if fsym requires
+	 an CFI descriptor.  Use the type in the descritor as it provide
+	 mode information. (Quality of implementation feature.)  */
+      tree cond;
+      tree ctype = gfc_get_cfi_desc_type (cfi);
+      tree type = fold_convert (TREE_TYPE (ctype),
+				gfc_conv_descriptor_type (gfc));
+      tree kind = fold_convert (TREE_TYPE (ctype),
+				gfc_conv_descriptor_elem_len (gfc));
+      kind = fold_build2_loc (input_location, LSHIFT_EXPR, TREE_TYPE (type),
+			      kind, build_int_cst (TREE_TYPE (type),
+						   CFI_type_kind_shift));
+
+      /* if (BT_VOID) CFI_type_cptr else CFI_type_other  */
+      /* Note: BT_VOID is could also be CFI_type_funcptr, but assume c_ptr. */
+      cond = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_VOID));
+      tmp = fold_build2_loc (input_location, MODIFY_EXPR, void_type_node, ctype,
+			     build_int_cst (TREE_TYPE (type), CFI_type_cptr));
+      tmp2 = fold_build2_loc (input_location, MODIFY_EXPR, void_type_node,
+			      ctype,
+			      build_int_cst (TREE_TYPE (type), CFI_type_other));
+      tmp2 = fold_build3_loc (input_location, COND_EXPR, void_type_node, cond,
+			      tmp, tmp2);
+      /* if (BT_DERIVED) CFI_type_struct else  < tmp2 >  */
+      cond = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_DERIVED));
+      tmp = fold_build2_loc (input_location, MODIFY_EXPR, void_type_node, ctype,
+			     build_int_cst (TREE_TYPE (type), CFI_type_struct));
+      tmp2 = fold_build3_loc (input_location, COND_EXPR, void_type_node, cond,
+			      tmp, tmp2);
+      /* if (BT_CHARACTER) CFI_type_Character + kind=1 else  < tmp2 >  */
+      /* Note: could also be kind=4, with cfi->elem_len = gfc->elem_len*4.  */
+      cond = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_CHARACTER));
+      tmp = build_int_cst (TREE_TYPE (type),
+			   CFI_type_from_type_kind (CFI_type_Character, 1));
+      tmp = fold_build2_loc (input_location, MODIFY_EXPR, void_type_node,
+			     ctype, tmp);
+      tmp2 = fold_build3_loc (input_location, COND_EXPR, void_type_node, cond,
+			      tmp, tmp2);
+      /* if (BT_COMPLEX) CFI_type_Complex + kind/2 else  < tmp2 >  */
+      cond = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_COMPLEX));
+      tmp = fold_build2_loc (input_location, TRUNC_DIV_EXPR, TREE_TYPE (type),
+			     kind, build_int_cst (TREE_TYPE (type), 2));
+      tmp = fold_build2_loc (input_location, PLUS_EXPR, TREE_TYPE (type), tmp,
+			     build_int_cst (TREE_TYPE (type),
+					    CFI_type_Complex));
+      tmp = fold_build2_loc (input_location, MODIFY_EXPR, void_type_node,
+			     ctype, tmp);
+      tmp2 = fold_build3_loc (input_location, COND_EXPR, void_type_node, cond,
+			      tmp, tmp2);
+      /* if (BT_INTEGER || BT_LOGICAL || BT_REAL) type + kind else  <tmp2>  */
+      cond = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_INTEGER));
+      tmp = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_LOGICAL));
+      cond = fold_build2_loc (input_location, TRUTH_OR_EXPR, boolean_type_node,
+			      cond, tmp);
+      tmp = fold_build2_loc (input_location, EQ_EXPR, boolean_type_node, type,
+			      build_int_cst (TREE_TYPE (type), BT_REAL));
+      cond = fold_build2_loc (input_location, TRUTH_OR_EXPR, boolean_type_node,
+			      cond, tmp);
+      tmp = fold_build2_loc (input_location, PLUS_EXPR, TREE_TYPE (type),
+			     type, kind);
+      tmp = fold_build2_loc (input_location, MODIFY_EXPR, void_type_node,
+			     ctype, tmp);
+      tmp2 = fold_build3_loc (input_location, COND_EXPR, void_type_node, cond,
+			      tmp, tmp2);
+      gfc_add_expr_to_block (&block2, tmp2);
+    }
 
   if (e->rank != 0)
     {

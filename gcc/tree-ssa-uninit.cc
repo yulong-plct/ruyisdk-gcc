@@ -203,6 +203,128 @@ struct check_defs_data
   bool found_may_defs;
 };
 
+/* Return true if STMT is a call to built-in function all of whose
+   by-reference arguments are const-qualified (i.e., the function can
+   be assumed not to modify them).  */
+
+static bool
+builtin_call_nomodifying_p (gimple *stmt)
+{
+  if (!gimple_call_builtin_p (stmt, BUILT_IN_NORMAL))
+    return false;
+
+  tree fndecl = gimple_call_fndecl (stmt);
+  if (!fndecl)
+    return false;
+
+  tree fntype = TREE_TYPE (fndecl);
+  if (!fntype)
+    return false;
+
+  /* Check the called function's signature for non-constc pointers.
+     If one is found, return false.  */
+  unsigned argno = 0;
+  tree argtype;
+  function_args_iterator it;
+  FOREACH_FUNCTION_ARGS (fntype, argtype, it)
+    {
+      if (VOID_TYPE_P (argtype))
+	return true;
+
+      ++argno;
+
+      if (!POINTER_TYPE_P (argtype))
+	continue;
+
+      if (TYPE_READONLY (TREE_TYPE (argtype)))
+	continue;
+
+      return false;
+    }
+
+  /* If the number of actual arguments to the call is less than or
+     equal to the number of parameters, return false.  */
+  unsigned nargs = gimple_call_num_args (stmt);
+  if (nargs <= argno)
+    return false;
+
+  /* Check arguments passed through the ellipsis in calls to variadic
+     functions for pointers.  If one is found that's a non-constant
+     pointer, return false.  */
+  for (; argno < nargs; ++argno)
+    {
+      tree arg = gimple_call_arg (stmt, argno);
+      argtype = TREE_TYPE (arg);
+      if (!POINTER_TYPE_P (argtype))
+	continue;
+
+      if (TYPE_READONLY (TREE_TYPE (argtype)))
+	continue;
+
+      return false;
+    }
+
+  return true;
+}
+
+/* If ARG is a FNDECL parameter declared with attribute access none or
+   write_only issue a warning for its read access via PTR.  */
+
+static void
+maybe_warn_read_write_only (tree fndecl, gimple *stmt, tree arg, tree ptr)
+{
+  if (!fndecl)
+    return;
+
+  if (get_no_uninit_warning (arg))
+    return;
+
+  tree fntype = TREE_TYPE (fndecl);
+  if (!fntype)
+    return;
+
+  /* Initialize a map of attribute access specifications for arguments
+     to the function call.  */
+  rdwr_map rdwr_idx;
+  init_attr_rdwr_indices (&rdwr_idx, TYPE_ATTRIBUTES (fntype));
+
+  unsigned argno = 0;
+  tree parms = DECL_ARGUMENTS (fndecl);
+  for (tree parm = parms; parm; parm = TREE_CHAIN (parm), ++argno)
+    {
+      if (parm != arg)
+	continue;
+
+      const attr_access* access = rdwr_idx.get (argno);
+      if (!access)
+	break;
+
+      if (access->mode != access_none
+	  && access->mode != access_write_only)
+	continue;
+
+      location_t stmtloc
+	= linemap_resolve_location (line_table, gimple_location (stmt),
+				    LRK_SPELLING_LOCATION, NULL);
+
+      if (!warning_at (stmtloc, OPT_Wmaybe_uninitialized,
+		       "%qE may be used uninitialized", ptr))
+	break;
+
+      suppress_warning (arg, OPT_Wmaybe_uninitialized);
+
+      const char* const access_str =
+	TREE_STRING_POINTER (access->to_external_string ());
+
+      location_t parmloc = DECL_SOURCE_LOCATION (parm);
+      inform (parmloc, "accessing argument %u of a function declared with "
+	      "attribute %<%s%>",
+	      argno + 1, access_str);
+
+      break;
+    }
+}
+
 /* Callback for walk_aliased_vdefs.  */
 
 static bool
@@ -222,7 +344,7 @@ check_defs (ao_ref *ref, tree vdef, void *data_)
   return true;
 }
 
-/* Counters and limits controlling the the depth of analysis and
+/* Counters and limits controlling the depth of analysis and
    strictness of the warning.  */
 struct wlimits
 {
@@ -476,7 +598,7 @@ maybe_warn_pass_by_reference (gcall *stmt, wlimits &wlims)
   const bool save_always_executed = wlims.always_executed;
 
   /* Initialize a map of attribute access specifications for arguments
-     to the function function call.  */
+     to the function call.  */
   rdwr_map rdwr_idx;
   init_attr_rdwr_indices (&rdwr_idx, TYPE_ATTRIBUTES (fntype));
 
@@ -598,7 +720,7 @@ maybe_warn_pass_by_reference (gcall *stmt, wlimits &wlims)
 static unsigned int
 warn_uninitialized_vars (bool wmaybe_uninit)
 {
-  /* Counters and limits controlling the the depth of the warning.  */
+  /* Counters and limits controlling the depth of the warning.  */
   wlimits wlims = { };
   wlims.wmaybe_uninit = wmaybe_uninit;
 
