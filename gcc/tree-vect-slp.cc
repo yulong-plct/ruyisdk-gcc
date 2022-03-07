@@ -7409,6 +7409,9 @@ vectorize_slp_instance_root_stmt (slp_tree node, slp_instance instance)
 	  vec<constructor_elt, va_gc> *v;
 	  vec_alloc (v, nelts);
 
+	  /* A CTOR can handle V16HI composition from VNx8HI so we
+	     do not need to convert vector elements if the types
+	     do not match.  */
 	  FOR_EACH_VEC_ELT (SLP_TREE_VEC_STMTS (node), j, child_stmt)
 	    CONSTRUCTOR_APPEND_ELT (v, NULL_TREE,
 				    gimple_get_lhs (child_stmt));
