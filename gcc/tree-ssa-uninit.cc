@@ -221,7 +221,7 @@ check_defs (ao_ref *ref, tree vdef, void *data_)
   return true;
 }
 
-/* Counters and limits controlling the the depth of analysis and
+/* Counters and limits controlling the depth of analysis and
    strictness of the warning.  */
 struct wlimits
 {
@@ -475,7 +475,7 @@ maybe_warn_pass_by_reference (gcall *stmt, wlimits &wlims)
   const bool save_always_executed = wlims.always_executed;
 
   /* Initialize a map of attribute access specifications for arguments
-     to the function function call.  */
+     to the function call.  */
   rdwr_map rdwr_idx;
   init_attr_rdwr_indices (&rdwr_idx, TYPE_ATTRIBUTES (fntype));
 
@@ -597,7 +597,7 @@ maybe_warn_pass_by_reference (gcall *stmt, wlimits &wlims)
 static unsigned int
 warn_uninitialized_vars (bool wmaybe_uninit)
 {
-  /* Counters and limits controlling the the depth of the warning.  */
+  /* Counters and limits controlling the depth of the warning.  */
   wlimits wlims = { };
   wlims.wmaybe_uninit = wmaybe_uninit;
 
