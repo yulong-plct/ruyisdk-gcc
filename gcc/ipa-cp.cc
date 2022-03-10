@@ -5008,6 +5008,16 @@ create_specialized_node (struct cgraph_node *node,
   else
     new_adjustments = NULL;
 
+  auto_vec<cgraph_edge *, 2> self_recursive_calls;
+  for (i = callers.length () - 1; i >= 0; i--)
+    {
+      cgraph_edge *cs = callers[i];
+      if (cs->caller == node)
+	{
+	  self_recursive_calls.safe_push (cs);
+	  callers.unordered_remove (i);
+	}
+    }
   replace_trees = cinfo ? vec_safe_copy (cinfo->tree_map) : NULL;
   for (i = 0; i < count; i++)
     {
@@ -5020,16 +5030,6 @@ create_specialized_node (struct cgraph_node *node,
 	  replace_map = get_replacement_map (info, t, i);
 	  if (replace_map)
 	    vec_safe_push (replace_trees, replace_map);
-	}
-    }
-  auto_vec<cgraph_edge *, 2> self_recursive_calls;
-  for (i = callers.length () - 1; i >= 0; i--)
-    {
-      cgraph_edge *cs = callers[i];
-      if (cs->caller == node)
-	{
-	  self_recursive_calls.safe_push (cs);
-	  callers.unordered_remove (i);
 	}
     }
 
