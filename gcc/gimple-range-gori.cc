@@ -47,9 +47,10 @@ gimple_range_calc_op1 (irange &r, const gimple *stmt, const irange &lhs_range)
     }
   // Unary operations require the type of the first operand in the
   // second range position.
-  int_range<2> type_range (type);
-  return gimple_range_handler (stmt)->op1_range (r, type, lhs_range,
-						 type_range);
+  tree type = TREE_TYPE (gimple_range_operand1 (stmt));
+  Value_Range type_range (type);
+  type_range.set_varying (type);
+  return range_op_handler (stmt).op1_range (r, type, lhs_range, type_range);
 }
 
 // Calculate what we can determine of the range of this statement's
@@ -68,11 +69,15 @@ gimple_range_calc_op1 (irange &r, const gimple *stmt,
   // An empty range is viral.
   if (op2_range.undefined_p () || lhs_range.undefined_p ())
     {
-      r.set_undefined ();
-      return true;
+      // This is sometimes invoked on single operand stmts.
+      if (gimple_num_ops (stmt) < 3)
+	return false;
+      tree op2_type = TREE_TYPE (gimple_range_operand2 (stmt));
+      Value_Range trange (op2_type);
+      trange.set_varying (op2_type);
+      return range_op_handler (stmt).op1_range (r, type, lhs_range, trange);
     }
-  return gimple_range_handler (stmt)->op1_range (r, type, lhs_range,
-						 op2_range);
+  return range_op_handler (stmt).op1_range (r, type, lhs_range, op2_range);
 }
 
 // Calculate what we can determine of the range of this statement's
@@ -88,11 +93,13 @@ gimple_range_calc_op2 (irange &r, const gimple *stmt,
   // An empty range is viral.
   if (op1_range.undefined_p () || lhs_range.undefined_p ())
     {
-      r.set_undefined ();
-      return true;
+      tree op1_type = TREE_TYPE (gimple_range_operand1 (stmt));
+      Value_Range trange (op1_type);
+      trange.set_varying (op1_type);
+      return range_op_handler (stmt).op2_range (r, type, lhs_range, trange);
     }
-  return gimple_range_handler (stmt)->op2_range (r, type, lhs_range,
-						 op1_range);
+  return range_op_handler (stmt).op2_range (r, type, lhs_range,
+					    op1_range);
 }
 
 // Return TRUE if GS is a logical && or || expression.
@@ -262,7 +269,7 @@ range_def_chain::get_def_chain (tree name)
     return NULL;
 
   gimple *stmt = SSA_NAME_DEF_STMT (name);
-  if (gimple_range_handler (stmt))
+  if (range_op_handler (stmt))
     {
       is_logical = is_gimple_logical_p (stmt);
       // Terminate the def chains if we see too many cascading logical stmts.
@@ -685,8 +692,9 @@ gori_compute::compute_operand_range (irange &r, gimple *stmt,
       return true;
     }
   if (is_a<gswitch *> (stmt))
-    return compute_operand_range_switch (r, as_a<gswitch *> (stmt), lhs, name);
-  if (!gimple_range_handler (stmt))
+    return compute_operand_range_switch (r, as_a<gswitch *> (stmt), lhs, name,
+					 src);
+  if (!range_op_handler (stmt))
     return false;
 
   tree op1 = gimple_range_ssa_p (gimple_range_operand1 (stmt));
@@ -1406,7 +1414,105 @@ gori_compute_cache::compute_operand_range (irange &r, gimple *stmt,
   return false;
 }
 
-// Cache STMT if possible.
+// Given COND ? OP1 : OP2 with ranges R1 for OP1 and R2 for OP2, Use gori
+// to further resolve R1 and R2 if there are any dependencies between
+// OP1 and COND or OP2 and COND.  All values can are to be calculated using SRC
+// as the origination source location for operands..
+// Effectively, use COND an the edge condition and solve for OP1 on the true
+// edge and OP2 on the false edge.
+
+bool
+gori_compute::condexpr_adjust (irange &r1, irange &r2, gimple *, tree cond,
+			       tree op1, tree op2, fur_source &src)
+{
+  int_range_max tmp, cond_true, cond_false;
+  tree ssa1 = gimple_range_ssa_p (op1);
+  tree ssa2 = gimple_range_ssa_p (op2);
+  if (!ssa1 && !ssa2)
+    return false;
+  if (TREE_CODE (cond) != SSA_NAME)
+    return false;
+  gassign *cond_def = dyn_cast <gassign *> (SSA_NAME_DEF_STMT (cond));
+  if (!cond_def
+      || TREE_CODE_CLASS (gimple_assign_rhs_code (cond_def)) != tcc_comparison)
+    return false;
+  tree type = TREE_TYPE (gimple_assign_rhs1 (cond_def));
+  if (!range_compatible_p (type, TREE_TYPE (gimple_assign_rhs2 (cond_def))))
+    return false;
+  range_op_handler hand (gimple_assign_rhs_code (cond_def), type);
+  if (!hand)
+    return false;
+
+  tree c1 = gimple_range_ssa_p (gimple_assign_rhs1 (cond_def));
+  tree c2 = gimple_range_ssa_p (gimple_assign_rhs2 (cond_def));
+
+  // Only solve if there is one SSA name in the condition.
+  if ((!c1 && !c2) || (c1 && c2))
+    return false;
+
+  // Pick up the current values of each part of the condition.
+  int_range_max cl, cr;
+  src.get_operand (cl, gimple_assign_rhs1 (cond_def));
+  src.get_operand (cr, gimple_assign_rhs2 (cond_def));
+
+  tree cond_name = c1 ? c1 : c2;
+  gimple *def_stmt = SSA_NAME_DEF_STMT (cond_name);
+
+  // Evaluate the value of COND_NAME on the true and false edges, using either
+  // the op1 or op2 routines based on its location.
+  if (c1)
+    {
+      if (!hand.op1_range (cond_false, type, m_bool_zero, cr))
+	return false;
+      if (!hand.op1_range (cond_true, type, m_bool_one, cr))
+	return false;
+      cond_false.intersect (cl);
+      cond_true.intersect (cl);
+    }
+  else
+    {
+      if (!hand.op2_range (cond_false, type, m_bool_zero, cl))
+	return false;
+      if (!hand.op2_range (cond_true, type, m_bool_one, cl))
+	return false;
+      cond_false.intersect (cr);
+      cond_true.intersect (cr);
+    }
+
+  unsigned idx;
+  if ((idx = tracer.header ("cond_expr evaluation : ")))
+    {
+      fprintf (dump_file, " range1 = ");
+      r1.dump (dump_file);
+      fprintf (dump_file, ", range2 = ");
+      r1.dump (dump_file);
+      fprintf (dump_file, "\n");
+    }
+
+   // Now solve for SSA1 or SSA2 if they are in the dependency chain.
+   if (ssa1 && in_chain_p (ssa1, cond_name))
+    {
+      if (compute_operand_range (tmp, def_stmt, cond_true, ssa1, src))
+	r1.intersect (tmp);
+    }
+  if (ssa2 && in_chain_p (ssa2, cond_name))
+    {
+      if (compute_operand_range (tmp, def_stmt, cond_false, ssa2, src))
+	r2.intersect (tmp);
+    }
+  if (idx)
+    {
+      tracer.print (idx, "outgoing: range1 = ");
+      r1.dump (dump_file);
+      fprintf (dump_file, ", range2 = ");
+      r1.dump (dump_file);
+      fprintf (dump_file, "\n");
+      tracer.trailer (idx, "cond_expr", true, cond_name, cond_true);
+    }
+  return true;
+}
+
+// Dump what is known to GORI computes to listing file F.
 
 void
 gori_compute_cache::cache_stmt (gimple *stmt)

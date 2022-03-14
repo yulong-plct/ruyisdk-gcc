@@ -200,8 +200,7 @@ gimple_ranger::prefill_name (irange &r, tree name)
   if (!gimple_range_ssa_p (name))
     return;
   gimple *stmt = SSA_NAME_DEF_STMT (name);
-  // Only pre-process range-ops and PHIs.
-  if (!gimple_range_handler (stmt) && !is_a<gphi *> (stmt))
+  if (!range_op_handler (stmt) && !is_a<gphi *> (stmt))
     return;
 
   // If this op has not been processed yet, then push it on the stack
@@ -226,8 +225,8 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
   gimple *stmt = SSA_NAME_DEF_STMT (ssa);
   gcc_checking_assert (stmt && gimple_bb (stmt));
 
-  // Only pre-process range-ops and PHIs.
-  if (!gimple_range_handler (stmt) && !is_a<gphi *> (stmt))
+  // Only pre-process range-ops and phis.
+  if (!range_op_handler (stmt) && !is_a<gphi *> (stmt))
     return;
 
   // Mark where on the stack we are starting.
@@ -283,7 +282,7 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
 	}
       else
 	{
-	  gcc_checking_assert (gimple_range_handler (stmt));
+	  gcc_checking_assert (range_op_handler (stmt));
 	  tree op = gimple_range_operand2 (stmt);
 	  if (op)
 	    prefill_name (r, op);

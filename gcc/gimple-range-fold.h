@@ -41,19 +41,34 @@ bool fold_range (irange &r, gimple *s, irange &r1);
 bool fold_range (irange &r, gimple *s, irange &r1, irange &r2);
 bool fold_range (irange &r, gimple *s, unsigned num_elements, irange *vector);
 
-// Return the range_operator pointer for this statement.  This routine
-// can also be used to gate whether a routine is range-ops enabled.
+// Return the type of range which statement S calculates.  If the type is
+// unsupported or no type can be determined, return NULL_TREE.
 
-static inline range_operator *
-gimple_range_handler (const gimple *s)
+static inline tree
+gimple_range_type (const gimple *s)
 {
-  if (const gassign *ass = dyn_cast<const gassign *> (s))
-    return range_op_handler (gimple_assign_rhs_code (ass),
-			     TREE_TYPE (gimple_assign_lhs (ass)));
-  if (const gcond *cond = dyn_cast<const gcond *> (s))
-    return range_op_handler (gimple_cond_code (cond),
-			     TREE_TYPE (gimple_cond_lhs (cond)));
-  return NULL;
+  tree lhs = gimple_get_lhs (s);
+  tree type = NULL_TREE;
+  if (lhs)
+    type = TREE_TYPE (lhs);
+  else
+    {
+      enum gimple_code code = gimple_code (s);
+      if (code == GIMPLE_COND)
+	type = boolean_type_node;
+      else if (code == GIMPLE_PHI)
+	type = TREE_TYPE (gimple_phi_result (s));
+      else if (code == GIMPLE_CALL)
+	{
+	  type = gimple_call_fntype (s);
+	  // If it has a type, get the return type.
+	  if (type)
+	    type = TREE_TYPE (type);
+	}
+    }
+  if (type && irange::supports_type_p (type))
+    return type;
+  return NULL_TREE;
 }
 
 // Return EXP if it is an SSA_NAME with a type supported by gimple ranges.

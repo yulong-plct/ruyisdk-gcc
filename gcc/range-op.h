@@ -99,8 +99,6 @@ protected:
 					relation_kind rel) const;
 };
 
-extern range_operator *range_op_handler (enum tree_code code, tree type);
-extern void range_cast (irange &, tree type);
 // Like range_operator above, but for floating point operators.
 
 class range_operator_float

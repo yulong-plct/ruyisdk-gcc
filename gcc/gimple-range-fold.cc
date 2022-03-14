@@ -442,7 +442,7 @@ gimple_range_base_of_assignment (const gimple *stmt)
 tree
 gimple_range_operand1 (const gimple *stmt)
 {
-  gcc_checking_assert (gimple_range_handler (stmt));
+  gcc_checking_assert (range_op_handler (stmt));
 
   switch (gimple_code (stmt))
     {
@@ -475,7 +475,7 @@ gimple_range_operand1 (const gimple *stmt)
 tree
 gimple_range_operand2 (const gimple *stmt)
 {
-  gcc_checking_assert (gimple_range_handler (stmt));
+  gcc_checking_assert (range_op_handler (stmt));
 
   switch (gimple_code (stmt))
     {
@@ -511,7 +511,7 @@ fold_using_range::fold_stmt (irange &r, gimple *s, fur_source &src, tree name)
       && gimple_assign_rhs_code (s) == ADDR_EXPR)
     return range_of_address (r, s, src);
 
-  if (gimple_range_handler (s))
+  if (range_op_handler (s))
     res = range_of_range_op (r, s, src);
   else if (is_a<gphi *>(s))
     res = range_of_phi (r, as_a<gphi *> (s), src);
@@ -558,8 +558,10 @@ bool
 fold_using_range::range_of_range_op (irange &r, gimple *s, fur_source &src)
 {
   int_range_max range1, range2;
-  tree type = gimple_expr_type (s);
-  range_operator *handler = gimple_range_handler (s);
+  tree type = gimple_range_type (s);
+  if (!type)
+    return false;
+  range_op_handler handler (s);
   gcc_checking_assert (handler);
   gcc_checking_assert (irange::supports_type_p (type));
 
@@ -573,14 +575,14 @@ fold_using_range::range_of_range_op (irange &r, gimple *s, fur_source &src)
 	{
 	  // Fold range, and register any dependency if available.
 	  int_range<2> r2 (type);
-	  handler->fold_range (r, type, range1, r2);
+	  handler.fold_range (r, type, range1, r2);
 	  if (lhs && gimple_range_ssa_p (op1))
 	    {
 	      if (src.gori ())
 		src.gori ()->register_dependency (lhs, op1);
 	      relation_kind rel;
-	      rel = handler->lhs_op1_relation (r, range1, range1);
-	      if (rel != VREL_NONE)
+	      rel = handler.lhs_op1_relation (r, range1, range1);
+	      if (rel != VREL_VARYING)
 		src.register_relation (s, rel, lhs, op1);
 	    }
 	}
@@ -594,7 +596,7 @@ fold_using_range::range_of_range_op (irange &r, gimple *s, fur_source &src)
 	      fputc ('\n', dump_file);
 	    }
 	  // Fold range, and register any dependency if available.
-	  handler->fold_range (r, type, range1, range2, rel);
+	  handler.fold_range (r, type, range1, range2, rel);
 	  relation_fold_and_or (r, s, src);
 	  if (lhs)
 	    {
@@ -605,14 +607,14 @@ fold_using_range::range_of_range_op (irange &r, gimple *s, fur_source &src)
 		}
 	      if (gimple_range_ssa_p (op1))
 		{
-		  rel = handler->lhs_op1_relation (r, range1, range2);
-		  if (rel != VREL_NONE)
+		  rel = handler.lhs_op1_relation (r, range1, range2, rel);
+		  if (rel != VREL_VARYING)
 		    src.register_relation (s, rel, lhs, op1);
 		}
 	      if (gimple_range_ssa_p (op2))
 		{
-		  rel= handler->lhs_op2_relation (r, range1, range2);
-		  if (rel != VREL_NONE)
+		  rel= handler.lhs_op2_relation (r, range1, range2, rel);
+		  if (rel != VREL_VARYING)
 		    src.register_relation (s, rel, lhs, op2);
 		}
 	    }
@@ -817,8 +819,8 @@ fold_using_range::range_of_builtin_ubsan_call (irange &r, gcall *call,
 {
   gcc_checking_assert (code == PLUS_EXPR || code == MINUS_EXPR
 		       || code == MULT_EXPR);
-  tree type = gimple_call_return_type (call);
-  range_operator *op = range_op_handler (code, type);
+  tree type = gimple_range_type (call);
+  range_op_handler op (code, type);
   gcc_checking_assert (op);
   int_range_max ir0, ir1;
   tree arg0 = gimple_call_arg (call, 0);
@@ -830,7 +832,7 @@ fold_using_range::range_of_builtin_ubsan_call (irange &r, gcall *call,
   // Pretend the arithmetic is wrapping.  If there is any overflow,
   // we'll complain, but will actually do wrapping operation.
   flag_wrapv = 1;
-  op->fold_range (r, type, ir0, ir1);
+  op.fold_range (r, type, ir0, ir1, relation);
   flag_wrapv = saved_flag_wrapv;
 
   // If for both arguments vrp_valueize returned non-NULL, this should
@@ -1206,14 +1208,14 @@ fold_using_range::relation_fold_and_or (irange& lhs_range, gimple *s,
   else if (ssa1_dep1 != ssa2_dep2 || ssa1_dep2 != ssa2_dep1)
     return;
 
-  range_operator *handler1 = gimple_range_handler (SSA_NAME_DEF_STMT (ssa1));
-  range_operator *handler2 = gimple_range_handler (SSA_NAME_DEF_STMT (ssa2));
+  range_op_handler handler1 (SSA_NAME_DEF_STMT (ssa1));
+  range_op_handler handler2 (SSA_NAME_DEF_STMT (ssa2));
 
   int_range<2> bool_one (boolean_true_node, boolean_true_node);
 
-  relation_kind relation1 = handler1->op1_op2_relation (bool_one);
-  relation_kind relation2 = handler2->op1_op2_relation (bool_one);
-  if (relation1 == VREL_NONE || relation2 == VREL_NONE)
+  relation_kind relation1 = handler1.op1_op2_relation (bool_one);
+  relation_kind relation2 = handler2.op1_op2_relation (bool_one);
+  if (relation1 == VREL_VARYING || relation2 == VREL_VARYING)
     return;
 
   if (reverse_op2)
@@ -1251,7 +1253,6 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
 {
   int_range_max r;
   tree name;
-  range_operator *handler;
   basic_block bb = gimple_bb (s);
 
   edge e0 = EDGE_SUCC (bb, 0);
@@ -1272,21 +1273,19 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
   tree ssa2 = gimple_range_ssa_p (gimple_range_operand2 (s));
   if (ssa1 && ssa2)
     {
-      handler = gimple_range_handler (s);
+      range_op_handler handler (s);
       gcc_checking_assert (handler);
       if (e0)
 	{
-	  gcond_edge_range (r, e0);
-	  relation_kind relation = handler->op1_op2_relation (r);
-	  if (relation != VREL_NONE)
-	    src.register_relation (e0, relation, ssa1, ssa2);
+	  relation_kind relation = handler.op1_op2_relation (e0_range);
+	  if (relation != VREL_VARYING)
+	    register_relation (e0, relation, ssa1, ssa2);
 	}
       if (e1)
 	{
-	  gcond_edge_range (r, e1);
-	  relation_kind relation = handler->op1_op2_relation (r);
-	  if (relation != VREL_NONE)
-	    src.register_relation (e1, relation, ssa1, ssa2);
+	  relation_kind relation = handler.op1_op2_relation (e1_range);
+	  if (relation != VREL_VARYING)
+	    register_relation (e1, relation, ssa1, ssa2);
 	}
     }
 
@@ -1305,7 +1304,7 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
       if (TREE_CODE (TREE_TYPE (name)) != BOOLEAN_TYPE)
 	continue;
       gimple *stmt = SSA_NAME_DEF_STMT (name);
-      handler = gimple_range_handler (stmt);
+      range_op_handler handler (stmt);
       if (!handler)
 	continue;
       tree ssa1 = gimple_range_ssa_p (gimple_range_operand1 (stmt));
@@ -1315,16 +1314,16 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
 	  if (e0 && src.gori ()->outgoing_edge_range_p (r, e0, name, *q)
 	      && r.singleton_p ())
 	    {
-	      relation_kind relation = handler->op1_op2_relation (r);
-	      if (relation != VREL_NONE)
-		src.register_relation (e0, relation, ssa1, ssa2);
+	      relation_kind relation = handler.op1_op2_relation (r);
+	      if (relation != VREL_VARYING)
+		register_relation (e0, relation, ssa1, ssa2);
 	    }
 	  if (e1 && src.gori ()->outgoing_edge_range_p (r, e1, name, *q)
 	      && r.singleton_p ())
 	    {
-	      relation_kind relation = handler->op1_op2_relation (r);
-	      if (relation != VREL_NONE)
-		src.register_relation (e1, relation, ssa1, ssa2);
+	      relation_kind relation = handler.op1_op2_relation (r);
+	      if (relation != VREL_VARYING)
+		register_relation (e1, relation, ssa1, ssa2);
 	    }
 	}
     }

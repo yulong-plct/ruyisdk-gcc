@@ -252,7 +252,7 @@ range_query::get_tree_range (vrange &r, tree expr, gimple *stmt)
 	  Value_Range r1 (type);
 	  r1.set_varying (type);
 	  range_of_expr (r0, TREE_OPERAND (expr, 0), stmt);
-	  op.fold_range (r, type, r0, r1);
+	  op.fold_range (r, type, r0, int_range<1> (type));
 	}
       else
 	r.set_varying (type);
