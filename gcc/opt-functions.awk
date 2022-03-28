@@ -82,6 +82,17 @@ function opt_args_non_empty(name, flags, description)
 	return args
 }
 
+# Return the number of comma-separated element of S.
+function n_args(s)
+{
+	n = 1
+	while (s ~ ",") {
+		n++
+		sub("[^,]*, *", "", s)
+	}
+	return n
+}
+
 # Return the Nth comma-separated element of S.  Return the empty string
 # if S does not contain N elements.
 function nth_arg(n, s)
