@@ -55,10 +55,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    *  @{
    */
 
-#if __cplusplus == 201703L
-# define __cpp_lib_optional 201606L
-#else
+#if __cplusplus > 202002L && __cpp_lib_concepts
+# define __cpp_lib_optional 202110L
+#elif __cplusplus >= 202002L
 # define __cpp_lib_optional 202106L
+#else
+# define __cpp_lib_optional 201606L
 #endif
 
   template<typename _Tp>
@@ -1001,6 +1003,128 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  else
 	    return static_cast<_Tp>(std::forward<_Up>(__u));
 	}
+
+#if __cpp_lib_optional >= 202110L
+      // [optional.monadic]
+
+      template<typename _Fn>
+	constexpr auto
+	and_then(_Fn&& __f) &
+	{
+	  using _Up = remove_cvref_t<invoke_result_t<_Fn, _Tp&>>;
+	  static_assert(__is_optional_v<remove_cvref_t<_Up>>);
+	  if (has_value())
+	    return std::__invoke(std::forward<_Fn>(__f), **this);
+	  else
+	    return _Up();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	and_then(_Fn&& __f) const &
+	{
+	  using _Up = remove_cvref_t<invoke_result_t<_Fn, const _Tp&>>;
+	  static_assert(__is_optional_v<_Up>);
+	  if (has_value())
+	    return std::__invoke(std::forward<_Fn>(__f), **this);
+	  else
+	    return _Up();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	and_then(_Fn&& __f) &&
+	{
+	  using _Up = remove_cvref_t<invoke_result_t<_Fn, _Tp>>;
+	  static_assert(__is_optional_v<remove_cvref_t<_Up>>);
+	  if (has_value())
+	    return std::__invoke(std::forward<_Fn>(__f), std::move(**this));
+	  else
+	    return _Up();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	and_then(_Fn&& __f) const &&
+	{
+	  using _Up = remove_cvref_t<invoke_result_t<_Fn, const _Tp>>;
+	  static_assert(__is_optional_v<remove_cvref_t<_Up>>);
+	  if (has_value())
+	    return std::__invoke(std::forward<_Fn>(__f), std::move(**this));
+	  else
+	    return _Up();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	transform(_Fn&& __f) &
+	{
+	  using _Up = invoke_result_t<_Fn, _Tp&>;
+	  if (has_value())
+	    return optional<_Up>(_Optional_func<_Fn>{__f}, **this);
+	  else
+	    return optional<_Up>();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	transform(_Fn&& __f) const &
+	{
+	  using _Up = invoke_result_t<_Fn, const _Tp&>;
+	  if (has_value())
+	    return optional<_Up>(_Optional_func<_Fn>{__f}, **this);
+	  else
+	    return optional<_Up>();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	transform(_Fn&& __f) &&
+	{
+	  using _Up = invoke_result_t<_Fn, _Tp>;
+	  if (has_value())
+	    return optional<_Up>(_Optional_func<_Fn>{__f}, std::move(**this));
+	  else
+	    return optional<_Up>();
+	}
+
+      template<typename _Fn>
+	constexpr auto
+	transform(_Fn&& __f) const &&
+	{
+	  using _Up = invoke_result_t<_Fn, const _Tp>;
+	  if (has_value())
+	    return optional<_Up>(_Optional_func<_Fn>{__f}, std::move(**this));
+	  else
+	    return optional<_Up>();
+	}
+
+      template<typename _Fn> requires invocable<_Fn> && copy_constructible<_Tp>
+	constexpr optional
+	or_else(_Fn&& __f) const&
+	{
+	  using _Up = invoke_result_t<_Fn>;
+	  static_assert( is_same_v<remove_cvref_t<_Up>, optional> );
+
+	  if (has_value())
+	    return *this;
+	  else
+	    return std::forward<_Fn>(__f)();
+	}
+
+      template<typename _Fn> requires invocable<_Fn> && move_constructible<_Tp>
+	constexpr optional
+	or_else(_Fn&& __f) &&
+	{
+	  using _Up = invoke_result_t<_Fn>;
+	  static_assert( is_same_v<remove_cvref_t<_Up>, optional> );
+
+	  if (has_value())
+	    return std::move(*this);
+	  else
+	    return std::forward<_Fn>(__f)();
+	}
+#endif
 
       _GLIBCXX20_CONSTEXPR void reset() noexcept { this->_M_reset(); }
     };
