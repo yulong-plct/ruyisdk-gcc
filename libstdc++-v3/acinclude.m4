@@ -3663,6 +3663,9 @@ AC_DEFUN([GLIBCXX_ENABLE_LOCK_POLICY], [
 
     dnl Why do we care about 2-byte CAS on targets with 4-byte _Atomic_word?!
     AC_TRY_COMPILE([
+    #if defined __riscv
+    # error "Defaulting to mutex-based locks for ABI compatibility"
+    #endif
     #if ! defined __GCC_HAVE_SYNC_COMPARE_AND_SWAP_2
     # error "No 2-byte compare-and-swap"
     #elif ! defined __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
