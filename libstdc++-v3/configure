@@ -16176,6 +16176,9 @@ ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
         cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
+    #if defined __riscv
+    # error "Defaulting to mutex-based locks for ABI compatibility"
+    #endif
     #if ! defined __GCC_HAVE_SYNC_COMPARE_AND_SWAP_2
     # error "No 2-byte compare-and-swap"
     #elif ! defined __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
@@ -16223,7 +16226,7 @@ $as_echo "mutex" >&6; }
   # unnecessary for this test.
 
     cat > conftest.$ac_ext << EOF
-#line 16226 "configure"
+#line 16229 "configure"
 int main()
 {
   _Decimal32 d1;
@@ -16264,42 +16267,8 @@ ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
   # Fake what AC_TRY_COMPILE does, without linking as this is
   # unnecessary for this test.
 
-    cat > conftest.$ac_ext << EOF
-#line 16268 "configure"
-template<typename T1, typename T2>
-  struct same
-  { typedef T2 type; };
-
-template<typename T>
-  struct same<T, T>;
-
-int main()
-{
-  typename same<long, __int128>::type                i1;
-  typename same<long long, __int128>::type           i2;
-}
-EOF
-
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for __int128" >&5
-$as_echo_n "checking for __int128... " >&6; }
-    if { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_compile\""; } >&5
-  (eval $ac_compile) 2>&5
-  ac_status=$?
-  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-
-$as_echo "#define _GLIBCXX_USE_INT128 1" >>confdefs.h
-
-      enable_int128=yes
-    else
-      enable_int128=no
-    fi
-    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_int128" >&5
-$as_echo "$enable_int128" >&6; }
-    rm -f conftest*
-
-    cat > conftest.$ac_ext << EOF
-#line 16302 "configure"
+  cat > conftest.$ac_ext << EOF
+#line 16271 "configure"
 template<typename T1, typename T2>
   struct same
   { typedef T2 type; };
