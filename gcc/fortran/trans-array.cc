@@ -103,6 +103,111 @@ gfc_array_dataptr_type (tree desc)
   return (GFC_TYPE_ARRAY_DATAPTR_TYPE (TREE_TYPE (desc)));
 }
 
+/* Build expressions to access members of the CFI descriptor.  */
+#define CFI_FIELD_BASE_ADDR 0
+#define CFI_FIELD_ELEM_LEN 1
+#define CFI_FIELD_VERSION 2
+#define CFI_FIELD_RANK 3
+#define CFI_FIELD_ATTRIBUTE 4
+#define CFI_FIELD_TYPE 5
+#define CFI_FIELD_DIM 6
+
+#define CFI_DIM_FIELD_LOWER_BOUND 0
+#define CFI_DIM_FIELD_EXTENT 1
+#define CFI_DIM_FIELD_SM 2
+
+static tree
+gfc_get_cfi_descriptor_field (tree desc, unsigned field_idx)
+{
+  tree type = TREE_TYPE (desc);
+  gcc_assert (TREE_CODE (type) == RECORD_TYPE
+	      && TYPE_FIELDS (type)
+	      && (strcmp ("base_addr",
+			 IDENTIFIER_POINTER (DECL_NAME (TYPE_FIELDS (type))))
+		  == 0));
+  tree field = gfc_advance_chain (TYPE_FIELDS (type), field_idx);
+  gcc_assert (field != NULL_TREE);
+
+  return fold_build3_loc (input_location, COMPONENT_REF, TREE_TYPE (field),
+			  desc, field, NULL_TREE);
+}
+
+tree
+gfc_get_cfi_desc_base_addr (tree desc)
+{
+  return gfc_get_cfi_descriptor_field (desc, CFI_FIELD_BASE_ADDR);
+}
+
+tree
+gfc_get_cfi_desc_elem_len (tree desc)
+{
+  return gfc_get_cfi_descriptor_field (desc, CFI_FIELD_ELEM_LEN);
+}
+
+tree
+gfc_get_cfi_desc_version (tree desc)
+{
+  return gfc_get_cfi_descriptor_field (desc, CFI_FIELD_VERSION);
+}
+
+tree
+gfc_get_cfi_desc_rank (tree desc)
+{
+  return gfc_get_cfi_descriptor_field (desc, CFI_FIELD_RANK);
+}
+
+tree
+gfc_get_cfi_desc_type (tree desc)
+{
+  return gfc_get_cfi_descriptor_field (desc, CFI_FIELD_TYPE);
+}
+
+tree
+gfc_get_cfi_desc_attribute (tree desc)
+{
+  return gfc_get_cfi_descriptor_field (desc, CFI_FIELD_ATTRIBUTE);
+}
+
+static tree
+gfc_get_cfi_dim_item (tree desc, tree idx, unsigned field_idx)
+{
+  tree tmp = gfc_get_cfi_descriptor_field (desc, CFI_FIELD_DIM);
+  tmp = gfc_build_array_ref (tmp, idx, NULL_TREE, true);
+  tree field = gfc_advance_chain (TYPE_FIELDS (TREE_TYPE (tmp)), field_idx);
+  gcc_assert (field != NULL_TREE);
+  return fold_build3_loc (input_location, COMPONENT_REF, TREE_TYPE (field),
+			  tmp, field, NULL_TREE);
+}
+
+tree
+gfc_get_cfi_dim_lbound (tree desc, tree idx)
+{
+  return gfc_get_cfi_dim_item (desc, idx, CFI_DIM_FIELD_LOWER_BOUND);
+}
+
+tree
+gfc_get_cfi_dim_extent (tree desc, tree idx)
+{
+  return gfc_get_cfi_dim_item (desc, idx, CFI_DIM_FIELD_EXTENT);
+}
+
+tree
+gfc_get_cfi_dim_sm (tree desc, tree idx)
+{
+  return gfc_get_cfi_dim_item (desc, idx, CFI_DIM_FIELD_SM);
+}
+
+#undef CFI_FIELD_BASE_ADDR
+#undef CFI_FIELD_ELEM_LEN
+#undef CFI_FIELD_VERSION
+#undef CFI_FIELD_RANK
+#undef CFI_FIELD_ATTRIBUTE
+#undef CFI_FIELD_TYPE
+#undef CFI_FIELD_DIM
+
+#undef CFI_DIM_FIELD_LOWER_BOUND
+#undef CFI_DIM_FIELD_EXTENT
+#undef CFI_DIM_FIELD_SM
 
 /* Build expressions to access the members of an array descriptor.
    It's surprisingly easy to mess up here, so never access
@@ -305,7 +410,7 @@ gfc_conv_descriptor_dimension (tree desc, tree dim)
 
   tmp = gfc_get_descriptor_dimension (desc);
 
-  return gfc_build_array_ref (tmp, dim, NULL);
+  return gfc_build_array_ref (tmp, dim, NULL_TREE, true);
 }
 
 
@@ -3523,10 +3628,51 @@ build_class_array_ref (gfc_se *se, tree base, tree index)
 }
 
 
+/* Indicates that the tree EXPR is a reference to an array that can’t
+   have any negative stride.  */
+
+static bool
+non_negative_strides_array_p (tree expr)
+{
+  if (expr == NULL_TREE)
+    return false;
+
+  tree type = TREE_TYPE (expr);
+  if (POINTER_TYPE_P (type))
+    type = TREE_TYPE (type);
+
+  if (TYPE_LANG_SPECIFIC (type))
+    {
+      gfc_array_kind array_kind = GFC_TYPE_ARRAY_AKIND (type);
+
+      if (array_kind == GFC_ARRAY_ALLOCATABLE
+	  || array_kind == GFC_ARRAY_ASSUMED_SHAPE_CONT)
+	return true;
+    }
+
+  /* An array with descriptor can have negative strides.
+     We try to be conservative and return false by default here
+     if we don’t recognize a contiguous array instead of
+     returning false if we can identify a non-contiguous one.  */
+  if (!GFC_ARRAY_TYPE_P (type))
+    return false;
+
+  /* If the array was originally a dummy with a descriptor, strides can be
+     negative.  */
+  if (DECL_P (expr)
+      && DECL_LANG_SPECIFIC (expr))
+    if (tree orig_decl = GFC_DECL_SAVED_DESCRIPTOR (expr))
+      return non_negative_strides_array_p (orig_decl);
+
+  return true;
+}
+
+
 /* Build a scalarized reference to an array.  */
 
 static void
-gfc_conv_scalarized_array_ref (gfc_se * se, gfc_array_ref * ar)
+gfc_conv_scalarized_array_ref (gfc_se * se, gfc_array_ref * ar,
+			       bool tmp_array = false)
 {
   gfc_array_info *info;
   tree decl = NULL_TREE;
@@ -3576,7 +3722,10 @@ gfc_conv_scalarized_array_ref (gfc_se * se, gfc_array_ref * ar)
 	decl = info->descriptor;
     }
 
-  se->expr = gfc_build_array_ref (base, index, decl);
+  bool non_negative_stride = tmp_array
+			     || non_negative_strides_array_p (info->descriptor);
+  se->expr = gfc_build_array_ref (base, index, decl,
+				  non_negative_stride);
 }
 
 
@@ -3586,7 +3735,7 @@ void
 gfc_conv_tmp_array_ref (gfc_se * se)
 {
   se->string_length = se->ss->info->string_length;
-  gfc_conv_scalarized_array_ref (se, NULL);
+  gfc_conv_scalarized_array_ref (se, NULL, true);
   gfc_advance_se_ss_chain (se);
 }
 
@@ -3638,7 +3787,9 @@ build_array_ref (tree desc, tree offset, tree decl, tree vptr)
 
   tmp = gfc_conv_array_data (desc);
   tmp = build_fold_indirect_ref_loc (input_location, tmp);
-  tmp = gfc_build_array_ref (tmp, offset, decl, vptr);
+  tmp = gfc_build_array_ref (tmp, offset, decl,
+			     non_negative_strides_array_p (desc),
+			     vptr);
   return tmp;
 }
 
