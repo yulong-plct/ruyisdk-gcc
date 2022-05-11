@@ -73,62 +73,32 @@ extern tree tree_vec_extract (gimple_stmt_iterator *, tree, tree, tree, tree);
    Supposed to replace force_gimple_operand (fold_buildN (...), ...).  */
 extern tree gimple_build (gimple_seq *, location_t,
 			  enum tree_code, tree, tree);
-inline tree
-gimple_build (gimple_seq *seq,
-	      enum tree_code code, tree type, tree op0)
-{
-  return gimple_build (seq, UNKNOWN_LOCATION, code, type, op0);
-}
 extern tree gimple_build (gimple_seq *, location_t,
 			  enum tree_code, tree, tree, tree);
-inline tree
-gimple_build (gimple_seq *seq,
-	      enum tree_code code, tree type, tree op0, tree op1)
-{
-  return gimple_build (seq, UNKNOWN_LOCATION, code, type, op0, op1);
-}
 extern tree gimple_build (gimple_seq *, location_t,
 			  enum tree_code, tree, tree, tree, tree);
+template<class ...Args>
 inline tree
-gimple_build (gimple_seq *seq,
-	      enum tree_code code, tree type, tree op0, tree op1, tree op2)
+gimple_build (gimple_seq *seq, enum tree_code code, tree type, Args ...ops)
 {
-  return gimple_build (seq, UNKNOWN_LOCATION, code, type, op0, op1, op2);
+  static_assert (sizeof...(ops) > 0 && sizeof...(ops) <= 3,
+		 "Number of operands must be from one to three");
+  return gimple_build (seq, UNKNOWN_LOCATION, code, type, ops...);
 }
 
-extern tree gimple_build (gimple_stmt_iterator *, bool,
-			  enum gsi_iterator_update,
-			  location_t, combined_fn, tree);
-extern tree gimple_build (gimple_stmt_iterator *, bool,
-			  enum gsi_iterator_update,
-			  location_t, combined_fn, tree, tree);
-extern tree gimple_build (gimple_stmt_iterator *, bool,
-			  enum gsi_iterator_update,
-			  location_t, combined_fn, tree, tree, tree);
-extern tree gimple_build (gimple_stmt_iterator *, bool,
-			  enum gsi_iterator_update,
-			  location_t, combined_fn, tree, tree, tree, tree);
+extern tree gimple_build (gimple_seq *, location_t, combined_fn, tree);
+extern tree gimple_build (gimple_seq *, location_t, combined_fn, tree, tree);
+extern tree gimple_build (gimple_seq *, location_t, combined_fn,
+			  tree, tree, tree);
+extern tree gimple_build (gimple_seq *, location_t, combined_fn,
+			  tree, tree, tree, tree);
 template<class ...Args>
 inline tree
-gimple_build (gimple_seq *seq, location_t loc,
-	      combined_fn fn, tree type, Args ...args)
+gimple_build (gimple_seq *seq, combined_fn fn, tree type, Args ...args)
 {
   static_assert (sizeof...(args) < 4,
 		 "Number of arguments must be less than four");
-  gimple_stmt_iterator gsi = gsi_last (*seq);
-  return gimple_build (&gsi, false, GSI_CONTINUE_LINKING,
-		       loc, fn, type, args...);
-}
-template<class ...Args>
-inline tree
-gimple_build (gimple_seq *seq, combined_fn fn,
-	      tree type, tree arg0, tree arg1, tree arg2)
-{
-  static_assert (sizeof...(args) < 4,
-		 "Number of arguments must be less than four");
-  gimple_stmt_iterator gsi = gsi_last (*seq);
-  return gimple_build (&gsi, false, GSI_CONTINUE_LINKING,
-		       UNKNOWN_LOCATION, fn, type, args...);
+  return gimple_build (seq, UNKNOWN_LOCATION, fn, type, args...);
 }
 
 extern tree gimple_build (gimple_stmt_iterator *, bool,
