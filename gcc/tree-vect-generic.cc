@@ -45,6 +45,40 @@ along with GCC; see the file COPYING3.  If not see
 #include "optabs-libfuncs.h"
 
 
+/* Build a ternary operation and gimplify it.  Emit code before GSI.
+   Return the gimple_val holding the result.  */
+
+static tree
+gimplify_build3 (gimple_stmt_iterator *gsi, enum tree_code code,
+		 tree type, tree a, tree b, tree c)
+{
+  location_t loc = gimple_location (gsi_stmt (*gsi));
+  return gimple_build (gsi, true, GSI_SAME_STMT, loc, code, type, a, b, c);
+}
+
+/* Build a binary operation and gimplify it.  Emit code before GSI.
+   Return the gimple_val holding the result.  */
+
+static tree
+gimplify_build2 (gimple_stmt_iterator *gsi, enum tree_code code,
+		 tree type, tree a, tree b)
+{
+  location_t loc = gimple_location (gsi_stmt (*gsi));
+  return gimple_build (gsi, true, GSI_SAME_STMT, loc, code, type, a, b);
+}
+
+/* Build a unary operation and gimplify it.  Emit code before GSI.
+   Return the gimple_val holding the result.  */
+
+static tree
+gimplify_build1 (gimple_stmt_iterator *gsi, enum tree_code code, tree type,
+		 tree a)
+{
+  location_t loc = gimple_location (gsi_stmt (*gsi));
+  return gimple_build (gsi, true, GSI_SAME_STMT, loc, code, type, a);
+}
+
+
 static void expand_vector_operations_1 (gimple_stmt_iterator *, bitmap);
 
 /* Return the number of elements in a vector type TYPE that we have
