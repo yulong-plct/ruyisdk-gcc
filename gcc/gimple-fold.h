@@ -34,12 +34,10 @@ extern bool fold_stmt_inplace (gimple_stmt_iterator *);
 extern tree maybe_fold_and_comparisons (tree, enum tree_code, tree, tree,
 					enum tree_code, tree, tree);
 extern tree maybe_fold_or_comparisons (tree, enum tree_code, tree, tree,
-				       enum tree_code, tree, tree);
-extern void clear_type_padding_in_mask (tree, unsigned char *);
+				       enum tree_code, tree, tree,
+				       basic_block = nullptr);
 extern bool optimize_atomic_compare_exchange_p (gimple *);
 extern void fold_builtin_atomic_compare_exchange (gimple_stmt_iterator *);
-extern bool arith_overflowed_p (enum tree_code, const_tree, const_tree,
-				const_tree);
 extern tree no_follow_ssa_edges (tree);
 extern tree follow_single_use_edges (tree);
 extern tree follow_all_ssa_edges (tree);
@@ -67,34 +65,37 @@ extern tree tree_vec_extract (gimple_stmt_iterator *, tree, tree, tree, tree);
 /* gimple_build, functionally matching fold_buildN, outputs stmts
    int the provided sequence, matching and simplifying them on-the-fly.
    Supposed to replace force_gimple_operand (fold_buildN (...), ...).  */
-extern tree gimple_build (gimple_seq *, location_t,
-			  enum tree_code, tree, tree);
+extern tree gimple_build (gimple_stmt_iterator *, bool,
+			  enum gsi_iterator_update,
+			  location_t, enum tree_code, tree, tree);
+extern tree gimple_build (gimple_stmt_iterator *, bool,
+			  enum gsi_iterator_update,
+			  location_t, enum tree_code, tree, tree, tree);
+extern tree gimple_build (gimple_stmt_iterator *, bool,
+			  enum gsi_iterator_update,
+			  location_t, enum tree_code, tree, tree, tree, tree);
+template<class ...Args>
 inline tree
-gimple_build (gimple_seq *seq,
-	      enum tree_code code, tree type, tree op0)
+gimple_build (gimple_seq *seq, location_t loc,
+	      enum tree_code code, tree type, Args ...ops)
 {
-  return gimple_build (seq, UNKNOWN_LOCATION, code, type, op0);
+  static_assert (sizeof...(ops) > 0 && sizeof...(ops) <= 3,
+		 "Number of operands must be from one to three");
+  gimple_stmt_iterator gsi = gsi_last (*seq);
+  return gimple_build (&gsi, false, GSI_CONTINUE_LINKING,
+		       loc, code, type, ops...);
 }
-extern tree gimple_build (gimple_seq *, location_t,
-			  enum tree_code, tree, tree, tree);
-inline tree
-gimple_build (gimple_seq *seq,
-	      enum tree_code code, tree type, tree op0, tree op1)
-{
-  return gimple_build (seq, UNKNOWN_LOCATION, code, type, op0, op1);
-}
-extern tree gimple_build (gimple_seq *, location_t,
-			  enum tree_code, tree, tree, tree, tree);
+template<class ...Args>
 inline tree
 gimple_build (gimple_seq *seq,
 	      enum tree_code code, tree type, tree op0, tree op1, tree op2)
 {
-  return gimple_build (seq, UNKNOWN_LOCATION, code, type, op0, op1, op2);
+  static_assert (sizeof...(ops) > 0 && sizeof...(ops) <= 3,
+		 "Number of operands must be from one to three");
 }
 extern tree gimple_build (gimple_seq *, location_t, combined_fn, tree);
 inline tree
 gimple_build (gimple_seq *seq, combined_fn fn, tree type)
-{
   return gimple_build (seq, UNKNOWN_LOCATION, fn, type);
 }
 extern tree gimple_build (gimple_seq *, location_t, combined_fn, tree, tree);
@@ -102,15 +103,11 @@ inline tree
 gimple_build (gimple_seq *seq, combined_fn fn, tree type, tree arg0)
 {
   return gimple_build (seq, UNKNOWN_LOCATION, fn, type, arg0);
-}
-extern tree gimple_build (gimple_seq *, location_t, combined_fn,
-			  tree, tree, tree);
 inline tree
 gimple_build (gimple_seq *seq, combined_fn fn,
 	      tree type, tree arg0, tree arg1)
 {
   return gimple_build (seq, UNKNOWN_LOCATION, fn, type, arg0, arg1);
-}
 extern tree gimple_build (gimple_seq *, location_t, combined_fn,
 			  tree, tree, tree, tree);
 inline tree
