@@ -86,10 +86,10 @@ public:
   // R.  TRUE is returned on success or FALSE if no range was found.
   //
   // Note that range_of_expr must always return TRUE unless ranges are
-  // unsupported for NAME's type (supports_type_p is false).
-  virtual bool range_of_expr (irange &r, tree name, gimple * = NULL) = 0;
-  virtual bool range_on_edge (irange &r, edge, tree name);
-  virtual bool range_of_stmt (irange &r, gimple *, tree name = NULL);
+  // unsupported for EXPR's type (supports_type_p is false).
+  virtual bool range_of_expr (vrange &r, tree expr, gimple * = NULL) = 0;
+  virtual bool range_on_edge (vrange &r, edge, tree expr);
+  virtual bool range_of_stmt (vrange &r, gimple *, tree name = NULL);
 
   // DEPRECATED: This method is used from vr-values.  The plan is to
   // rewrite all uses of it to the above API.
@@ -99,9 +99,40 @@ public:
 protected:
   class value_range_equiv *allocate_value_range_equiv ();
   void free_value_range_equiv (class value_range_equiv *);
+  bool get_tree_range (vrange &v, tree expr, gimple *stmt);
+  bool get_arith_expr_range (vrange &r, tree expr, gimple *stmt);
+  relation_oracle *m_oracle;
 
 private:
   class equiv_allocator *equiv_alloc;
 };
+
+// Global ranges for SSA names using SSA_NAME_RANGE_INFO.
+
+class global_range_query : public range_query
+{
+public:
+  bool range_of_expr (vrange &r, tree expr, gimple * = NULL) override;
+};
+
+extern global_range_query global_ranges;
+
+inline range_query *
+get_global_range_query ()
+{
+  return &global_ranges;
+}
+
+/* Returns the currently active range access class.  When there is no active
+   range class, global ranges are used.  Never returns null.  */
+
+ATTRIBUTE_RETURNS_NONNULL inline range_query *
+get_range_query (const struct function *fun)
+{
+  return fun->x_range_query ? fun->x_range_query : &global_ranges;
+}
+
+extern void gimple_range_global (vrange &v, tree name);
+extern bool update_global_range (vrange &v, tree name);
 
 #endif // GCC_QUERY_H

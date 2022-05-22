@@ -74,9 +74,137 @@ along with GCC; see the file COPYING3.  If not see
    tree-ssa-loop-im.cc ensures that all the suitable conditions are in this
    shape.  */
 
-static class loop *tree_unswitch_loop (class loop *, basic_block, tree);
-static bool tree_unswitch_single_loop (class loop *, int);
-static tree tree_may_unswitch_on (basic_block, class loop *);
+/* Loop unswitching algorithm for innermost loops works in the following steps:
+
+   1) Number of instructions is estimated for each BB that belongs to a loop.
+   2) Unswitching candidates are found for gcond and gswitch statements
+      (note that an unswitching predicate for a gswitch actually corresponds
+       to a non-default edge so it can contain multiple cases).
+   3) The so called unswitch predicates are stored in a cache where the
+      gimple_uid of the last stmt in a basic-block is an index to the cache.
+   4) We consider one by one the unswitching candidates and calculate BBs that
+      will be reachable in the unswitch version.
+   5) A selected predicate is chosen and we simplify the CFG (dead edges) in
+      both versions of the loop.  We utilize both Ranger for condition
+      simplification and also symbol equivalence.  The folded if conditions
+      are replaced with true/false values, while for gswitch we mark the
+      corresponding edges with a pass-defined unreachable flag.
+   6) Every time we unswitch a loop, we save unswitch_predicate to a vector
+      together with information if true or false edge was taken.  Doing that
+      we have a so called PREDICATE_PATH that is utilized for simplification
+      of the cloned loop.
+   7) The process is repeated until we reach a growth threshold or all
+      unswitching opportunities are taken.  */
+
+/* A tuple that holds a GENERIC condition and value range for an unswitching
+   predicate.  */
+
+struct unswitch_predicate
+{
+  /* CTOR for a switch edge predicate.  */
+  unswitch_predicate (tree cond, tree lhs_, int edge_index_, edge e,
+		      const int_range_max& edge_range)
+    : condition (cond), lhs (lhs_),
+      true_range (edge_range), edge_index (edge_index_), switch_p (true)
+  {
+    gcc_assert (!(e->flags & (EDGE_TRUE_VALUE|EDGE_FALSE_VALUE))
+		&& irange::supports_type_p (TREE_TYPE (lhs)));
+    false_range = true_range;
+    if (!false_range.varying_p ()
+	&& !false_range.undefined_p ())
+      false_range.invert ();
+    num = predicates->length ();
+    predicates->safe_push (this);
+  }
+
+  /* CTOR for a GIMPLE condition statement.  */
+  unswitch_predicate (gcond *stmt)
+    : switch_p (false)
+  {
+    if (EDGE_SUCC (gimple_bb (stmt), 0)->flags & EDGE_TRUE_VALUE)
+      edge_index = 0;
+    else
+      edge_index = 1;
+    lhs = gimple_cond_lhs (stmt);
+    tree rhs = gimple_cond_rhs (stmt);
+    enum tree_code code = gimple_cond_code (stmt);
+    condition = build2 (code, boolean_type_node, lhs, rhs);
+    if (irange::supports_type_p (TREE_TYPE (lhs)))
+      {
+	auto range_op = range_op_handler (code, TREE_TYPE (lhs));
+	int_range<2> rhs_range (TREE_TYPE (rhs));
+	if (CONSTANT_CLASS_P (rhs))
+	  rhs_range.set (rhs);
+	if (!range_op.op1_range (true_range, TREE_TYPE (lhs),
+				 int_range<2> (boolean_true_node,
+					       boolean_true_node), rhs_range)
+	    || !range_op.op1_range (false_range, TREE_TYPE (lhs),
+				    int_range<2> (boolean_false_node,
+						  boolean_false_node),
+				    rhs_range))
+	  {
+	    true_range.set_varying (TREE_TYPE (lhs));
+	    false_range.set_varying (TREE_TYPE (lhs));
+	  }
+      }
+    num = predicates->length ();
+    predicates->safe_push (this);
+  }
+
+  /* Copy ranges for purpose of usage in predicate path.  */
+
+  inline void
+  copy_merged_ranges ()
+  {
+    merged_true_range = true_range;
+    merged_false_range = false_range;
+  }
+
+  /* GENERIC unswitching expression testing LHS against CONSTANT.  */
+  tree condition;
+
+  /* LHS of the expression.  */
+  tree lhs;
+
+  /* Initial ranges (when the expression is true/false) for the expression.  */
+  int_range_max true_range = {}, false_range = {};
+
+  /* Modified range that is part of a predicate path.  */
+  int_range_max merged_true_range = {}, merged_false_range = {};
+
+  /* Index of the edge the predicate belongs to in the successor vector.  */
+  int edge_index;
+
+  /* Whether the predicate was created from a switch statement.  */
+  bool switch_p;
+
+  /* The number of the predicate in the predicates vector below.  */
+  unsigned num;
+
+  /* Vector of all used predicates, used for assigning a unique id that
+     can be used for bitmap operations.  */
+  static vec<unswitch_predicate *> *predicates;
+};
+
+vec<unswitch_predicate *> *unswitch_predicate::predicates;
+
+/* Ranger instance used in the pass.  */
+static gimple_ranger *ranger = NULL;
+
+/* Cache storage for unswitch_predicate belonging to a basic block.  */
+static vec<vec<unswitch_predicate *>> *bb_predicates;
+
+/* The type represents a predicate path leading to a basic block.  */
+typedef vec<std::pair<unswitch_predicate *, bool>> predicate_vector;
+
+static class loop *tree_unswitch_loop (class loop *, edge, tree);
+static bool tree_unswitch_single_loop (class loop *, dump_user_location_t,
+				       predicate_vector &predicate_path,
+				       unsigned loop_size, unsigned &budget,
+				       int ignored_edge_flag, bitmap);
+static void
+find_unswitching_predicates_for_bb (basic_block bb, class loop *loop,
+				    vec<unswitch_predicate *> &candidates);
 static bool tree_unswitch_outer_loop (class loop *);
 static edge find_loop_guard (class loop *, vec<gimple *>&);
 static bool empty_bb_without_guard_p (class loop *, basic_block,

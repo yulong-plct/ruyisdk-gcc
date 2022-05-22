@@ -1262,7 +1262,7 @@ gimple_ranger::range_of_cond_expr  (irange &r, gassign *s)
 }
 
 bool
-gimple_ranger::range_of_expr (irange &r, tree expr, gimple *stmt)
+gimple_ranger::range_of_expr (vrange &r, tree expr, gimple *stmt)
 {
   if (!gimple_range_ssa_p (expr))
     return get_tree_range (r, expr);
@@ -1270,9 +1270,18 @@ gimple_ranger::range_of_expr (irange &r, tree expr, gimple *stmt)
   // If there is no statement, just get the global value.
   if (!stmt || is_gimple_debug (stmt))
     {
-      if (!m_cache.get_global_range (r, expr))
-        r = gimple_range_global (expr);
-      return true;
+      Value_Range tmp (TREE_TYPE (expr));
+      m_cache.get_global_range (r, expr);
+      // Pick up implied context information from the on-entry cache
+      // if current_bb is set.  Do not attempt any new calculations.
+      if (current_bb && m_cache.block_range (tmp, current_bb, expr, false))
+	{
+	  r.intersect (tmp);
+	  char str[80];
+	  sprintf (str, "picked up range from bb %d\n",current_bb->index);
+	  if (idx)
+	    tracer.print (idx, str);
+	}
     }
 
   basic_block bb = gimple_bb (stmt);
@@ -1307,9 +1316,9 @@ gimple_ranger::range_of_expr (irange &r, tree expr, gimple *stmt)
 // Return the range of NAME on entry to block BB in R.
 
 void
-gimple_ranger::range_on_entry (irange &r, basic_block bb, tree name)
+gimple_ranger::range_on_entry (vrange &r, basic_block bb, tree name)
 {
-  int_range_max entry_range;
+  Value_Range entry_range (TREE_TYPE (name));
   gcc_checking_assert (gimple_range_ssa_p (name));
 
   // Start with any known range
@@ -1324,7 +1333,7 @@ gimple_ranger::range_on_entry (irange &r, basic_block bb, tree name)
 // Return false if no range can be calculated.
 
 void
-gimple_ranger::range_on_exit (irange &r, basic_block bb, tree name)
+gimple_ranger::range_on_exit (vrange &r, basic_block bb, tree name)
 {
   // on-exit from the exit block?
   gcc_checking_assert (bb != EXIT_BLOCK_PTR_FOR_FN (cfun));
@@ -1345,10 +1354,10 @@ gimple_ranger::range_on_exit (irange &r, basic_block bb, tree name)
 // Calculate a range for NAME on edge E and return it in R.
 
 bool
-gimple_ranger::range_on_edge (irange &r, edge e, tree name)
+gimple_ranger::range_on_edge (vrange &r, edge e, tree name)
 {
-  int_range_max edge_range;
-  gcc_checking_assert (irange::supports_type_p (TREE_TYPE (name)));
+  Value_Range edge_range (TREE_TYPE (name));
+  gcc_checking_assert (vrange::supports_type_p (TREE_TYPE (name)));
 
   // PHI arguments can be constants, catch these here.
   if (!gimple_range_ssa_p (name))
@@ -1368,7 +1377,7 @@ gimple_ranger::range_on_edge (irange &r, edge e, tree name)
 // fold_range wrapper for range_of_stmt to use as an internal client.
 
 bool
-gimple_ranger::fold_range_internal (irange &r, gimple *s, tree name)
+gimple_ranger::fold_range_internal (vrange &r, gimple *s, tree name)
 {
   fold_using_range f;
   fur_depend src (s, &(gori ()), this);
@@ -1382,7 +1391,7 @@ gimple_ranger::fold_range_internal (irange &r, gimple *s, tree name)
 // avoided.  If a range cannot be calculated, return false and UNDEFINED.
 
 bool
-gimple_ranger::range_of_stmt (irange &r, gimple *s, tree name)
+gimple_ranger::range_of_stmt (vrange &r, gimple *s, tree name)
 {
   r.set_undefined ();
 
@@ -1393,8 +1402,9 @@ gimple_ranger::range_of_stmt (irange &r, gimple *s, tree name)
   if (!name)
     return calc_stmt (r, s, NULL_TREE);
 
-  if (!gimple_range_ssa_p (name))
-    return false;
+      // Calculate a new value.
+      Value_Range tmp (TREE_TYPE (name));
+      fold_range_internal (tmp, s, name);
 
   // Check if the stmt has already been processed, and is not stale.
   if (m_cache.get_non_stale_global_range (r, name))
@@ -1425,7 +1435,7 @@ gimple_ranger::range_of_stmt (irange &r, gimple *s, tree name)
 // stack if so.  R is a scratch range.
 
 inline void
-gimple_ranger::prefill_name (irange &r, tree name)
+gimple_ranger::prefill_name (vrange &r, tree name)
 {
   if (!gimple_range_ssa_p (name))
     return;
@@ -1452,7 +1462,7 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
   if (SSA_NAME_IS_DEFAULT_DEF (ssa))
     return;
 
-  int_range_max r;
+  unsigned idx;
   gimple *stmt = SSA_NAME_DEF_STMT (ssa);
   gcc_checking_assert (stmt && gimple_bb (stmt));
 
@@ -1486,7 +1496,12 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
 	    {
 	      // Fold and save the value for NAME.
 	      stmt = SSA_NAME_DEF_STMT (name);
-	      calc_stmt (r, stmt, name);
+	      Value_Range r (TREE_TYPE (name));
+	      fold_range_internal (r, stmt, name);
+	      // Make sure we don't lose any current global info.
+	      Value_Range tmp (TREE_TYPE (name));
+	      m_cache.get_global_range (tmp, name);
+	      r.intersect (tmp);
 	      m_cache.set_global_range (name, r);
 	    }
 	  continue;
@@ -1508,6 +1523,7 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
       gphi *phi = dyn_cast <gphi *> (stmt);
       if (phi)
 	{
+	  Value_Range r (TREE_TYPE (gimple_phi_result (phi)));
 	  for (unsigned x = 0; x < gimple_phi_num_args (phi); x++)
 	    prefill_name (r, gimple_phi_arg_def (phi, x));
 	}
@@ -1515,6 +1531,7 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
 	{
 	  gcc_checking_assert (gimple_range_handler (stmt));
 	  tree op = gimple_range_operand2 (stmt);
+	  Value_Range r (TREE_TYPE (name));
 	  if (op)
 	    prefill_name (r, op);
 	  op = gimple_range_operand1 (stmt);
@@ -1522,8 +1539,56 @@ gimple_ranger::prefill_stmt_dependencies (tree ssa)
 	    prefill_name (r, op);
 	}
     }
-  if (dump_file && (param_evrp_mode & EVRP_MODE_TRACE))
-    fprintf (dump_file, "END range_of_stmt dependence fill\n");
+  if (idx)
+    {
+      unsupported_range r;
+      tracer.trailer (idx, "ROS ", false, ssa, r);
+    }
+}
+
+
+// This routine will invoke the gimple fold_stmt routine, providing context to
+// range_of_expr calls via an private interal API.
+
+bool
+gimple_ranger::fold_stmt (gimple_stmt_iterator *gsi, tree (*valueize) (tree))
+{
+  gimple *stmt = gsi_stmt (*gsi);
+  current_bb = gimple_bb (stmt);
+  bool ret = ::fold_stmt (gsi, valueize);
+  current_bb = NULL;
+  return ret;
+}
+
+// Called during dominator walks to register any inferred ranges that take
+// effect from this point forward.  
+
+void
+gimple_ranger::register_inferred_ranges (gimple *s)
+{
+  // First, export the LHS if it is a new global range.
+  tree lhs = gimple_get_lhs (s);
+  if (lhs)
+    {
+      int_range_max tmp;
+      if (range_of_stmt (tmp, s, lhs) && !tmp.varying_p ()
+	  && update_global_range (tmp, lhs) && dump_file)
+	{
+	  value_range vr = tmp;
+	  fprintf (dump_file, "Global Exported: ");
+	  print_generic_expr (dump_file, lhs, TDF_SLIM);
+	  fprintf (dump_file, " = ");
+	  vr.dump (dump_file);
+	  int_range_max same = vr;
+	  if (same != tmp)
+	    {
+	      fprintf (dump_file, " ...  irange was : ");
+	      tmp.dump (dump_file);
+	    }
+	  fputc ('\n', dump_file);
+	}
+    }
+  m_cache.apply_inferred_ranges (s);
 }
 
 // This routine will export whatever global ranges are known to GCC
@@ -1543,6 +1608,9 @@ gimple_ranger::export_global_ranges ()
   for ( x = 1; x < num_ssa_names; x++)
     {
       tree name = ssa_name (x);
+      if (!name)
+	continue;
+      Value_Range r (TREE_TYPE (name));
       if (name && !SSA_NAME_IN_FREE_LIST (name)
 	  && gimple_range_ssa_p (name)
 	  && m_cache.get_global_range (r, name)
@@ -1558,18 +1626,28 @@ gimple_ranger::export_global_ranges ()
 	  // WTF? Can't write non-null pointer ranges?? stupid set_range_info!
 	  if (!POINTER_TYPE_P (TREE_TYPE (name)) && !r.undefined_p ())
 	    {
-	      value_range vr = r;
-	      set_range_info (name, vr);
-	      if (dump_file)
-		{
-		  print_generic_expr (dump_file, name , TDF_SLIM);
-		  fprintf (dump_file, " --> ");
-		  vr.dump (dump_file);
-		  fprintf (dump_file, "\n");
-		  fprintf (dump_file, "         irange : ");
-		  r.dump (dump_file);
-		  fprintf (dump_file, "\n");
-		}
+	      /* Print the header only when there's something else
+		 to print below.  */
+	      fprintf (dump_file, "Exported global range table:\n");
+	      fprintf (dump_file, "============================\n");
+	      print_header = false;
+	    }
+
+	  if (!irange::supports_type_p (TREE_TYPE (name)))
+	    continue;
+
+	  vrange &v = r;
+	  value_range vr = as_a <irange> (v);
+	  print_generic_expr (dump_file, name , TDF_SLIM);
+	  fprintf (dump_file, "  : ");
+	  vr.dump (dump_file);
+	  fprintf (dump_file, "\n");
+	  int_range_max same = vr;
+	  if (same != as_a <irange> (v))
+	    {
+	      fprintf (dump_file, "         irange : ");
+	      r.dump (dump_file);
+	      fprintf (dump_file, "\n");
 	    }
 	}
     }
@@ -1581,7 +1659,6 @@ void
 gimple_ranger::dump_bb (FILE *f, basic_block bb)
   edge_iterator ei;
   edge e;
-  int_range_max range;
   fprintf (f, "\n=========== BB %d ============\n", bb->index);
   m_cache.dump_bb (f, bb);
 
@@ -1591,10 +1668,8 @@ gimple_ranger::dump_bb (FILE *f, basic_block bb)
   for (x = 1; x < num_ssa_names; x++)
     {
       tree name = ssa_name (x);
-      if (gimple_range_ssa_p (name) && SSA_NAME_DEF_STMT (name) &&
-	  gimple_bb (SSA_NAME_DEF_STMT (name)) == bb &&
-	  m_cache.get_global_range (range, name))
-	{
+      if (!gimple_range_ssa_p (name) || !SSA_NAME_DEF_STMT (name))
+	continue;
 	  if (!range.varying_p ())
 	    {
 	      print_generic_expr (f, name, TDF_SLIM);
@@ -1612,10 +1687,11 @@ gimple_ranger::dump_bb (FILE *f, basic_block bb)
       for (x = 1; x < num_ssa_names; x++)
 	{
 	  tree name = gimple_range_ssa_p (ssa_name (x));
-	  if (name && m_cache.range_on_edge (range, e, name))
+	  if (!name || !gori ().has_edge_range_p (name, e))
+	  if (m_cache.range_on_edge (range, e, name))
 	    {
 	      gimple *s = SSA_NAME_DEF_STMT (name);
-	      // Only print the range if this is the def block, or
+	      Value_Range tmp_range (TREE_TYPE (name));
 	      // the on entry cache for either end of the edge is
 	      // set.
 	      if ((s && bb == gimple_bb (s)) ||

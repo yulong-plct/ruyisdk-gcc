@@ -101,10 +101,10 @@ class vr_values : public range_query
   vr_values (void);
   ~vr_values (void);
 
-  virtual bool range_of_expr (irange &r, tree expr, gimple *stmt) OVERRIDE;
-  virtual tree value_of_expr (tree, gimple * = NULL) OVERRIDE;
-  virtual tree value_on_edge (edge, tree) OVERRIDE;
-  virtual tree value_of_stmt (gimple *, tree = NULL_TREE) OVERRIDE;
+  virtual bool range_of_expr (vrange &r, tree expr, gimple *stmt) override;
+  virtual tree value_of_expr (tree, gimple * = NULL) override;
+  virtual tree value_on_edge (edge, tree) override;
+  virtual tree value_of_stmt (gimple *, tree = NULL_TREE) override;
   virtual const value_range_equiv *get_value_range (const_tree,
 						    gimple * = NULL) OVERRIDE;
   void set_vr_value (tree, value_range_equiv *);

@@ -48,17 +48,18 @@ class gimple_ranger : public range_query
 public:
   gimple_ranger ();
   ~gimple_ranger ();
-  virtual bool range_of_stmt (irange &r, gimple *, tree name = NULL) OVERRIDE;
-  virtual bool range_of_expr (irange &r, tree name, gimple * = NULL) OVERRIDE;
-  virtual bool range_on_edge (irange &r, edge e, tree name) OVERRIDE;
-  virtual void range_on_entry (irange &r, basic_block bb, tree name);
-  virtual void range_on_exit (irange &r, basic_block bb, tree name);
+  virtual bool range_of_stmt (vrange &r, gimple *, tree name = NULL) override;
+  virtual bool range_of_expr (vrange &r, tree name, gimple * = NULL) override;
+  virtual bool range_on_edge (vrange &r, edge e, tree name) override;
+  void range_on_entry (vrange &r, basic_block bb, tree name);
+  void range_on_exit (vrange &r, basic_block bb, tree name);
   void export_global_ranges ();
   inline gori_compute &gori ()  { return m_cache.m_gori; }
   virtual void dump (FILE *f) OVERRIDE;
   void dump_bb (FILE *f, basic_block bb);
 protected:
-  void prefill_name (irange &r, tree name);
+  bool fold_range_internal (vrange &r, gimple *s, tree name);
+  void prefill_name (vrange &r, tree name);
   void prefill_stmt_dependencies (tree ssa);
   bool calc_stmt (irange &r, gimple *s, tree name = NULL_TREE);
   bool range_of_range_op (irange &r, gimple *s);
