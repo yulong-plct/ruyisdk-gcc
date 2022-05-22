@@ -31,8 +31,8 @@ import collections
 import itertools
 from functools import reduce
 
-
-CANONICAL_ORDER = "imafdgqlcbjktpvn"
+SUPPORTED_ISA_SPEC = ["2.2", "20190608", "20191213"]
+CANONICAL_ORDER = "imafdgqlcbkjtpvn"
 LONG_EXT_PREFIXES = ['z', 's', 'h', 'x']
 
 #
