@@ -2374,6 +2374,12 @@ vect_analyze_loop_2 (loop_vec_info loop_vinfo, bool &fatal, unsigned *n_stmts)
   /* This is the point where we can re-start analysis with SLP forced off.  */
 start_over:
 
+  /* Apply the suggested unrolling factor, this was determined by the backend
+     during finish_cost the first time we ran the analyzis for this
+     vector mode.  */
+  if (loop_vinfo->suggested_unroll_factor > 1)
+    LOOP_VINFO_VECT_FACTOR (loop_vinfo) *= loop_vinfo->suggested_unroll_factor;
+
   /* Now the vectorization factor is final.  */
   poly_uint64 vectorization_factor = LOOP_VINFO_VECT_FACTOR (loop_vinfo);
   gcc_assert (known_ne (vectorization_factor, 0U));
