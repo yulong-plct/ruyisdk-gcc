@@ -171,6 +171,9 @@ init_internal_fns ()
 #define scatter_store_direct { 3, 1, false }
 #define len_store_direct { 3, 3, false }
 #define mask_len_store_direct { 4, 5, false }
+#define vec_set_direct { 3, 3, false }
+#define unary_direct { 0, 0, true }
+#define binary_direct { 0, 0, true }
 #define ternary_direct { 0, 0, true }
 #define cond_unary_direct { 1, 1, true }
 #define cond_binary_direct { 1, 1, true }
@@ -191,8 +194,6 @@ const direct_internal_fn_info direct_internal_fn_array[IFN_LAST + 1] = {
 #define DEF_INTERNAL_OPTAB_FN(CODE, FLAGS, OPTAB, TYPE) TYPE##_direct,
 #define DEF_INTERNAL_SIGNED_OPTAB_FN(CODE, FLAGS, SELECTOR, SIGNED_OPTAB, \
 				     UNSIGNED_OPTAB, TYPE) TYPE##_direct,
-#define DEF_INTERNAL_INSN_FN(CODE, FLAGS, INSN, NOUTPUTS, NINPUTS) \
-  direct_insn,
 #include "internal-fn.def"
   not_direct
 };
@@ -3731,10 +3732,6 @@ tree_pair
 direct_internal_fn_types (internal_fn fn, tree return_type, tree *args)
 {
   const direct_internal_fn_info &info = direct_internal_fn (fn);
-  if (info.type0 == -2)
-    /* Functions created by DEF_INTERNAL_INSN_FN are not type-dependent.  */
-    return tree_pair {};
-
   tree type0 = (info.type0 < 0 ? return_type : TREE_TYPE (args[info.type0]));
   tree type1 = (info.type1 < 0 ? return_type : TREE_TYPE (args[info.type1]));
   return tree_pair (type0, type1);
@@ -3748,10 +3745,6 @@ tree_pair
 direct_internal_fn_types (internal_fn fn, gcall *call)
 {
   const direct_internal_fn_info &info = direct_internal_fn (fn);
-  if (info.type0 == -2)
-    /* Functions created by DEF_INTERNAL_INSN_FN are not type-dependent.  */
-    return tree_pair {};
-
   tree op0 = (info.type0 < 0
 	      ? gimple_call_lhs (call)
 	      : gimple_call_arg (call, info.type0));
@@ -3904,8 +3897,6 @@ direct_internal_fn_supported_p (internal_fn fn, tree_pair types,
 	return direct_##TYPE##_optab_supported_p (which_optab, types,	\
 						  opt_type);		\
       }
-#define DEF_INTERNAL_INSN_FN(CODE, FLAGS, INSN, NOUTPUTS, NINPUTS) \
-    case IFN_##CODE: return targetm.have_##INSN ();
 #include "internal-fn.def"
 
     case IFN_LAST:
@@ -4090,14 +4081,6 @@ set_edom_supported_p (void)
     tree_pair types = direct_internal_fn_types (fn, stmt);		\
     optab which_optab = direct_internal_fn_optab (fn, types);		\
     expand_##TYPE##_optab_fn (fn, stmt, which_optab);			\
-  }
-#define DEF_INTERNAL_INSN_FN(CODE, FLAGS, INSN, NOUTPUTS, NINPUTS)	\
-  static void								\
-  expand_##CODE (internal_fn, gcall *stmt)				\
-  {									\
-    gcc_assert (targetm.have_##INSN ());				\
-    expand_fn_using_insn (stmt, targetm.code_for_##INSN,		\
-			  NOUTPUTS, NINPUTS);				\
   }
 #include "internal-fn.def"
 #undef DEF_INTERNAL_OPTAB_FN
