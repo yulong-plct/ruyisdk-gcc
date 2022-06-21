@@ -3848,7 +3848,7 @@ vect_loop_versioning (loop_vec_info loop_vinfo,
 	    }
 	}
 
-      update_ssa (TODO_update_ssa);
+      update_ssa (TODO_update_ssa_no_phi);
     }
 
   if (version_niter)
