@@ -762,9 +762,13 @@ public:
 	    rest_of_decl_compilation (decl, 1, 0);
 	  }
       }
-    else if (d->isDataseg () && !(d->storage_class & STCextern))
+    else if (d->isDataseg ())
       {
 	tree decl = get_symbol_decl (d);
+
+	/* Only need to build the VAR_DECL for extern declarations.  */
+	if (d->storage_class & STCextern)
+	  return;
 
 	/* Duplicated VarDeclarations map to the same symbol.  Check if this
 	   is the one declaration which will be emitted.  */
@@ -1374,13 +1378,11 @@ get_symbol_decl (Declaration *decl)
   if (decl->storage_class & STCvolatile)
     TREE_THIS_VOLATILE (decl->csym) = 1;
 
-  /* Protection attributes are used by the debugger.  */
-  if (decl->protection.kind == Prot::private_)
-    TREE_PRIVATE (decl->csym) = 1;
-  else if (decl->protection.kind == Prot::protected_)
-    TREE_PROTECTED (decl->csym) = 1;
+  /* Symbol was marked register.  */
+  if (decl->storage_class & STCregister)
+    DECL_REGISTER (decl->csym) = 1;
 
-  /* Likewise, so could the deprecated attribute.  */
+  /* Symbol was declared with deprecated attribute.  */
   if (decl->storage_class & STCdeprecated)
     TREE_DEPRECATED (decl->csym) = 1;
 
@@ -1420,6 +1422,18 @@ get_symbol_decl (Declaration *decl)
 
   /* Apply any user attributes that may affect semantic meaning.  */
   apply_user_attributes (decl, decl->csym);
+
+  /* Handle any conflicts between D language attributes and compiler-recognized
+   * user attributes.  */
+  if (VAR_P (decl->csym) && DECL_HARD_REGISTER (decl->csym))
+    {
+      if (decl->storage_class & STCextern)
+	error_at (make_location_t (decl->loc), "explicit register variable "
+		  "%qs declared %<extern%>", decl->toChars ());
+      else if (decl->isThreadlocal ())
+	error_at (make_location_t (decl->loc), "explicit register variable "
+		  "%qs declared thread local", decl->toChars ());
+    }
 
   /* %% Probably should be a little more intelligent about setting this.  */
   TREE_USED (decl->csym) = 1;
