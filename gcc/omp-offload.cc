@@ -2408,9 +2408,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_openacc; };
+  bool gate (function *) final override { return flag_openacc; };
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_oacc_loop_designation ();
     }
@@ -2438,9 +2438,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_openacc; };
+  bool gate (function *) final override { return flag_openacc; };
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_oacc_device_lower ();
     }
@@ -2672,13 +2672,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
     {
       return (!(fun->curr_properties & PROP_gimple_lomp_dev)
 	      || (flag_openmp
 		  && cgraph_node::get (fun->decl)->calls_declare_variant_alt));
     }
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_omp_device_lower ();
     }
@@ -2718,7 +2718,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
     {
 #ifdef ACCEL_COMPILER
       return offloading_function_p (fun->decl);
@@ -2728,7 +2728,7 @@ public:
 #endif
     }
 
-  virtual unsigned execute (function *);
+  unsigned execute (function *) final override;
 };
 
 /* Callback for walk_gimple_stmt used to scan for link var operands.  */

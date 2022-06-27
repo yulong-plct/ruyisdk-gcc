@@ -5584,12 +5584,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return (optimize > 0) && dbg_cnt (if_conversion);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_if_conversion ();
     }
@@ -5631,13 +5631,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return optimize > 0 && flag_if_conversion
 	&& dbg_cnt (if_after_combine);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       if_convert (true);
       return 0;
@@ -5677,13 +5677,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return optimize > 0 && flag_if_conversion2
 	&& dbg_cnt (if_after_reload);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       if_convert (true);
       return 0;

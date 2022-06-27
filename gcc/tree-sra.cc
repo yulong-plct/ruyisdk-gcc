@@ -4652,8 +4652,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_intra_sra (); }
-  virtual unsigned int execute (function *) { return early_intra_sra (); }
+  bool gate (function *) final override { return gate_intra_sra (); }
+  unsigned int execute (function *) final override
+  {
+    return early_intra_sra ();
+  }
 
 }; // class pass_sra_early
 
@@ -4688,8 +4691,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_intra_sra (); }
-  virtual unsigned int execute (function *) { return late_intra_sra (); }
+  bool gate (function *) final override { return gate_intra_sra (); }
+  unsigned int execute (function *) final override { return late_intra_sra (); }
 
 }; // class pass_sra
 

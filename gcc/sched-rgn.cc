@@ -3783,7 +3783,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
 #ifdef INSN_SCHEDULING
       return flag_live_range_shrinkage;
@@ -3792,7 +3792,7 @@ public:
 #endif
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_live_range_shrinkage ();
     }
@@ -3830,8 +3830,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *) { return rest_of_handle_sched (); }
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
+  {
+    return rest_of_handle_sched ();
+  }
 
 }; // class pass_sched
 
@@ -3876,8 +3879,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_sched2 ();
     }
@@ -3926,8 +3929,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_sched_fusion ();
     }

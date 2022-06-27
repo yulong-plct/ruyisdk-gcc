@@ -308,17 +308,17 @@ public:
 
   static const pass_data data;
   opt_pass *
-  clone ()
+  clone () final override
   {
     return new pass_sancov<O0> (m_ctxt);
   }
-  virtual bool
-  gate (function *)
+  bool
+  gate (function *fun) final override
   {
     return flag_sanitize_coverage && (!O0 || !optimize);
   }
-  virtual unsigned int
-  execute (function *fun)
+  unsigned int
+  execute (function *fun) final override
   {
     return sancov_pass (fun);
   }

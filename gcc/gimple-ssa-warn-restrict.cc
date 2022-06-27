@@ -67,8 +67,16 @@ class pass_wrestrict : public gimple_opt_pass
 
   opt_pass *clone () { return new pass_wrestrict (m_ctxt); }
 
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override;
+
+  void check_call (gimple *);
+
+  void check_block (basic_block);
+
+  /* A pointer_query object to store information about pointers and
+     their targets in.  */
+  pointer_query m_ptr_qry;
 };
 
 bool

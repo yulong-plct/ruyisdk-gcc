@@ -3260,7 +3260,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_jump
 
@@ -3306,8 +3306,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_thread_jumps; }
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override
+  {
+    return flag_thread_jumps && flag_expensive_optimizations;
+  }
+  unsigned int execute (function *) final override;
 
 }; // class pass_jump_after_combine
 
@@ -3351,7 +3354,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       cleanup_cfg (flag_crossjumping ? CLEANUP_CROSSJUMP : 0);
       return 0;

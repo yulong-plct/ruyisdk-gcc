@@ -2003,12 +2003,15 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return (optimize > 0 && (flag_rename_registers));
     }
 
-  virtual unsigned int execute (function *) { return regrename_optimize (); }
+  unsigned int execute (function *) final override
+  {
+    return regrename_optimize ();
+  }
 
 }; // class pass_regrename
 

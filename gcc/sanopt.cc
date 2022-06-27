@@ -942,8 +942,16 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_sanitize; }
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override
+  {
+    /* SANITIZE_RETURN is handled in the front-end.  When trapping,
+       SANITIZE_UNREACHABLE is handled by builtin_decl_unreachable.  */
+    unsigned int mask = SANITIZE_RETURN;
+    if (flag_sanitize_trap & SANITIZE_UNREACHABLE)
+      mask |= SANITIZE_UNREACHABLE;
+    return flag_sanitize & ~mask;
+  }
+  unsigned int execute (function *) final override;
 
 }; // class pass_sanopt
 

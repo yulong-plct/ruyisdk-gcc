@@ -955,7 +955,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* Setting this target hook value is how a backend indicates the need.  */
       if (targetm.flags_regnum == INVALID_REGNUM)
@@ -963,7 +963,7 @@ public:
       return flag_compare_elim_after_reload;
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_compare_elim_after_reload ();
     }

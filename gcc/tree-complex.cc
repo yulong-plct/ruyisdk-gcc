@@ -1883,8 +1883,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  opt_pass * clone () { return new pass_lower_complex (m_ctxt); }
-  virtual unsigned int execute (function *) { return tree_lower_complex (); }
+  opt_pass * clone () final override { return new pass_lower_complex (m_ctxt); }
+  unsigned int execute (function *) final override
+  {
+    return tree_lower_complex ();
+  }
 
 }; // class pass_lower_complex
 
@@ -1920,14 +1923,17 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
     {
       /* With errors, normal optimization passes are not run.  If we don't
 	 lower complex operations at all, rtl expansion will abort.  */
       return !(fun->curr_properties & PROP_gimple_lcx);
     }
 
-  virtual unsigned int execute (function *) { return tree_lower_complex (); }
+  unsigned int execute (function *) final override
+  {
+    return tree_lower_complex ();
+  }
 
 }; // class pass_lower_complex_O0
 

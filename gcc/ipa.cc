@@ -1343,8 +1343,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *) { return ipa_cdtor_merge (); }
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
+  {
+    return ipa_cdtor_merge ();
+  }
 
 }; // class pass_ipa_cdtor_merge
 
@@ -1566,7 +1569,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *) { return ipa_single_use (); }
+  unsigned int execute (function *) final override { return ipa_single_use (); }
 
 }; // class pass_ipa_single_use
 

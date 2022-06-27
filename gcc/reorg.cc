@@ -3984,8 +3984,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_delay_slots ();
     }
@@ -4035,12 +4035,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return targetm.machine_dependent_reorg != 0;
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       targetm.machine_dependent_reorg ();
       return 0;

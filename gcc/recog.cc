@@ -4338,9 +4338,12 @@ public:
   /* opt_pass methods: */
   /* The epiphany backend creates a second instance of this pass, so we need
      a clone method.  */
-  opt_pass * clone () { return new pass_peephole2 (m_ctxt); }
-  virtual bool gate (function *) { return (optimize > 0 && flag_peephole2); }
-  virtual unsigned int execute (function *)
+  opt_pass * clone () final override { return new pass_peephole2 (m_ctxt); }
+  bool gate (function *) final override
+  {
+    return (optimize > 0 && flag_peephole2);
+  }
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_peephole2 ();
     }
@@ -4380,8 +4383,11 @@ public:
   /* opt_pass methods: */
   /* The epiphany backend creates a second instance of this pass, so
      we need a clone method.  */
-  opt_pass * clone () { return new pass_split_all_insns (m_ctxt); }
-  virtual unsigned int execute (function *)
+  opt_pass * clone () final override
+  {
+    return new pass_split_all_insns (m_ctxt);
+  }
+  unsigned int execute (function *) final override
     {
       split_all_insns ();
       return 0;
@@ -4420,13 +4426,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* If optimizing, then go ahead and split insns now.  */
       return optimize > 0;
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       split_all_insns ();
       return 0;
@@ -4475,12 +4481,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return enable_split_before_sched2 ();
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       split_all_insns ();
       return 0;
@@ -4519,8 +4525,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
     {
       split_all_insns ();
       return 0;
@@ -4578,7 +4584,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* The placement of the splitting that we do for shorten_branches
 	 depends on whether regstack is used by the target or not.  */
@@ -4589,7 +4595,7 @@ public:
 #endif
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return split_all_insns_noflow ();
     }

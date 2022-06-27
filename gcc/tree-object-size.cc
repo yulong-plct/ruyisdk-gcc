@@ -1453,10 +1453,81 @@ pass_object_sizes::execute (function *fun)
   return 0;
 }
 
+/* Simple pass to optimize all __builtin_object_size () builtins.  */
+
+namespace {
+
+const pass_data pass_data_object_sizes =
+{
+  GIMPLE_PASS, /* type */
+  "objsz", /* name */
+  OPTGROUP_NONE, /* optinfo_flags */
+  TV_NONE, /* tv_id */
+  ( PROP_cfg | PROP_ssa ), /* properties_required */
+  PROP_objsz, /* properties_provided */
+  0, /* properties_destroyed */
+  0, /* todo_flags_start */
+  0, /* todo_flags_finish */
+};
+
+class pass_object_sizes : public gimple_opt_pass
+{
+public:
+  pass_object_sizes (gcc::context *ctxt)
+    : gimple_opt_pass (pass_data_object_sizes, ctxt)
+  {}
+
+  /* opt_pass methods: */
+  opt_pass * clone () final override { return new pass_object_sizes (m_ctxt); }
+  unsigned int execute (function *fun) final override
+  {
+    return object_sizes_execute (fun, false);
+  }
+}; // class pass_object_sizes
+
 } // anon namespace
 
 gimple_opt_pass *
 make_pass_object_sizes (gcc::context *ctxt)
 {
   return new pass_object_sizes (ctxt);
+}
+
+/* Early version of pass to optimize all __builtin_object_size () builtins.  */
+
+namespace {
+
+const pass_data pass_data_early_object_sizes =
+{
+  GIMPLE_PASS, /* type */
+  "early_objsz", /* name */
+  OPTGROUP_NONE, /* optinfo_flags */
+  TV_NONE, /* tv_id */
+  ( PROP_cfg | PROP_ssa ), /* properties_required */
+  0, /* properties_provided */
+  0, /* properties_destroyed */
+  0, /* todo_flags_start */
+  0, /* todo_flags_finish */
+};
+
+class pass_early_object_sizes : public gimple_opt_pass
+{
+public:
+  pass_early_object_sizes (gcc::context *ctxt)
+    : gimple_opt_pass (pass_data_early_object_sizes, ctxt)
+  {}
+
+  /* opt_pass methods: */
+  unsigned int execute (function *fun) final override
+  {
+    return object_sizes_execute (fun, true);
+  }
+}; // class pass_object_sizes
+
+} // anon namespace
+
+gimple_opt_pass *
+make_pass_early_object_sizes (gcc::context *ctxt)
+{
+  return new pass_early_object_sizes (ctxt);
 }
