@@ -188,16 +188,14 @@ DRUNTIME_DSOURCES = core/atomic.d core/attribute.d core/bitop.d \
 	gc/pooltable.d gc/proxy.d gcc/attribute.d gcc/attributes.d \
 	gcc/backtrace.d gcc/builtins.d gcc/deh.d gcc/emutls.d gcc/gthread.d \
 	gcc/sections/common.d gcc/sections/elf.d gcc/sections/macho.d \
-	gcc/sections/package.d gcc/sections/pecoff.d gcc/unwind/arm.d \
-	gcc/unwind/arm_common.d gcc/unwind/c6x.d gcc/unwind/generic.d \
-	gcc/unwind/package.d gcc/unwind/pe.d object.d rt/aApply.d rt/aApplyR.d \
-	rt/aaA.d rt/adi.d rt/arrayassign.d rt/arraycast.d rt/arraycat.d \
-	rt/cast_.d rt/config.d rt/critical_.d rt/deh.d rt/dmain2.d \
-	rt/invariant.d rt/lifetime.d rt/memory.d rt/minfo.d rt/monitor_.d \
-	rt/obj.d rt/qsort.d rt/sections.d rt/switch_.d rt/tlsgc.d \
-	rt/util/array.d rt/util/container/array.d rt/util/container/common.d \
-	rt/util/container/hashtab.d rt/util/container/treap.d rt/util/random.d \
-	rt/util/typeinfo.d rt/util/utf.d
+	gcc/sections/package.d gcc/sections/pecoff.d gcc/simd.d \
+	gcc/unwind/arm.d gcc/unwind/arm_common.d gcc/unwind/c6x.d \
+	gcc/unwind/generic.d gcc/unwind/package.d gcc/unwind/pe.d object.d \
+	rt/aApply.d rt/aApplyR.d rt/aaA.d rt/adi.d rt/arrayassign.d \
+	rt/arraycat.d rt/cast_.d rt/config.d rt/critical_.d rt/deh.d \
+	rt/dmain2.d rt/ehalloc.d rt/invariant.d rt/lifetime.d rt/memory.d \
+	rt/minfo.d rt/monitor_.d rt/profilegc.d rt/sections.d rt/tlsgc.d \
+	rt/util/typeinfo.d rt/util/utility.d
 
 DRUNTIME_DSOURCES_STDCXX = core/stdcpp/exception.d \
 	core/stdcpp/typeinfo.d
