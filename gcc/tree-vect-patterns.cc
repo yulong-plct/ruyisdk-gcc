@@ -1064,8 +1064,8 @@ vect_recog_dot_prod_pattern (vec_info *vinfo,
      is signed; otherwise, the result has the same sign as the operands.  */
   if (TYPE_PRECISION (unprom_mult.type) != TYPE_PRECISION (type)
       && (subtype == optab_vector_mixed_sign
-	? TYPE_UNSIGNED (unprom_mult.type)
-	: TYPE_SIGN (unprom_mult.type) != TYPE_SIGN (half_type)))
+	  ? TYPE_UNSIGNED (unprom_mult.type)
+	  : TYPE_SIGN (unprom_mult.type) != TYPE_SIGN (half_type)))
     return NULL;
 
   /* If there are two widening operations, make sure they agree on
