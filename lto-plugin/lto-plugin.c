@@ -55,6 +55,9 @@ along with this program; see the file COPYING3.  If not see
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>
+#if HAVE_PTHREAD_LOCKING
+#include <pthread.h>
+#endif
 #ifdef HAVE_SYS_WAIT_H
 #include <sys/wait.h>
 #endif
@@ -158,6 +161,17 @@ enum symbol_style
   ss_win32,	/* Underscore prefix any symbol not beginning with '@'.  */
   ss_uscore,	/* Underscore prefix all symbols.  */
 };
+
+#if HAVE_PTHREAD_LOCKING
+/* Plug-in mutex.  */
+static pthread_mutex_t plugin_lock;
+
+#define LOCK_SECTION pthread_mutex_lock (&plugin_lock)
+#define UNLOCK_SECTION pthread_mutex_unlock (&plugin_lock)
+#else
+#define LOCK_SECTION
+#define UNLOCK_SECTION
+#endif
 
 static char *arguments_file_name;
 static ld_plugin_register_claim_file register_claim_file;
@@ -1222,15 +1236,18 @@ claim_file_handler (const struct ld_plugin_input_file *file, int *claimed)
 			      lto_file.symtab.syms);
       check (status == LDPS_OK, LDPL_FATAL, "could not add symbols");
 
+      LOCK_SECTION;
       num_claimed_files++;
       claimed_files =
 	xrealloc (claimed_files,
 		  num_claimed_files * sizeof (struct plugin_file_info));
       claimed_files[num_claimed_files - 1] = lto_file;
+      UNLOCK_SECTION;
 
       *claimed = 1;
     }
 
+  LOCK_SECTION;
   if (offload_files == NULL)
     {
       /* Add dummy item to the start of the list.  */
@@ -1294,10 +1311,14 @@ claim_file_handler (const struct ld_plugin_input_file *file, int *claimed)
       num_offload_files++;
     }
 
+  UNLOCK_SECTION;
+
   goto cleanup;
 
  err:
+  LOCK_SECTION;
   non_claimed_files++;
+  UNLOCK_SECTION;
   free (lto_file.name);
 
  cleanup:
@@ -1372,6 +1393,14 @@ onload (struct ld_plugin_tv *tv)
 {
   struct ld_plugin_tv *p;
   enum ld_plugin_status status;
+
+#if HAVE_PTHREAD_LOCKING
+  if (pthread_mutex_init (&plugin_lock, NULL) != 0)
+    {
+      fprintf (stderr, "mutex init failed\n");
+      abort ();
+    }
+#endif
 
   p = tv;
   while (p->tv_tag)
