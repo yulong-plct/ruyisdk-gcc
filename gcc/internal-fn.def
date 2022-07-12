@@ -63,6 +63,9 @@ along with GCC; see the file COPYING3.  If not see
    - binary: a normal binary optab, such as vec_interleave_lo_<mode>
    - ternary: a normal ternary optab, such as fma<mode>4
 
+   - unary_convert: a single-input conversion optab, such as
+     lround<srcmode><dstmode>2.
+
    - cond_binary: a conditional binary optab, such as cond_add<mode>
    - cond_ternary: a conditional ternary optab, such as cond_fma_rev<mode>
 

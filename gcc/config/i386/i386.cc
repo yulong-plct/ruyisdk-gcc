@@ -22976,6 +22976,7 @@ ix86_optab_supported_p (int op, machine_mode mode1, machine_mode,
     case ldexp_optab:
     case scalb_optab:
     case round_optab:
+    case lround_optab:
       return opt_type == OPTIMIZE_FOR_SPEED;
 
     case rint_optab:
