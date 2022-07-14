@@ -43,7 +43,46 @@ enum value_range_kind
 
 class irange
 {
-  friend class irange_allocator;
+  template <typename T> friend bool is_a (vrange &);
+  friend class Value_Range;
+public:
+  virtual void accept (const class vrange_visitor &v) const = 0;
+  virtual void set (tree, tree, value_range_kind = VR_RANGE);
+  virtual tree type () const;
+  virtual bool supports_type_p (tree type) const;
+  virtual void set_varying (tree type);
+  virtual void set_undefined ();
+  virtual bool union_ (const vrange &);
+  virtual bool intersect (const vrange &);
+  virtual bool singleton_p (tree *result = NULL) const;
+  virtual bool contains_p (tree cst) const;
+  virtual bool zero_p () const;
+  virtual bool nonzero_p () const;
+  virtual void set_nonzero (tree type);
+  virtual void set_zero (tree type);
+  virtual void set_nonnegative (tree type);
+  virtual bool fits_p (const vrange &r) const;
+
+  bool varying_p () const;
+  bool undefined_p () const;
+  vrange& operator= (const vrange &);
+  bool operator== (const vrange &) const;
+  bool operator!= (const vrange &r) const { return !(*this == r); }
+  void dump (FILE *) const;
+
+  enum value_range_kind kind () const;		// DEPRECATED
+
+protected:
+  ENUM_BITFIELD(value_range_kind) m_kind : 8;
+  ENUM_BITFIELD(value_range_discriminator) m_discriminator : 4;
+};
+
+// An integer range without any storage.
+
+class GTY((user)) irange : public vrange
+{
+  friend class vrange_allocator;
+  friend class irange_storage_slot; // For legacy_mode_p checks.
 public:
   // In-place setters.
   void set (tree, tree, value_range_kind = VR_RANGE);
@@ -81,8 +120,12 @@ public:
   bool operator!= (const irange &r) const { return !(*this == r); }
 
   // Misc methods.
-  bool fits_p (const irange &r) { return m_max_ranges >= r.num_pairs (); }
-  void dump (FILE * = stderr) const;
+  virtual bool fits_p (const vrange &r) const override;
+  virtual void accept (const vrange_visitor &v) const override;
+
+  // Nonzero masks.
+  wide_int get_nonzero_bits () const;
+  void set_nonzero_bits (const wide_int_ref &bits);
 
   // Deprecated legacy public methods.
   enum value_range_kind kind () const;		// DEPRECATED
@@ -128,6 +171,10 @@ protected:
 
 private:
   void irange_set_1bit_anti_range (tree, tree);
+  bool varying_compatible_p () const;
+  void set_nonzero_bits (tree mask);
+  bool intersect_nonzero_bits (const irange &r);
+  bool union_nonzero_bits (const irange &r);
 
   unsigned char m_num_ranges;
   unsigned char m_max_ranges;
@@ -166,6 +213,68 @@ private:
   tree m_ranges[N*2];
 };
 
+// Unsupported temporaries may be created by ranger before it's known
+// they're unsupported, or by vr_values::get_value_range.
+
+class unsupported_range : public vrange
+{
+public:
+  unsupported_range ();
+  virtual void accept (const vrange_visitor &v) const override;
+};
+
+// is_a<> and as_a<> implementation for vrange.
+
+// Anything we haven't specialized is a hard fail.
+template <typename T>
+inline bool
+is_a (vrange &)
+{
+  gcc_unreachable ();
+  return false;
+}
+
+template <typename T>
+inline bool
+is_a (const vrange &v)
+{
+  // Reuse is_a <vrange> to implement the const version.
+  const T &derived = static_cast<const T &> (v);
+  return is_a <T> (const_cast<T &> (derived));
+}
+
+template <typename T>
+inline T &
+as_a (vrange &v)
+{
+  gcc_checking_assert (is_a <T> (v));
+  return static_cast <T &> (v);
+}
+
+template <typename T>
+inline const T &
+as_a (const vrange &v)
+{
+  gcc_checking_assert (is_a <T> (v));
+  return static_cast <const T &> (v);
+}
+
+// Specializations for the different range types.
+
+template <>
+inline bool
+is_a <irange> (vrange &v)
+{
+  return v.m_discriminator == VR_IRANGE;
+}
+
+class vrange_visitor
+{
+public:
+  virtual void visit (const irange &) const { }
+  virtual void visit (const unsupported_range &) const { }
+};
+
 // This is a special int_range<1> with only one pair, plus
 // VR_ANTI_RANGE magic to describe slightly more than can be described
 // in one pair.  It is described in the code as a "legacy range" (as
@@ -179,6 +288,152 @@ typedef int_range<1> value_range;
 // This is an "infinite" precision irange for use in temporary
 // calculations.
 typedef int_range<255> int_range_max;
+
+// This is an "infinite" precision range object for use in temporary
+// calculations for any of the handled types.  The object can be
+// transparently used as a vrange.
+
+class Value_Range
+{
+public:
+  Value_Range ();
+  Value_Range (const vrange &r);
+  Value_Range (tree type);
+  Value_Range (const Value_Range &);
+  void set_type (tree type);
+  vrange& operator= (const vrange &);
+  bool operator== (const Value_Range &r) const;
+  bool operator!= (const Value_Range &r) const;
+  operator vrange &();
+  operator const vrange &() const;
+  void dump (FILE *) const;
+  static bool supports_type_p (tree type);
+
+  // Convenience methods for vrange compatability.
+  void set (tree min, tree max, value_range_kind kind = VR_RANGE)
+    { return m_vrange->set (min, max, kind); }
+  tree type () { return m_vrange->type (); }
+  enum value_range_kind kind () { return m_vrange->kind (); }
+  bool varying_p () const { return m_vrange->varying_p (); }
+  bool undefined_p () const { return m_vrange->undefined_p (); }
+  void set_varying (tree type) { m_vrange->set_varying (type); }
+  void set_undefined () { m_vrange->set_undefined (); }
+  bool union_ (const vrange &r) { return m_vrange->union_ (r); }
+  bool intersect (const vrange &r) { return m_vrange->intersect (r); }
+  bool singleton_p (tree *result = NULL) const
+    { return m_vrange->singleton_p (result); }
+  bool zero_p () const { return m_vrange->zero_p (); }
+  wide_int lower_bound () const; // For irange/prange compatability.
+  wide_int upper_bound () const; // For irange/prange compatability.
+  void accept (const vrange_visitor &v) const { m_vrange->accept (v); }
+private:
+  void init (tree type);
+  unsupported_range m_unsupported;
+  vrange *m_vrange;
+  int_range_max m_irange;
+};
+
+inline
+Value_Range::Value_Range ()
+{
+  m_vrange = &m_unsupported;
+}
+
+// Copy constructor from a vrange.
+
+inline
+Value_Range::Value_Range (const vrange &r)
+{
+  *this = r;
+}
+
+// Copy constructor from a TYPE.  The range of the temporary is set to
+// UNDEFINED.
+
+inline
+Value_Range::Value_Range (tree type)
+{
+  init (type);
+}
+
+inline
+Value_Range::Value_Range (const Value_Range &r)
+{
+  m_vrange = r.m_vrange;
+}
+
+// Initialize object so it is possible to store temporaries of TYPE
+// into it.
+
+inline void
+Value_Range::init (tree type)
+{
+  gcc_checking_assert (TYPE_P (type));
+
+  if (irange::supports_p (type))
+    m_vrange = &m_irange;
+  else
+    m_vrange = &m_unsupported;
+}
+
+// Set the temporary to allow storing temporaries of TYPE.  The range
+// of the temporary is set to UNDEFINED.
+
+inline void
+Value_Range::set_type (tree type)
+{
+  init (type);
+  m_vrange->set_undefined ();
+}
+
+// Assignment operator for temporaries.  Copying incompatible types is
+// allowed.
+
+inline vrange &
+Value_Range::operator= (const vrange &r)
+{
+  if (is_a <irange> (r))
+    {
+      m_irange = as_a <irange> (r);
+      m_vrange = &m_irange;
+    }
+  else
+    gcc_unreachable ();
+
+  return *m_vrange;
+}
+
+inline bool
+Value_Range::operator== (const Value_Range &r) const
+{
+  return *m_vrange == *r.m_vrange;
+}
+
+inline bool
+Value_Range::operator!= (const Value_Range &r) const
+{
+  return *m_vrange != *r.m_vrange;
+}
+
+inline
+Value_Range::operator vrange &()
+{
+  return *m_vrange;
+}
+
+inline
+Value_Range::operator const vrange &() const
+{
+  return *m_vrange;
+}
+
+// Return TRUE if TYPE is supported by the vrange infrastructure.
+
+inline bool
+Value_Range::supports_type_p (tree type)
+{
+  return irange::supports_p (type);
+}
 
 // Returns true for an old-school value_range as described above.
 inline bool

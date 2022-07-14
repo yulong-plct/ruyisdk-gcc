@@ -1713,6 +1713,7 @@ OBJS = \
 	value-query.o \
 	value-range.o \
 	value-range-equiv.o \
+	value-range-pretty-print.o \
 	value-relation.o \
 	value-prof.o \
 	var-tracking.o \

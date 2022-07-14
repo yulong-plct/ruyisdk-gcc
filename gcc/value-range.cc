@@ -27,7 +27,230 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple.h"
 #include "ssa.h"
 #include "tree-pretty-print.h"
+#include "value-range-pretty-print.h"
 #include "fold-const.h"
+#include "gimple-range.h"
+
+void
+irange::accept (const vrange_visitor &v) const
+{
+  v.visit (*this);
+}
+
+void
+unsupported_range::accept (const vrange_visitor &v) const
+{
+  v.visit (*this);
+}
+
+// Convenience function only available for integers and pointers.
+
+wide_int
+Value_Range::lower_bound () const
+{
+  if (is_a <irange> (*m_vrange))
+    return as_a <irange> (*m_vrange).lower_bound ();
+  gcc_unreachable ();
+}
+
+// Convenience function only available for integers and pointers.
+
+wide_int
+Value_Range::upper_bound () const
+{
+  if (is_a <irange> (*m_vrange))
+    return as_a <irange> (*m_vrange).upper_bound ();
+  gcc_unreachable ();
+}
+
+void
+Value_Range::dump (FILE *out) const
+{
+  if (m_vrange)
+    m_vrange->dump (out);
+  else
+    fprintf (out, "NULL");
+}
+
+DEBUG_FUNCTION void
+debug (const Value_Range &r)
+{
+  r.dump (stderr);
+  fprintf (stderr, "\n");
+}
+
+// Default vrange definitions.
+
+bool
+vrange::contains_p (tree) const
+{
+  return varying_p ();
+}
+
+bool
+vrange::singleton_p (tree *) const
+{
+  return false;
+}
+
+void
+vrange::set (tree, tree, value_range_kind)
+{
+}
+
+tree
+vrange::type () const
+{
+  return void_type_node;
+}
+
+bool
+vrange::supports_type_p (tree) const
+{
+  return false;
+}
+
+void
+vrange::set_undefined ()
+{
+  m_kind = VR_UNDEFINED;
+}
+
+void
+vrange::set_varying (tree)
+{
+  m_kind = VR_VARYING;
+}
+
+bool
+vrange::union_ (const vrange &r)
+{
+  if (r.undefined_p () || varying_p ())
+    return false;
+  if (undefined_p () || r.varying_p ())
+    {
+      operator= (r);
+      return true;
+    }
+  gcc_unreachable ();
+  return false;
+}
+
+bool
+vrange::intersect (const vrange &r)
+{
+  if (undefined_p () || r.varying_p ())
+    return false;
+  if (r.undefined_p ())
+    {
+      set_undefined ();
+      return true;
+    }
+  if (varying_p ())
+    {
+      operator= (r);
+      return true;
+    }
+  gcc_unreachable ();
+  return false;
+}
+
+bool
+vrange::zero_p () const
+{
+  return false;
+}
+
+bool
+vrange::nonzero_p () const
+{
+  return false;
+}
+
+void
+vrange::set_nonzero (tree)
+{
+}
+
+void
+vrange::set_zero (tree)
+{
+}
+
+void
+vrange::set_nonnegative (tree)
+{
+}
+
+bool
+vrange::fits_p (const vrange &) const
+{
+  return true;
+}
+
+// Assignment operator for generic ranges.  Copying incompatible types
+// is not allowed.
+
+vrange &
+vrange::operator= (const vrange &src)
+{
+  if (is_a <irange> (src))
+    {
+      as_a <irange> (*this) = as_a <irange> (src);
+      return *this;
+    }
+  else
+    gcc_unreachable ();
+}
+
+// Equality operator for generic ranges.
+
+bool
+vrange::operator== (const vrange &src) const
+{
+  if (is_a <irange> (src))
+    return as_a <irange> (*this) == as_a <irange> (src);
+  gcc_unreachable ();
+}
+
+// Wrapper for vrange_printer to dump a range to a file.
+
+void
+vrange::dump (FILE *file) const
+{
+  pretty_printer buffer;
+  pp_needs_newline (&buffer) = true;
+  buffer.buffer->stream = file;
+  vrange_printer vrange_pp (&buffer);
+  this->accept (vrange_pp);
+  pp_flush (&buffer);
+}
+
+bool
+irange::supports_type_p (tree type) const
+{
+  return supports_p (type);
+}
+
+// Return TRUE if R fits in THIS.
+
+bool
+irange::fits_p (const vrange &r) const
+{
+  return m_max_ranges >= as_a <irange> (r).num_pairs ();
+}
+
+void
+irange::set_nonnegative (tree type)
+{
+  set (build_int_cst (type, 0), TYPE_MAX_VALUE (type));
+}
+
+unsupported_range::unsupported_range ()
+{
+  m_discriminator = VR_UNKNOWN;
+  set_undefined ();
+}
 
 // Here we copy between any two irange's.  The ranges can be legacy or
 // multi-ranges, and copying between any combination works correctly.
@@ -1899,65 +2122,102 @@ irange::invert ()
     verify_range ();
 }
 
-static void
-dump_bound_with_infinite_markers (FILE *file, tree bound)
+void
+irange::set_nonzero_bits (tree mask)
 {
-  tree type = TREE_TYPE (bound);
-  wide_int type_min = wi::min_value (TYPE_PRECISION (type), TYPE_SIGN (type));
-  wide_int type_max = wi::max_value (TYPE_PRECISION (type), TYPE_SIGN (type));
+  gcc_checking_assert (!undefined_p ());
 
-  if (INTEGRAL_TYPE_P (type)
-      && !TYPE_UNSIGNED (type)
-      && TREE_CODE (bound) == INTEGER_CST
-      && wi::to_wide (bound) == type_min
-      && TYPE_PRECISION (type) != 1)
-    fprintf (file, "-INF");
-  else if (TREE_CODE (bound) == INTEGER_CST
-	   && wi::to_wide (bound) == type_max
-	   && TYPE_PRECISION (type) != 1)
-    fprintf (file, "+INF");
-  else
-    print_generic_expr (file, bound);
+  if (!mask)
+    {
+      if (m_nonzero_mask)
+	{
+	  m_nonzero_mask = NULL;
+	  // Clearing the mask may have turned a range into VARYING.
+	  normalize_kind ();
+	}
+      return;
+    }
+  m_nonzero_mask = mask;
+  // Setting the mask may have turned a VARYING into a range.
+  if (m_kind == VR_VARYING)
+    m_kind = VR_RANGE;
+
+  if (flag_checking)
+    verify_range ();
 }
 
 void
-irange::dump (FILE *file) const
+irange::set_nonzero_bits (const wide_int_ref &bits)
 {
-  if (undefined_p ())
+  gcc_checking_assert (!undefined_p ());
+
+  if (bits == -1)
     {
-      fprintf (file, "UNDEFINED");
+      set_nonzero_bits (NULL);
       return;
     }
-  print_generic_expr (file, type ());
-  fprintf (file, " ");
-  if (varying_p ())
+  set_nonzero_bits (wide_int_to_tree (type (), bits));
+}
+
+wide_int
+irange::get_nonzero_bits () const
+{
+  gcc_checking_assert (!undefined_p ());
+
+  // Calculate the nonzero bits inherent in the range.
+  wide_int min = lower_bound ();
+  wide_int max = upper_bound ();
+  wide_int xorv = min ^ max;
+  if (xorv != 0)
     {
-      fprintf (file, "VARYING");
-      return;
+      unsigned prec = TYPE_PRECISION (type ());
+      xorv = wi::mask (prec - wi::clz (xorv), false, prec);
     }
- if (legacy_mode_p ())
+  wide_int mask = min | xorv;
+
+  // Return the nonzero bits augmented by the range.
+  if (m_nonzero_mask)
+    return mask & wi::to_wide (m_nonzero_mask);
+
+  return mask;
+}
+
+// Intersect the nonzero bits in R into THIS.
+
+bool
+irange::intersect_nonzero_bits (const irange &r)
+{
+  gcc_checking_assert (!undefined_p () && !r.undefined_p ());
+
+  if (m_nonzero_mask || r.m_nonzero_mask)
     {
-      fprintf (file, "%s[", (m_kind == VR_ANTI_RANGE) ? "~" : "");
-      dump_bound_with_infinite_markers (file, min ());
-      fprintf (file, ", ");
-      dump_bound_with_infinite_markers (file, max ());
-      fprintf (file, "]");
-      return;
+      wide_int nz = wi::bit_and (get_nonzero_bits (),
+				 r.get_nonzero_bits ());
+      set_nonzero_bits (nz);
+      return true;
     }
-  for (unsigned i = 0; i < m_num_ranges; ++i)
+  return false;
+}
+
+// Union the nonzero bits in R into THIS.
+
+bool
+irange::union_nonzero_bits (const irange &r)
+{
+  gcc_checking_assert (!undefined_p () && !r.undefined_p ());
+
+  if (m_nonzero_mask || r.m_nonzero_mask)
     {
-      tree lb = m_base[i * 2];
-      tree ub = m_base[i * 2 + 1];
-      fprintf (file, "[");
-      dump_bound_with_infinite_markers (file, lb);
-      fprintf (file, ", ");
-      dump_bound_with_infinite_markers (file, ub);
-      fprintf (file, "]");
+      wide_int nz = wi::bit_or (get_nonzero_bits (),
+				r.get_nonzero_bits ());
+      set_nonzero_bits (nz);
+      return true;
     }
+  return false;
 }
 
 void
-dump_value_range (FILE *file, const irange *vr)
+dump_value_range (FILE *file, const vrange *vr)
 {
   vr->dump (file);
 }
