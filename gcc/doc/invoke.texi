@@ -1238,7 +1238,7 @@ See RS/6000 and PowerPC Options.
 -mcompat-align-parm  -mno-compat-align-parm @gol
 -mfloat128  -mno-float128  -mfloat128-hardware  -mno-float128-hardware @gol
 -mgnu-attribute  -mno-gnu-attribute @gol
--mstack-protector-guard=@var{guard} -mstack-protector-guard-reg=@var{reg} @gol
+-mstack-protector-guard=@var{guard}  -mstack-protector-guard-reg=@var{reg} @gol
 -mstack-protector-guard-offset=@var{offset} -mprefixed -mno-prefixed @gol
 -mpcrel -mno-pcrel -mmma -mno-mmma -mrop-protect -mno-rop-protect @gol
 -mprivileged -mno-privileged}
