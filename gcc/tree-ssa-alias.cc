@@ -47,6 +47,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "print-tree.h"
 #include "tree-ssa-alias-compare.h"
 #include "builtins.h"
+#include "internal-fn.h"
 
 /* Broad overview of how alias analysis on gimple works:
 
@@ -2769,8 +2770,7 @@ ref_maybe_used_by_call_p_1 (gcall *call, ao_ref *ref, bool tbaa_p)
       }
 
   callee = gimple_call_fndecl (call);
-
-  if (!gimple_call_chain (call) && callee != NULL_TREE)
+  if (callee != NULL_TREE)
     {
       struct cgraph_node *node = cgraph_node::get (callee);
       /* We can not safely optimize based on summary of calle if it does
@@ -2980,7 +2980,7 @@ call_may_clobber_ref_p_1 (gcall *call, ao_ref *ref, bool tbaa_p)
       & (ECF_PURE|ECF_CONST|ECF_LOOPING_CONST_OR_PURE|ECF_NOVOPS))
     return false;
   if (gimple_call_internal_p (call))
-    switch (gimple_call_internal_fn (call))
+    switch (auto fn = gimple_call_internal_fn (call))
       {
 	/* Treat these internal calls like ECF_PURE for aliasing,
 	   they don't write to any memory the program should care about.
