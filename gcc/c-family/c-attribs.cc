@@ -165,6 +165,7 @@ static tree handle_objc_nullability_attribute (tree *, tree, tree, int, bool *);
 static tree handle_signed_bool_precision_attribute (tree *, tree, tree, int,
 						    bool *);
 static tree handle_retain_attribute (tree *, tree, tree, int, bool *);
+static tree handle_fd_arg_attribute (tree *, tree, tree, int, bool *);
 
 /* Helper to define attribute exclusions.  */
 #define ATTR_EXCL(name, function, type, variable)	\
@@ -4356,6 +4357,30 @@ handle_nonnull_attribute (tree *node, tree name,
       args = next;
     }
 
+  return NULL_TREE;
+}
+
+/* Handle the "fd_arg", "fd_arg_read" and "fd_arg_write" attributes */
+
+static tree
+handle_fd_arg_attribute (tree *node, tree name, tree args,
+                              int ARG_UNUSED (flags), bool *no_add_attrs)
+{
+  tree type = *node;
+  if (!args)
+    {
+      if (!prototype_p (type))
+        {
+          error ("%qE attribute without arguments on a non-prototype", name);
+          *no_add_attrs = true;
+        }
+      return NULL_TREE;
+    }
+
+  if (positional_argument (*node, name, TREE_VALUE (args), INTEGER_TYPE))
+      return NULL_TREE;
+
+  *no_add_attrs = true;  
   return NULL_TREE;
 }
 
