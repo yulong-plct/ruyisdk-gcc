@@ -21,6 +21,28 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_VALUE_RANGE_STORAGE_H
 #define GCC_VALUE_RANGE_STORAGE_H
 
+// This class is used to allocate the minimum amount of storage needed
+// for a given range.  Storage is automatically freed at destruction
+// of the class.
+
+class vrange_allocator
+{
+public:
+  vrange_allocator () { }
+  virtual ~vrange_allocator () { }
+  // Allocate a range of TYPE.
+  vrange *alloc_vrange (tree type);
+  // Allocate a memory block of BYTES.
+  virtual void *alloc (unsigned bytes) = 0;
+  virtual void free (void *p) = 0;
+  // Return a clone of SRC.
+  template <typename T> T *clone (const T &src);
+private:
+  irange *alloc_irange (unsigned pairs);
+  frange *alloc_frange ();
+  void operator= (const vrange_allocator &) = delete;
+};
+
 // This class is used to allocate chunks of memory that can store
 // ranges as memory efficiently as possible.  It is meant to be used
 // when long term storage of a range is needed.  The class can be used
