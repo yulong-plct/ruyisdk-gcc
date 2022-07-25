@@ -1551,6 +1551,7 @@ OBJS = \
 	profile-count.o \
 	range.o \
 	range-op.o \
+	range-op-float.o \
 	read-md.o \
 	read-rtl.o \
 	read-rtl-function.o \
