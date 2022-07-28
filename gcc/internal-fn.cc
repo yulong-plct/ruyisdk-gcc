@@ -4226,3 +4226,10 @@ expand_PHI (internal_fn, gcall *)
 {
     gcc_unreachable ();
 }
+
+void
+expand_MASK_CALL (internal_fn, gcall *)
+{
+  /* This IFN should only exist between ifcvt and vect passes.  */
+  gcc_unreachable ();
+}
