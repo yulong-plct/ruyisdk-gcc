@@ -584,11 +584,15 @@ tilepro*-*-*)
 esac
 
 tm_file=${cpu_type}/${cpu_type}.h
-tm_d_file=${cpu_type}/${cpu_type}.h
 if test -f ${srcdir}/config/${cpu_type}/${cpu_type}-protos.h
 then
 	tm_p_file=${cpu_type}/${cpu_type}-protos.h
-	tm_d_file="${tm_d_file} ${cpu_type}/${cpu_type}-protos.h"
+fi
+
+tm_d_file=
+if test -f ${srcdir}/config/${cpu_type}/${cpu_type}-d.h
+then
+	tm_d_file="${tm_d_file} ${cpu_type}/${cpu_type}-d.h"
 fi
 
 extra_modes=
@@ -3591,7 +3595,6 @@ xstormy16-*-elf)
 	# For historical reasons, the target files omit the 'x'.
 	tm_file="elfos.h newlib-stdint.h stormy16/stormy16.h"
 	tm_p_file=stormy16/stormy16-protos.h
-	tm_d_file="elfos.h stormy16/stormy16.h"
 	md_file=stormy16/stormy16.md
 	out_file=stormy16/stormy16.cc
 	extra_options=stormy16/stormy16.opt
