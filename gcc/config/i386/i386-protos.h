@@ -263,11 +263,6 @@ extern void ix86_expand_sse2_abs (rtx, rtx);
 extern void ix86_target_macros (void);
 extern void ix86_register_pragmas (void);
 
-/* In i386-d.cc  */
-extern void ix86_d_target_versions (void);
-extern void ix86_d_register_target_info (void);
-extern bool ix86_d_has_stdcall_convention (unsigned int *, unsigned int *);
-
 /* In winnt.cc  */
 extern void i386_pe_unique_section (tree, int);
 extern void i386_pe_declare_function_type (FILE *, const char *, int);
