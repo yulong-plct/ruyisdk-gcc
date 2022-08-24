@@ -24,22 +24,18 @@ along with GCC; see the file COPYING3.  If not see
 
 enum debug_info_type
 {
-  NO_DEBUG,	    /* Write no debug info.  */
-  DBX_DEBUG,	    /* Write BSD .stabs for DBX (using dbxout.c).  */
-  DWARF2_DEBUG,	    /* Write Dwarf v2 debug info (using dwarf2out.c).  */
-  XCOFF_DEBUG,	    /* Write IBM/Xcoff debug info (using dbxout.c).  */
-  VMS_DEBUG,        /* Write VMS debug info (using vmsdbgout.c).  */
-  VMS_AND_DWARF2_DEBUG /* Write VMS debug info (using vmsdbgout.c).
-                          and DWARF v2 debug info (using dwarf2out.c).  */
+  DINFO_TYPE_NONE,		  /* No debug info.  */
+  DINFO_TYPE_DWARF2,		  /* Dwarf v2 debug info.  */
+  DINFO_TYPE_VMS,		  /* VMS debug info.  */
+  DINFO_TYPE_CTF,		  /* CTF debug info.  */
+  DINFO_TYPE_BTF,		  /* BTF debug info.  */
+  DINFO_TYPE_BTF_WITH_CORE,	  /* BTF debug info with CO-RE relocations.  */
+  DINFO_TYPE_MAX = DINFO_TYPE_BTF_WITH_CORE /* Marker only.  */
 };
 
 #define NO_DEBUG      (0U)
-/* Write DBX debug info (using dbxout.cc).  */
-#define DBX_DEBUG     (1U << DINFO_TYPE_DBX)
 /* Write DWARF2 debug info (using dwarf2out.cc).  */
 #define DWARF2_DEBUG  (1U << DINFO_TYPE_DWARF2)
-/* Write IBM/XCOFF debug info (using dbxout.cc).  */
-#define XCOFF_DEBUG   (1U << DINFO_TYPE_XCOFF)
 /* Write VMS debug info (using vmsdbgout.cc).  */
 #define VMS_DEBUG     (1U << DINFO_TYPE_VMS)
 /* Write CTF debug info (using ctfout.cc).  */

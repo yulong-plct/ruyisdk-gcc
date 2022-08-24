@@ -88,14 +88,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "ipa-modref.h"
 #include "dbgcnt.h"
 
-#if defined(DBX_DEBUGGING_INFO) || defined(XCOFF_DEBUGGING_INFO)
-#include "dbxout.h"
-#endif
-
-#ifdef XCOFF_DEBUGGING_INFO
-#include "xcoffout.h"		/* Needed for external data declarations. */
-#endif
-
 #include "selftest.h"
 
 #ifdef HAVE_isl
@@ -1439,14 +1431,6 @@ process_options (void)
 
   if (write_symbols == NO_DEBUG)
     ;
-#if defined(DBX_DEBUGGING_INFO)
-  else if (write_symbols == DBX_DEBUG)
-    debug_hooks = &dbx_debug_hooks;
-#endif
-#if defined(XCOFF_DEBUGGING_INFO)
-  else if (write_symbols == XCOFF_DEBUG)
-    debug_hooks = &xcoff_debug_hooks;
-#endif
 #ifdef DWARF2_DEBUGGING_INFO
   else if (write_symbols == DWARF2_DEBUG)
     debug_hooks = &dwarf2_debug_hooks;

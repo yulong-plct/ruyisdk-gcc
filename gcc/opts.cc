@@ -43,6 +43,134 @@ const char *const debug_type_names[] =
   "none", "stabs", "dwarf-2", "xcoff", "vms"
 };
 
+/* Bitmasks of fundamental debug info formats indexed by enum
+   debug_info_type.  */
+
+static uint32_t debug_type_masks[] =
+{
+  NO_DEBUG, DWARF2_DEBUG, VMS_DEBUG,
+  CTF_DEBUG, BTF_DEBUG
+};
+
+/* Names of the set of debug formats requested by user.  Updated and accessed
+   via debug_set_names.  */
+
+static char df_set_names[sizeof "none stabs dwarf-2 xcoff vms ctf btf"];
+
+/* Get enum debug_info_type of the specified debug format, for error messages.
+   Can be used only for individual debug format types.  */
+
+enum debug_info_type
+debug_set_to_format (uint32_t debug_info_set)
+{
+  int idx = 0;
+  enum debug_info_type dinfo_type = DINFO_TYPE_NONE;
+  /* Find first set bit.  */
+  if (debug_info_set)
+    idx = exact_log2 (debug_info_set & - debug_info_set);
+  /* Check that only one bit is set, if at all.  This function is meant to be
+     used only for vanilla debug_info_set bitmask values, i.e. for individual
+     debug format types upto DINFO_TYPE_MAX.  */
+  gcc_assert ((debug_info_set & (debug_info_set - 1)) == 0);
+  dinfo_type = (enum debug_info_type)idx;
+  gcc_assert (dinfo_type <= DINFO_TYPE_MAX);
+  return dinfo_type;
+}
+
+/* Get the number of debug formats enabled for output.  */
+
+unsigned int
+debug_set_count (uint32_t w_symbols)
+{
+  unsigned int count = 0;
+  while (w_symbols)
+    {
+      ++ count;
+      w_symbols &= ~ (w_symbols & - w_symbols);
+    }
+  return count;
+}
+
+/* Get the names of the debug formats enabled for output.  */
+
+const char *
+debug_set_names (uint32_t w_symbols)
+{
+  uint32_t df_mask = 0;
+  /* Reset the string to be returned.  */
+  memset (df_set_names, 0, sizeof (df_set_names));
+  /* Get the popcount.  */
+  int num_set_df = debug_set_count (w_symbols);
+  /* Iterate over the debug formats.  Add name string for those enabled.  */
+  for (int i = DINFO_TYPE_NONE; i <= DINFO_TYPE_MAX; i++)
+    {
+      df_mask = debug_type_masks[i];
+      if (w_symbols & df_mask)
+	{
+	  strcat (df_set_names, debug_type_names[i]);
+	  num_set_df--;
+	  if (num_set_df)
+	    strcat (df_set_names, " ");
+	  else
+	    break;
+	}
+      else if (!w_symbols)
+	{
+	  /* No debug formats enabled.  */
+	  gcc_assert (i == DINFO_TYPE_NONE);
+	  strcat (df_set_names, debug_type_names[i]);
+	  break;
+	}
+    }
+  return df_set_names;
+}
+
+/* Return TRUE iff BTF debug info is enabled.  */
+
+bool
+btf_debuginfo_p ()
+{
+  return (write_symbols & BTF_DEBUG);
+}
+
+/* Return TRUE iff BTF with CO-RE debug info is enabled.  */
+
+bool
+btf_with_core_debuginfo_p ()
+{
+  return (write_symbols & BTF_WITH_CORE_DEBUG);
+}
+
+/* Return TRUE iff CTF debug info is enabled.  */
+
+bool
+ctf_debuginfo_p ()
+{
+  return (write_symbols & CTF_DEBUG);
+}
+
+/* Return TRUE iff dwarf2 debug info is enabled.  */
+
+bool
+dwarf_debuginfo_p (struct gcc_options *opts)
+{
+  return (opts->x_write_symbols & DWARF2_DEBUG);
+}
+
+/* Return true iff the debug info format is to be generated based on DWARF
+   DIEs (like CTF and BTF debug info formats).  */
+
+bool dwarf_based_debuginfo_p ()
+{
+  return ((write_symbols & CTF_DEBUG)
+	  || (write_symbols & BTF_DEBUG));
+}
+
+/* All flag uses below need to explicitely reference the option sets
+   to operate on.  */
+#define global_options DO_NOT_USE
+#define global_options_set DO_NOT_USE
+
 /* Parse the -femit-struct-debug-detailed option value
    and set the flag variables. */
 
@@ -2844,20 +2972,8 @@ common_handle_option (struct gcc_options *opts,
       set_debug_level (NO_DEBUG, 2, arg, opts, opts_set, loc);
       break;
 
-    case OPT_gstabs:
-    case OPT_gstabs_:
-      set_debug_level (DBX_DEBUG, code == OPT_gstabs_, arg, opts, opts_set,
-		       loc);
-      break;
-
     case OPT_gvms:
       set_debug_level (VMS_DEBUG, false, arg, opts, opts_set, loc);
-      break;
-
-    case OPT_gxcoff:
-    case OPT_gxcoff_:
-      set_debug_level (XCOFF_DEBUG, code == OPT_gxcoff_, arg, opts, opts_set,
-		       loc);
       break;
 
     case OPT_gz:
@@ -3057,9 +3173,7 @@ set_debug_level (enum debug_info_type type, int extended, const char *arg,
 		 struct gcc_options *opts, struct gcc_options *opts_set,
 		 location_t loc)
 {
-  opts->x_use_gnu_debug_info_extensions = extended;
-
-  if (type == NO_DEBUG)
+  if (dinfo == NO_DEBUG)
     {
       if (opts->x_write_symbols == NO_DEBUG)
 	{
@@ -3068,9 +3182,10 @@ set_debug_level (enum debug_info_type type, int extended, const char *arg,
 	  if (extended == 2)
 	    {
 #if defined DWARF2_DEBUGGING_INFO || defined DWARF2_LINENO_DEBUGGING_INFO
-	      opts->x_write_symbols = DWARF2_DEBUG;
-#elif defined DBX_DEBUGGING_INFO
-	      opts->x_write_symbols = DBX_DEBUG;
+	      if (opts->x_write_symbols & CTF_DEBUG)
+		      opts->x_write_symbols |= DWARF2_DEBUG;
+	      else
+		      opts->x_write_symbols = DWARF2_DEBUG;
 #endif
 	    }
 
