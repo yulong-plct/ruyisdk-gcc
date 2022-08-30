@@ -127,7 +127,9 @@ typedef hash_map<tree_operand_hash,
  ************************************************************************/
 typedef struct _slp_tree *slp_tree;
 typedef vec<std::pair<unsigned, unsigned> > lane_permutation_t;
+typedef auto_vec<std::pair<unsigned, unsigned>, 16> auto_lane_permutation_t;
 typedef vec<unsigned> load_permutation_t;
+typedef auto_vec<unsigned, 16> auto_load_permutation_t;
 
 /* A computation tree of an SLP instance.  Each node corresponds to a group of
    stmts to be packed in a SIMD stmt.  */
