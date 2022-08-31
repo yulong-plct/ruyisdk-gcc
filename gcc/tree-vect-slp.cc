@@ -3507,6 +3507,150 @@ vect_optimize_slp (vec_info *vinfo)
     }
 }
 
+/* Print the partition graph and layout information to the dump file.  */
+
+void
+vect_optimize_slp_pass::dump ()
+{
+  dump_printf_loc (MSG_NOTE, vect_location,
+		   "SLP optimize permutations:\n");
+  for (unsigned int layout_i = 1; layout_i < m_perms.length (); ++layout_i)
+    {
+      dump_printf_loc (MSG_NOTE, vect_location, "  %d: { ", layout_i);
+      const char *sep = "";
+      for (unsigned int idx : m_perms[layout_i])
+	{
+	  dump_printf (MSG_NOTE, "%s%d", sep, idx);
+	  sep = ", ";
+	}
+      dump_printf (MSG_NOTE, " }\n");
+    }
+  dump_printf_loc (MSG_NOTE, vect_location,
+		   "SLP optimize partitions:\n");
+  for (unsigned int partition_i = 0; partition_i < m_partitions.length ();
+       ++partition_i)
+    {
+      auto &partition = m_partitions[partition_i];
+      dump_printf_loc (MSG_NOTE, vect_location,  "  -------------\n");
+      dump_printf_loc (MSG_NOTE, vect_location,
+		       "  partition %d (layout %d):\n",
+		       partition_i, partition.layout);
+      dump_printf_loc (MSG_NOTE, vect_location, "    nodes:\n");
+      for (unsigned int order_i = partition.node_begin;
+	   order_i < partition.node_end; ++order_i)
+	{
+	  auto &vertex = m_vertices[m_partitioned_nodes[order_i]];
+	  dump_printf_loc (MSG_NOTE, vect_location, "      - %p:\n",
+			   (void *) vertex.node);
+	  dump_printf_loc (MSG_NOTE, vect_location,
+			   "          weight: %f\n",
+			   vertex.weight.to_double ());
+	  if (vertex.out_degree)
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "          out weight: %f (degree %d)\n",
+			     vertex.out_weight.to_double (),
+			     vertex.out_degree);
+	  if (SLP_TREE_CODE (vertex.node) == VEC_PERM_EXPR)
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "          op: VEC_PERM_EXPR\n");
+	  else if (auto rep = SLP_TREE_REPRESENTATIVE (vertex.node))
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "          op template: %G", rep->stmt);
+	}
+      dump_printf_loc (MSG_NOTE, vect_location, "    edges:\n");
+      for (unsigned int order_i = partition.node_begin;
+	   order_i < partition.node_end; ++order_i)
+	{
+	  unsigned int node_i = m_partitioned_nodes[order_i];
+	  auto &vertex = m_vertices[node_i];
+	  auto print_edge = [&](graph_edge *, unsigned int other_node_i)
+	    {
+	      auto &other_vertex = m_vertices[other_node_i];
+	      if (other_vertex.partition < vertex.partition)
+		dump_printf_loc (MSG_NOTE, vect_location,
+				 "      - %p [%d] --> %p\n",
+				 other_vertex.node, other_vertex.partition,
+				 vertex.node);
+	      else
+		dump_printf_loc (MSG_NOTE, vect_location,
+				 "      - %p --> [%d] %p\n",
+				 vertex.node, other_vertex.partition,
+				 other_vertex.node);
+	    };
+	  for_each_partition_edge (node_i, print_edge);
+	}
+
+      for (unsigned int layout_i = 0; layout_i < m_perms.length (); ++layout_i)
+	{
+	  auto &layout_costs = partition_layout_costs (partition_i, layout_i);
+	  if (layout_costs.is_possible ())
+	    {
+	      dump_printf_loc (MSG_NOTE, vect_location,
+			       "    layout %d:%s\n", layout_i,
+			       partition.layout == int (layout_i)
+			       ? " (*)" : "");
+	      slpg_layout_cost combined_cost = layout_costs.in_cost;
+	      combined_cost.add_serial_cost (layout_costs.internal_cost);
+	      combined_cost.add_serial_cost (layout_costs.out_cost);
+#define TEMPLATE "{depth: %f, total: %f}"
+	      dump_printf_loc (MSG_NOTE, vect_location,
+			       "        " TEMPLATE "\n",
+			       layout_costs.in_cost.depth.to_double (),
+			       layout_costs.in_cost.total.to_double ());
+	      dump_printf_loc (MSG_NOTE, vect_location,
+			       "      + " TEMPLATE "\n",
+			       layout_costs.internal_cost.depth.to_double (),
+			       layout_costs.internal_cost.total.to_double ());
+	      dump_printf_loc (MSG_NOTE, vect_location,
+			       "      + " TEMPLATE "\n",
+			       layout_costs.out_cost.depth.to_double (),
+			       layout_costs.out_cost.total.to_double ());
+	      dump_printf_loc (MSG_NOTE, vect_location,
+			       "      = " TEMPLATE "\n",
+			       combined_cost.depth.to_double (),
+			       combined_cost.total.to_double ());
+#undef TEMPLATE
+	    }
+	  else
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "    layout %d: rejected\n", layout_i);
+	}
+    }
+}
+
+/* Main entry point for the SLP graph optimization pass.  */
+
+void
+vect_optimize_slp_pass::run ()
+{
+  build_graph ();
+  create_partitions ();
+  start_choosing_layouts ();
+  if (m_perms.length () > 1)
+    {
+      forward_pass ();
+      backward_pass ();
+      if (dump_enabled_p ())
+	dump ();
+      materialize ();
+      while (!m_perms.is_empty ())
+	m_perms.pop ().release ();
+    }
+  else
+    remove_redundant_permutations ();
+  free_graph (m_slpg);
+}
+
+/* Optimize the SLP graph of VINFO.  */
+
+void
+vect_optimize_slp (vec_info *vinfo)
+{
+  if (vinfo->slp_instances.is_empty ())
+    return;
+  vect_optimize_slp_pass (vinfo).run ();
+}
+
 /* Gather loads reachable from the individual SLP graph entries.  */
 
 void
