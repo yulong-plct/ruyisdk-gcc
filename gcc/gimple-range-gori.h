@@ -137,42 +137,38 @@ protected:
   int_range<2> m_bool_one;            // Boolean true cached.
 
 private:
-  bool compute_operand_range_switch (irange &r, gswitch *stmt,
-				     const irange &lhs, tree name);
-  bool compute_name_range_op (irange &r, gimple *stmt, const irange &lhs,
-			      tree name);
-  bool compute_operand1_range (irange &r, gimple *stmt, const irange &lhs,
-			       tree name);
-  bool compute_operand2_range (irange &r, gimple *stmt, const irange &lhs,
-			       tree name);
-  bool compute_operand1_and_operand2_range (irange &r, gimple *stmt,
-					    const irange &lhs, tree name);
+  bool may_recompute_p (tree name, edge e);
+  bool may_recompute_p (tree name, basic_block bb = NULL);
+  bool compute_operand_range (vrange &r, gimple *stmt, const vrange &lhs,
+			      tree name, class fur_source &src);
+  bool compute_operand_range_switch (vrange &r, gswitch *s, const vrange &lhs,
+				     tree name, fur_source &src);
+  bool compute_operand1_range (vrange &r, gimple_range_op_handler &handler,
+			       const vrange &lhs, tree name, fur_source &src);
+  bool compute_operand2_range (vrange &r, gimple_range_op_handler &handler,
+			       const vrange &lhs, tree name, fur_source &src);
+  bool compute_operand1_and_operand2_range (vrange &r,
+					    gimple_range_op_handler &handler,
+					    const vrange &lhs, tree name,
+					    fur_source &src);
+  void compute_logical_operands (vrange &true_range, vrange &false_range,
+				 gimple_range_op_handler &handler,
+				 const irange &lhs, tree name, fur_source &src,
+				 tree op, bool op_in_chain);
+  bool logical_combine (vrange &r, enum tree_code code, const irange &lhs,
+			const vrange &op1_true, const vrange &op1_false,
+			const vrange &op2_true, const vrange &op2_false);
+  int_range<2> m_bool_zero;	// Boolean false cached.
+  int_range<2> m_bool_one;	// Boolean true cached.
 
   gimple_outgoing_range outgoing;	// Edge values for COND_EXPR & SWITCH_EXPR.
 };
 
-// These routines provide a GIMPLE interface to the range-ops code.
-extern bool gimple_range_calc_op1 (irange &r, const gimple *s,
-				   const irange &lhs_range);
-extern bool gimple_range_calc_op1 (irange &r, const gimple *s,
-				   const irange &lhs_range,
-				   const irange &op2_range);
-extern bool gimple_range_calc_op2 (irange &r, const gimple *s,
-				   const irange &lhs_range,
-				   const irange &op1_range);
-
-// This class adds a cache to gori_computes for logical expressions.
-//       bool result = x && y
-// requires calcuation of both X and Y for both true and false results.
-// There are 4 combinations [0,0][0,0] [0,0][1,1] [1,1][0,0] and [1,1][1,1].
-// Note that each pair of possible results for X and Y are used twice, and
-// the calcuation of those results are the same each time.
-//
-// The cache simply checks if a stmt is cachable, and if so, saves both the
-// true and false results for the next time the query is made.
-//
-// This is used to speed up long chains of logical operations which
-// quickly become exponential.
+// For each name that is an import into BB's exports..
+#define FOR_EACH_GORI_IMPORT_NAME(gori, bb, name)			\
+  for (gori_export_iterator iter ((gori).imports ((bb)));	\
+       ((name) = iter.get_name ());				\
+       iter.next ())
 
 class gori_compute_cache : public gori_compute
 {

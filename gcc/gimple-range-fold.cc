@@ -40,10 +40,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "vr-values.h"
 #include "range.h"
 #include "value-query.h"
-#include "range-op.h"
-#include "gimple-range-fold.h"
-#include "gimple-range-edge.h"
-#include "gimple-range-gori.h"
+#include "gimple-range-op.h"
+#include "gimple-range.h"
 // Construct a fur_source, and set the m_query field.
 
 fur_source::fur_source (range_query *q)
@@ -423,73 +421,6 @@ gimple_range_adjustment (irange &res, const gimple *stmt)
     }
 }
 
-// Return the base of the RHS of an assignment.
-
-static tree
-gimple_range_base_of_assignment (const gimple *stmt)
-{
-  gcc_checking_assert (gimple_code (stmt) == GIMPLE_ASSIGN);
-  tree op1 = gimple_assign_rhs1 (stmt);
-  if (gimple_assign_rhs_code (stmt) == ADDR_EXPR)
-    return get_base_address (TREE_OPERAND (op1, 0));
-  return op1;
-}
-
-// Return the first operand of this statement if it is a valid operand
-// supported by ranges, otherwise return NULL_TREE.  Special case is
-// &(SSA_NAME expr), return the SSA_NAME instead of the ADDR expr.
-
-tree
-gimple_range_operand1 (const gimple *stmt)
-{
-  gcc_checking_assert (range_op_handler (stmt));
-
-  switch (gimple_code (stmt))
-    {
-      case GIMPLE_COND:
-	return gimple_cond_lhs (stmt);
-      case GIMPLE_ASSIGN:
-	{
-	  tree base = gimple_range_base_of_assignment (stmt);
-	  if (base && TREE_CODE (base) == MEM_REF)
-	    {
-	      // If the base address is an SSA_NAME, we return it
-	      // here.  This allows processing of the range of that
-	      // name, while the rest of the expression is simply
-	      // ignored.  The code in range_ops will see the
-	      // ADDR_EXPR and do the right thing.
-	      tree ssa = TREE_OPERAND (base, 0);
-	      if (TREE_CODE (ssa) == SSA_NAME)
-		return ssa;
-	    }
-	  return base;
-	}
-      default:
-	break;
-    }
-  return NULL;
-}
-
-// Return the second operand of statement STMT, otherwise return NULL_TREE.
-
-tree
-gimple_range_operand2 (const gimple *stmt)
-{
-  gcc_checking_assert (range_op_handler (stmt));
-
-  switch (gimple_code (stmt))
-    {
-    case GIMPLE_COND:
-      return gimple_cond_rhs (stmt);
-    case GIMPLE_ASSIGN:
-      if (gimple_num_ops (stmt) >= 3)
-	return gimple_assign_rhs2 (stmt);
-    default:
-      break;
-    }
-  return NULL_TREE;
-}
-
 // Calculate a range for statement S and return it in R. If NAME is provided it
 // represents the SSA_NAME on the LHS of the statement. It is only required
 // if there is more than one lhs/output.  If a range cannot
@@ -511,8 +442,9 @@ fold_using_range::fold_stmt (irange &r, gimple *s, fur_source &src, tree name)
       && gimple_assign_rhs_code (s) == ADDR_EXPR)
     return range_of_address (r, s, src);
 
-  if (range_op_handler (s))
-    res = range_of_range_op (r, s, src);
+  gimple_range_op_handler handler (s);
+  if (handler)
+    res = range_of_range_op (r, handler, src);
   else if (is_a<gphi *>(s))
     res = range_of_phi (r, as_a<gphi *> (s), src);
   else if (is_a<gcall *>(s))
@@ -555,19 +487,21 @@ fold_using_range::fold_stmt (irange &r, gimple *s, fur_source &src, tree name)
 // If a range cannot be calculated, return false.
 
 bool
-fold_using_range::range_of_range_op (irange &r, gimple *s, fur_source &src)
+fold_using_range::range_of_range_op (vrange &r,
+				     gimple_range_op_handler &handler,
+				     fur_source &src)
 {
-  int_range_max range1, range2;
+  gcc_checking_assert (handler);
+  gimple *s = handler.stmt ();
   tree type = gimple_range_type (s);
   if (!type)
     return false;
-  range_op_handler handler (s);
-  gcc_checking_assert (handler);
-  gcc_checking_assert (irange::supports_type_p (type));
 
-  tree lhs = gimple_get_lhs (s);
-  tree op1 = gimple_range_operand1 (s);
-  tree op2 = gimple_range_operand2 (s);
+  tree lhs = handler.lhs ();
+  tree op1 = handler.operand1 ();
+  tree op2 = handler.operand2 ();
+  Value_Range range1 (TREE_TYPE (op1));
+  Value_Range range2 (op2 ? TREE_TYPE (op2) : TREE_TYPE (op1));
 
   if (src.get_operand (range1, op1))
     {
@@ -1177,9 +1111,10 @@ fold_using_range::relation_fold_and_or (irange& lhs_range, gimple *s,
   else if (code != BIT_IOR_EXPR && code != TRUTH_OR_EXPR)
     return;
 
-  tree lhs = gimple_get_lhs (s);
-  tree ssa1 = gimple_range_ssa_p (gimple_range_operand1 (s));
-  tree ssa2 = gimple_range_ssa_p (gimple_range_operand2 (s));
+  gimple_range_op_handler handler (s);
+  tree lhs = handler.lhs ();
+  tree ssa1 = gimple_range_ssa_p (handler.operand1 ());
+  tree ssa2 = gimple_range_ssa_p (handler.operand2 ());
 
   // Deal with || and && only when there is a full set of symbolics.
   if (!lhs || !ssa1 || !ssa2
@@ -1192,10 +1127,23 @@ fold_using_range::relation_fold_and_or (irange& lhs_range, gimple *s,
   // Ideally we search dependencies for common names, and see what pops out.
   // until then, simply try to resolve direct dependencies.
 
-  // Both names will need to have 2 direct dependencies.
-  tree ssa1_dep2 = src.gori ()->depend2 (ssa1);
-  tree ssa2_dep2 = src.gori ()->depend2 (ssa2);
-  if (!ssa1_dep2 || !ssa2_dep2)
+  gimple *ssa1_stmt = SSA_NAME_DEF_STMT (ssa1);
+  gimple *ssa2_stmt = SSA_NAME_DEF_STMT (ssa2);
+
+  gimple_range_op_handler handler1 (ssa1_stmt);
+  gimple_range_op_handler handler2 (ssa2_stmt);
+
+  // If either handler is not present, no relation can be found.
+  if (!handler1 || !handler2)
+    return;
+
+  // Both stmts will need to have 2 ssa names in the stmt.
+  tree ssa1_dep1 = gimple_range_ssa_p (handler1.operand1 ());
+  tree ssa1_dep2 = gimple_range_ssa_p (handler1.operand2 ());
+  tree ssa2_dep1 = gimple_range_ssa_p (handler2.operand1 ());
+  tree ssa2_dep2 = gimple_range_ssa_p (handler2.operand2 ());
+
+  if (!ssa1_dep1 || !ssa1_dep2 || !ssa2_dep1 || !ssa2_dep2)
     return;
 
   tree ssa1_dep1 = src.gori ()->depend1 (ssa1);
@@ -1255,13 +1203,27 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
   tree name;
   basic_block bb = gimple_bb (s);
 
-  edge e0 = EDGE_SUCC (bb, 0);
-  if (!single_pred_p (e0->dest))
-    e0 = NULL;
+  gimple_range_op_handler handler (s);
+  if (!handler)
+    return;
 
-  edge e1 = EDGE_SUCC (bb, 1);
-  if (!single_pred_p (e1->dest))
-    e1 = NULL;
+  if (e0)
+    {
+      // If this edge is never taken, ignore it.
+      gcond_edge_range (e0_range, e0);
+      e0_range.intersect (lhs_range);
+      if (e0_range.undefined_p ())
+	e0 = NULL;
+    }
+
+  if (e1)
+    {
+      // If this edge is never taken, ignore it.
+      gcond_edge_range (e1_range, e1);
+      e1_range.intersect (lhs_range);
+      if (e1_range.undefined_p ())
+	e1 = NULL;
+    }
 
   // At least one edge needs to be single pred.
   if (!e0 && !e1)
@@ -1269,8 +1231,8 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
 
   // First, register the gcond itself.  This will catch statements like
   // if (a_2 < b_5)
-  tree ssa1 = gimple_range_ssa_p (gimple_range_operand1 (s));
-  tree ssa2 = gimple_range_ssa_p (gimple_range_operand2 (s));
+  tree ssa1 = gimple_range_ssa_p (handler.operand1 ());
+  tree ssa2 = gimple_range_ssa_p (handler.operand2 ());
   if (ssa1 && ssa2)
     {
       range_op_handler handler (s);
@@ -1304,11 +1266,12 @@ fold_using_range::postfold_gcond_edges (gcond *s, fur_source &src)
       if (TREE_CODE (TREE_TYPE (name)) != BOOLEAN_TYPE)
 	continue;
       gimple *stmt = SSA_NAME_DEF_STMT (name);
-      range_op_handler handler (stmt);
+      gimple_range_op_handler handler (stmt);
       if (!handler)
 	continue;
-      tree ssa1 = gimple_range_ssa_p (gimple_range_operand1 (stmt));
-      tree ssa2 = gimple_range_ssa_p (gimple_range_operand2 (stmt));
+      tree ssa1 = gimple_range_ssa_p (handler.operand1 ());
+      tree ssa2 = gimple_range_ssa_p (handler.operand2 ());
+      Value_Range r (TREE_TYPE (name));
       if (ssa1 && ssa2)
 	{
 	  if (e0 && src.gori ()->outgoing_edge_range_p (r, e0, name, *q)

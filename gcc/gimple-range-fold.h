@@ -95,7 +95,6 @@ range_compatible_p (tree type1, tree type2)
 	  && TYPE_SIGN (type1) == TYPE_SIGN (type2));
 }
 
-
 // Source of all operands for fold_using_range and gori_compute.
 // It abstracts out the source of an operand so it can come from a stmt or
 // and edge or anywhere a derived class of fur_source wants.
@@ -162,9 +161,10 @@ public:
   bool fold_stmt (irange &r, gimple *s, class fur_source &src,
 		  tree name = NULL_TREE);
 protected:
-  bool range_of_range_op (irange &r, gimple *s, fur_source &src);
-  bool range_of_call (irange &r, gcall *call, fur_source &src);
-  bool range_of_cond_expr (irange &r, gassign* cond, fur_source &src);
+  bool range_of_range_op (vrange &r, gimple_range_op_handler &handler,
+			  fur_source &src);
+  bool range_of_call (vrange &r, gcall *call, fur_source &src);
+  bool range_of_cond_expr (vrange &r, gassign* cond, fur_source &src);
   bool range_of_address (irange &r, gimple *s, fur_source &src);
   bool range_of_builtin_call (irange &r, gcall *call, fur_source &src);
   void range_of_builtin_ubsan_call (irange &r, gcall *call, tree_code code,

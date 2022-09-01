@@ -151,9 +151,9 @@ public:
 class range_op_handler
 {
 public:
+  range_op_handler ();
   range_op_handler (enum tree_code code, tree type);
-  range_op_handler (const gimple *s);
-  operator bool () const;
+  inline operator bool () const { return m_valid; }
 
   bool fold_range (vrange &r, tree type,
 		   const vrange &lh,
@@ -176,9 +176,11 @@ public:
 				  const vrange &op2,
 				  relation_kind = VREL_VARYING) const;
   relation_kind op1_op2_relation (const vrange &lhs) const;
-private:
-  enum tree_code m_code;
-  tree m_type;
+protected:
+  void set_op_handler (enum tree_code code, tree type);
+  bool m_valid;
+  range_operator *m_int;
+  range_operator_float *m_float;
 };
 
 extern bool range_cast (vrange &, tree type);

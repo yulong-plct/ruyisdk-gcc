@@ -3847,29 +3847,49 @@ get_handler (enum tree_code code, tree type)
   return NULL;
 }
 
+// Return the floating point operator for CODE or NULL if none available.
+
+static inline range_operator_float *
+get_float_handler (enum tree_code code, tree)
+{
+  return (*floating_tree_table)[code];
+}
+
+void
+range_op_handler::set_op_handler (tree_code code, tree type)
+{
+  if (irange::supports_p (type))
+    {
+      m_float = NULL;
+      m_int = get_handler (code, type);
+      m_valid = m_int != NULL;
+    }
+  else if (frange::supports_p (type))
+    {
+      m_int = NULL;
+      m_float = get_float_handler (code, type);
+      m_valid = m_float != NULL;
+    }
+  else
+    {
+      m_int = NULL;
+      m_float = NULL;
+      m_valid = false;
+    }
+}
+
+range_op_handler::range_op_handler ()
+{
+  m_int = NULL;
+  m_float = NULL;
+  m_valid = false;
+}
+
 range_op_handler::range_op_handler (tree_code code, tree type)
 {
   m_op = get_handler (code, type);
 }
 
-range_op_handler::range_op_handler (const gimple *s)
-{
-  if (const gassign *ass = dyn_cast<const gassign *> (s))
-    {
-      enum tree_code code = gimple_assign_rhs_code (ass);
-      // The LHS of a comparison is always an int, so we must look at
-      // the operands.
-      if (TREE_CODE_CLASS (code) == tcc_comparison)
-	m_op = get_handler (code, TREE_TYPE (gimple_assign_rhs1 (ass)));
-      else
-	m_op = get_handler (code, TREE_TYPE (gimple_assign_lhs (ass)));
-    }
-  else if (const gcond *cond = dyn_cast<const gcond *> (s))
-    m_op = get_handler (gimple_cond_code (cond),
-			TREE_TYPE (gimple_cond_lhs (cond)));
-  else
-    m_op = NULL;
-}
 
 bool
 range_op_handler::fold_range (vrange &r, tree type,

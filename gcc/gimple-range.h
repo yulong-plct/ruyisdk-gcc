@@ -24,7 +24,9 @@ along with GCC; see the file COPYING3.  If not see
 
 
 #include "range.h"
-#include "range-op.h"
+#include "value-query.h"
+#include "gimple-range-op.h"
+#include "gimple-range-trace.h"
 #include "gimple-range-edge.h"
 #include "gimple-range-fold.h"
 #include "gimple-range-gori.h"
