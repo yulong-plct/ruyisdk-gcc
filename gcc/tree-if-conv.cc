@@ -1666,7 +1666,9 @@ is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
     return false;
 
   reduction_op = gimple_assign_rhs_code (stmt);
-  if (reduction_op != PLUS_EXPR && reduction_op != MINUS_EXPR)
+  if (reduction_op != PLUS_EXPR 
+      && reduction_op != MINUS_EXPR
+      && reduction_op != MULT_EXPR)
     return false;
   r_op1 = gimple_assign_rhs1 (stmt);
   r_op2 = gimple_assign_rhs2 (stmt);
