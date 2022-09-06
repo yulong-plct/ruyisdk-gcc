@@ -37615,6 +37615,28 @@ cp_parser_omp_clause_depend_sink (cp_parser *parser, location_t clause_loc,
       return list;
     }
 
+  if (!depend_p)
+    {
+      tree id = cp_lexer_peek_token (parser->lexer)->u.value;
+      if (strcmp (IDENTIFIER_POINTER (id), "omp_cur_iteration") == 0
+	  && cp_lexer_nth_token_is (parser->lexer, 2, CPP_MINUS)
+	  && cp_lexer_nth_token_is (parser->lexer, 3, CPP_NUMBER)
+	  && cp_lexer_nth_token_is (parser->lexer, 4, CPP_CLOSE_PAREN))
+	{
+	  tree val = cp_lexer_peek_nth_token (parser->lexer, 3)->u.value;
+	  if (integer_onep (val))
+	    {
+	      cp_lexer_consume_token (parser->lexer);
+	      cp_lexer_consume_token (parser->lexer);
+	      cp_lexer_consume_token (parser->lexer);
+	      tree u = build_omp_clause (clause_loc, OMP_CLAUSE_DOACROSS);
+	      OMP_CLAUSE_DOACROSS_KIND (u) = OMP_CLAUSE_DOACROSS_SINK;
+	      OMP_CLAUSE_CHAIN (u) = list;
+	      return u;
+	    }
+	}
+    }
+
   while (cp_lexer_next_token_is (parser->lexer, CPP_NAME))
     {
       location_t id_loc = cp_lexer_peek_token (parser->lexer)->location;

@@ -15397,6 +15397,30 @@ c_parser_omp_clause_depend_sink (c_parser *parser, location_t clause_loc,
       return list;
     }
 
+  if (!depend_p)
+    {
+      const char *p = IDENTIFIER_POINTER (c_parser_peek_token (parser)->value);
+      if (strcmp (p, "omp_cur_iteration") == 0
+	  && c_parser_peek_2nd_token (parser)->type == CPP_MINUS
+	  && c_parser_peek_nth_token (parser, 3)->type == CPP_NUMBER
+	  && c_parser_peek_nth_token (parser, 4)->type == CPP_CLOSE_PAREN)
+	{
+	  tree val = c_parser_peek_nth_token (parser, 3)->value;
+	  if (integer_onep (val))
+	    {
+	      c_parser_consume_token (parser);
+	      c_parser_consume_token (parser);
+	      c_parser_consume_token (parser);
+	      tree u = build_omp_clause (clause_loc, OMP_CLAUSE_DOACROSS);
+	      OMP_CLAUSE_DOACROSS_KIND (u) = OMP_CLAUSE_DOACROSS_SINK;
+	      OMP_CLAUSE_CHAIN (u) = list;
+	      return u;
+	    }
+	}
+    }
+
+
+
   while (c_parser_next_token_is (parser, CPP_NAME)
 	 && c_parser_peek_token (parser)->id_kind == C_ID_ID)
     {
