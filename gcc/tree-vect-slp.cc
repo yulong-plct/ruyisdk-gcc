@@ -3671,8 +3671,169 @@ vect_optimize_slp_pass::start_choosing_layouts ()
   /* Materialize.  */
   for (i = 0; i < vertices.length (); ++i)
     {
-      int perm = n_perm[i];
-      if (perm <= 0)
+      unsigned int partition_i = m_vertices[node->vertex].partition;
+      unsigned int from_layout_i = m_partitions[partition_i].layout;
+      if (from_layout_i == to_layout_i)
+	return node;
+
+      /* If NODE is itself a VEC_PERM_EXPR, try to create a parallel
+	 permutation instead of a serial one.  Leave the new permutation
+	 in TMP_PERM on success.  */
+      auto_lane_permutation_t tmp_perm;
+      unsigned int num_inputs = 1;
+      if (SLP_TREE_CODE (node) == VEC_PERM_EXPR)
+	{
+	  tmp_perm.safe_splice (SLP_TREE_LANE_PERMUTATION (node));
+	  if (from_layout_i != 0)
+	    vect_slp_permute (m_perms[from_layout_i], tmp_perm, false);
+	  if (to_layout_i != 0)
+	    vect_slp_permute (m_perms[to_layout_i], tmp_perm, true);
+	  if (vectorizable_slp_permutation_1 (m_vinfo, nullptr, node,
+					      tmp_perm,
+					      SLP_TREE_CHILDREN (node),
+					      false) >= 0)
+	    num_inputs = SLP_TREE_CHILDREN (node).length ();
+	  else
+	    tmp_perm.truncate (0);
+	}
+
+      if (dump_enabled_p ())
+	{
+	  if (tmp_perm.length () > 0)
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "duplicating permutation node %p with"
+			     " layout %d\n",
+			     (void *) node, to_layout_i);
+	  else
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "inserting permutation node in place of %p\n",
+			     (void *) node);
+	}
+
+      unsigned int num_lanes = SLP_TREE_LANES (node);
+      result = vect_create_new_slp_node (num_inputs, VEC_PERM_EXPR);
+      if (SLP_TREE_SCALAR_STMTS (node).length ())
+	{
+	  auto &stmts = SLP_TREE_SCALAR_STMTS (result);
+	  stmts.safe_splice (SLP_TREE_SCALAR_STMTS (node));
+	  if (from_layout_i != 0)
+	    vect_slp_permute (m_perms[from_layout_i], stmts, false);
+	  if (to_layout_i != 0)
+	    vect_slp_permute (m_perms[to_layout_i], stmts, true);
+	}
+      SLP_TREE_REPRESENTATIVE (result) = SLP_TREE_REPRESENTATIVE (node);
+      SLP_TREE_LANES (result) = num_lanes;
+      SLP_TREE_VECTYPE (result) = SLP_TREE_VECTYPE (node);
+      result->vertex = -1;
+
+      auto &lane_perm = SLP_TREE_LANE_PERMUTATION (result);
+      if (tmp_perm.length ())
+	{
+	  lane_perm.safe_splice (tmp_perm);
+	  SLP_TREE_CHILDREN (result).safe_splice (SLP_TREE_CHILDREN (node));
+	}
+      else
+	{
+	  lane_perm.create (num_lanes);
+	  for (unsigned j = 0; j < num_lanes; ++j)
+	    lane_perm.quick_push ({ 0, j });
+	  if (from_layout_i != 0)
+	    vect_slp_permute (m_perms[from_layout_i], lane_perm, false);
+	  if (to_layout_i != 0)
+	    vect_slp_permute (m_perms[to_layout_i], lane_perm, true);
+	  SLP_TREE_CHILDREN (result).safe_push (node);
+	}
+      for (slp_tree child : SLP_TREE_CHILDREN (result))
+	child->refcnt++;
+    }
+  m_node_layouts[result_i] = result;
+  return result;
+}
+
+/* Apply the chosen vector layouts to the SLP graph.  */
+
+void
+vect_optimize_slp_pass::materialize ()
+{
+  /* We no longer need the costs, so avoid having two O(N * P) arrays
+     live at the same time.  */
+  m_partition_layout_costs.release ();
+  m_node_layouts.safe_grow_cleared (m_vertices.length () * m_perms.length ());
+
+  auto_sbitmap fully_folded (m_vertices.length ());
+  bitmap_clear (fully_folded);
+  for (unsigned int node_i : m_partitioned_nodes)
+    {
+      auto &vertex = m_vertices[node_i];
+      slp_tree node = vertex.node;
+      int layout_i = m_partitions[vertex.partition].layout;
+      gcc_assert (layout_i >= 0);
+
+      /* Rearrange the scalar statements to match the chosen layout.  */
+      if (layout_i > 0)
+	vect_slp_permute (m_perms[layout_i],
+			  SLP_TREE_SCALAR_STMTS (node), true);
+
+      /* Update load and lane permutations.  */
+      if (SLP_TREE_CODE (node) == VEC_PERM_EXPR)
+	{
+	  /* First try to absorb the input vector layouts.  If that fails,
+	     force the inputs to have layout LAYOUT_I too.  We checked that
+	     that was possible before deciding to use nonzero output layouts.
+	     (Note that at this stage we don't really have any guarantee that
+	     the target supports the original VEC_PERM_EXPR.)  */
+	  auto &perm = SLP_TREE_LANE_PERMUTATION (node);
+	  auto_lane_permutation_t tmp_perm;
+	  tmp_perm.safe_splice (perm);
+	  change_vec_perm_layout (node, tmp_perm, -1, layout_i);
+	  if (vectorizable_slp_permutation_1 (m_vinfo, nullptr, node,
+					      tmp_perm,
+					      SLP_TREE_CHILDREN (node),
+					      false) >= 0)
+	    {
+	      if (dump_enabled_p ()
+		  && !std::equal (tmp_perm.begin (), tmp_perm.end (),
+				  perm.begin ()))
+		dump_printf_loc (MSG_NOTE, vect_location,
+				 "absorbing input layouts into %p\n",
+				 (void *) node);
+	      std::copy (tmp_perm.begin (), tmp_perm.end (), perm.begin ());
+	      bitmap_set_bit (fully_folded, node_i);
+	    }
+	  else
+	    {
+	      /* Not MSG_MISSED because it would make no sense to users.  */
+	      if (dump_enabled_p ())
+		dump_printf_loc (MSG_NOTE, vect_location,
+				 "failed to absorb input layouts into %p\n",
+				 (void *) node);
+	      change_vec_perm_layout (nullptr, perm, layout_i, layout_i);
+	    }
+	}
+      else
+	{
+	  gcc_assert (!SLP_TREE_LANE_PERMUTATION (node).exists ());
+	  auto &load_perm = SLP_TREE_LOAD_PERMUTATION (node);
+	  if (layout_i > 0)
+	    /* ???  When we handle non-bijective permutes the idea
+	       is that we can force the load-permutation to be
+	       { min, min + 1, min + 2, ... max }.  But then the
+	       scalar defs might no longer match the lane content
+	       which means wrong-code with live lane vectorization.
+	       So we possibly have to have NULL entries for those.  */
+	    vect_slp_permute (m_perms[layout_i], load_perm, true);
+	}
+    }
+
+  /* Do this before any nodes disappear, since it involves a walk
+     over the leaves.  */
+  remove_redundant_permutations ();
+
+  /* Replace each child with a correctly laid-out version.  */
+  for (unsigned int node_i : m_partitioned_nodes)
+    {
+      /* Skip nodes that have already been handled above.  */
+      if (bitmap_bit_p (fully_folded, node_i))
 	continue;
 
       slp_tree node = vertices[i];
