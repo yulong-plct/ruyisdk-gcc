@@ -637,9 +637,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     void
     sort_heap(_RAIter, _RAIter, _Compare);
 
+#if _GLIBCXX_HOSTED
   template<typename _BIter, typename _Predicate>
     _BIter
     stable_partition(_BIter, _BIter, _Predicate);
+#endif
 
 #if __cplusplus < 201103L
   // For C++11 swap() is declared in <type_traits>.
@@ -827,6 +829,7 @@ _GLIBCXX_BEGIN_NAMESPACE_ALGO
     _BIter
     partition(_BIter, _BIter, _Predicate);
 
+#if _GLIBCXX_HOSTED
   template<typename _RAIter>
     void
     random_shuffle(_RAIter, _RAIter);
@@ -839,6 +842,7 @@ _GLIBCXX_BEGIN_NAMESPACE_ALGO
 #else
 		   _Generator&);
 #endif
+#endif // HOSTED
 
   template<typename _FIter, typename _Tp>
     _GLIBCXX20_CONSTEXPR

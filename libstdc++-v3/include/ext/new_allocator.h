@@ -29,13 +29,9 @@
 #ifndef _NEW_ALLOCATOR_H
 #define _NEW_ALLOCATOR_H 1
 
-#include <bits/c++config.h>
-#include <new>
-#include <bits/functexcept.h>
-#include <bits/move.h>
-#if __cplusplus >= 201103L
-#include <type_traits>
-#endif
+#include <bits/requires_hosted.h> // GNU extensions are currently omitted
+
+#include <bits/new_allocator.h>
 
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {

@@ -4531,6 +4531,7 @@ _GLIBCXX_BEGIN_NAMESPACE_ALGO
 				std::__iterator_category(__result));
     }
 
+#if __cplusplus <= 201103L || _GLIBCXX_USE_DEPRECATED
 #if _GLIBCXX_HOSTED
   /**
    *  @brief Randomly shuffle the elements of a sequence.
@@ -4562,7 +4563,6 @@ _GLIBCXX_BEGIN_NAMESPACE_ALGO
 	      std::iter_swap(__i, __j);
 	  }
     }
-#endif
 
   /**
    *  @brief Shuffle the elements of a sequence using a random number
@@ -4601,7 +4601,12 @@ _GLIBCXX_BEGIN_NAMESPACE_ALGO
 	    std::iter_swap(__i, __j);
 	}
     }
+<<<<<<< HEAD
 
+=======
+#endif // HOSTED
+#endif // C++11 || USE_DEPRECATED
+>>>>>>> 18f176d0b25 (libstdc++: Mark headers that must be hosted as such [PR103626])
 
   /**
    *  @brief Move elements for which a predicate is true to the beginning
