@@ -57,11 +57,15 @@ package Sem_Disp is
    procedure Check_Operation_From_Incomplete_Type
      (Subp : Entity_Id;
       Typ  : Entity_Id);
-   --  If a primitive operation was defined for the incomplete view of the
-   --  type, and the full type declaration is a derived type definition,
-   --  the operation may override an inherited one.
-   --  Need more description here, what are the parameters, and what does
-   --  this call actually do???
+   --  If a primitive subprogram Subp was defined for the incomplete view of
+   --  Typ, and the full type declaration is a derived type, then Subp may
+   --  override a subprogram inherited from the parent type. In that case,
+   --  the inherited subprogram will have been hidden by the current one at
+   --  the point of the type derivation, so it does not appear in the list
+   --  of primitive operations of the type, and this procedure inserts the
+   --  overriding subprogram in the full type's list of primitives by
+   --  iterating over the list for the parent type. If instead Subp is a new
+   --  primitive, then it's simply appended to the primitive list.
 
    procedure Check_Operation_From_Private_View (Subp, Old_Subp : Entity_Id);
    --  No action performed if Subp is not an alias of a dispatching operation.

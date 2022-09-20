@@ -7301,6 +7301,73 @@ package body Exp_Ch6 is
             end if;
          end;
 
+         --  For types which need finalization, do the allocation on the return
+         --  stack manually in order to call Adjust at the right time:
+
+         --    type Ann is access R_Type;
+         --    for Ann'Storage_pool use rs_pool;
+         --    Rnn : Ann := new Exp_Typ'(Exp);
+         --    return Rnn.all;
+
+         --  but optimize the case where the result is a function call that
+         --  also needs finalization. In this case the result can directly be
+         --  allocated on the return stack of the caller and no further
+         --  processing is required.
+
+         if Present (Utyp)
+           and then Needs_Finalization (Utyp)
+           and then not (Exp_Is_Function_Call
+                          and then Needs_Finalization (Exp_Typ))
+         then
+            declare
+               Loc        : constant Source_Ptr := Sloc (N);
+               Acc_Typ    : constant Entity_Id := Make_Temporary (Loc, 'A');
+               Alloc_Node : Node_Id;
+               Temp       : Entity_Id;
+
+            begin
+               Mutate_Ekind (Acc_Typ, E_Access_Type);
+
+               Set_Associated_Storage_Pool (Acc_Typ, RTE (RE_RS_Pool));
+
+               --  This is an allocator for the return stack, and it's fine
+               --  to have Comes_From_Source set False on it, as gigi knows not
+               --  to flag it as a violation of No_Implicit_Heap_Allocations.
+
+               Alloc_Node :=
+                 Make_Allocator (Loc,
+                   Expression =>
+                     Make_Qualified_Expression (Loc,
+                       Subtype_Mark => New_Occurrence_Of (Exp_Typ, Loc),
+                       Expression   => Relocate_Node (Exp)));
+
+               --  We do not want discriminant checks on the declaration,
+               --  given that it gets its value from the allocator.
+
+               Set_No_Initialization (Alloc_Node);
+
+               Temp := Make_Temporary (Loc, 'R', Alloc_Node);
+
+               Insert_Actions (Exp, New_List (
+                 Make_Full_Type_Declaration (Loc,
+                   Defining_Identifier => Acc_Typ,
+                   Type_Definition     =>
+                     Make_Access_To_Object_Definition (Loc,
+                       Subtype_Indication => Subtype_Ind)),
+
+                 Make_Object_Declaration (Loc,
+                   Defining_Identifier => Temp,
+                   Object_Definition   => New_Occurrence_Of (Acc_Typ, Loc),
+                   Expression          => Alloc_Node)));
+
+               Rewrite (Exp,
+                 Make_Explicit_Dereference (Loc,
+                 Prefix => New_Occurrence_Of (Temp, Loc)));
+
+               Analyze_And_Resolve (Exp, R_Type);
+            end;
+         end if;
+
       --  Here if secondary stack is used
 
       else

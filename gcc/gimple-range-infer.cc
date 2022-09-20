@@ -55,7 +55,7 @@ non_null_loadstore (gimple *, tree op, tree, void *data)
   return false;
 }
 
-// Add NAME and RANGE to the the range inference summary.
+// Add NAME and RANGE to the range inference summary.
 
 void
 gimple_infer_range::add_range (tree name, vrange &range)
