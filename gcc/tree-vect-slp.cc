@@ -3370,7 +3370,8 @@ vect_optimize_slp_pass::internal_node_cost (slp_tree node, int in_layout_i,
   stmt_vec_info rep = SLP_TREE_REPRESENTATIVE (node);
   if (rep
       && STMT_VINFO_DATA_REF (rep)
-      && DR_IS_READ (STMT_VINFO_DATA_REF (rep)))
+      && DR_IS_READ (STMT_VINFO_DATA_REF (rep))
+      && SLP_TREE_LOAD_PERMUTATION (node).exists ())
     {
       auto_load_permutation_t tmp_perm;
       tmp_perm.safe_splice (SLP_TREE_LOAD_PERMUTATION (node));
@@ -3445,8 +3446,12 @@ vect_optimize_slp_pass::start_choosing_layouts ()
       if (SLP_TREE_LOAD_PERMUTATION (node).exists ())
 	{
 	  /* If splitting out a SLP_TREE_LANE_PERMUTATION can make the node
-	     unpermuted, record a layout that reverses this permutation.  */
-	  gcc_assert (partition.layout == 0);
+	     unpermuted, record a layout that reverses this permutation.
+
+	     We would need more work to cope with loads that are internally
+	     permuted and also have inputs (such as masks for
+	     IFN_MASK_LOADs).  */
+	  gcc_assert (partition.layout == 0 && !m_slpg->vertices[node_i].succ);
 	  if (!STMT_VINFO_GROUPED_ACCESS (dr_stmt))
 	    continue;
 	  dr_stmt = DR_GROUP_FIRST_ELEMENT (dr_stmt);
@@ -3560,14 +3565,25 @@ vect_optimize_slp_pass::start_choosing_layouts ()
 	  if (SLP_TREE_DEF_TYPE (node) != vect_internal_def)
 	    continue;
 
-	  bitmap_set_bit (n_visited, idx);
+	  /* We do not handle stores with a permutation, so all
+	     incoming permutations must have been materialized.
 
-	  /* We do not handle stores with a permutation.  */
-	  stmt_vec_info rep = SLP_TREE_REPRESENTATIVE (node);
+	     We also don't handle masked grouped loads, which lack a
+	     permutation vector.  In this case the memory locations
+	     form an implicit second input to the loads, on top of the
+	     explicit mask input, and the memory input's layout cannot
+	     be changed.
+
+	     On the other hand, we do support permuting gather loads and
+	     masked gather loads, where each scalar load is independent
+	     of the others.  This can be useful if the address/index input
+	     benefits from permutation.  */
 	  if (STMT_VINFO_DATA_REF (rep)
-	      && DR_IS_WRITE (STMT_VINFO_DATA_REF (rep)))
-	    continue;
-	  /* We cannot move a permute across an operation that is
+	      && STMT_VINFO_GROUPED_ACCESS (rep)
+	      && !SLP_TREE_LOAD_PERMUTATION (node).exists ())
+	    partition.layout = 0;
+
+	  /* We cannot change the layout of an operation that is
 	     not independent on lanes.  Note this is an explicit
 	     negative list since that's much shorter than the respective
 	     positive one but it's critical to keep maintaining it.  */
