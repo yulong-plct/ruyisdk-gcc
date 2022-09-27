@@ -298,10 +298,6 @@ cp_compare_floating_point_conversion_ranks (tree t1, tree t2)
       if (mv2 == FLOATN_NX_TYPE_NODE (i))
 	extended2 = i + 1;
     }
-  if (mv1 == bfloat16_type_node)
-    extended1 = true;
-  if (mv2 == bfloat16_type_node)
-    extended2 = true;
   if (extended2 && !extended1)
     {
       int ret = cp_compare_floating_point_conversion_ranks (t2, t1);
@@ -399,9 +395,7 @@ cp_compare_floating_point_conversion_ranks (tree t1, tree t2)
   if (cnt > 1 && mv2 == long_double_type_node)
     return -2;
   /* Otherwise, they have equal rank, but extended types
-     (other than std::bfloat16_t) have higher subrank.
-     std::bfloat16_t shouldn't have equal rank to any standard
-     floating point type.  */
+     (other than std::bfloat16_t) have higher subrank.  */
   return 1;
 }
 
@@ -476,6 +470,23 @@ cp_common_type (tree t1, tree t2)
     return build_type_attribute_variant (t1, attributes);
   if (code2 == REAL_TYPE && code1 != REAL_TYPE)
     return build_type_attribute_variant (t2, attributes);
+
+  if (code1 == REAL_TYPE
+      && (extended_float_type_p (t1) || extended_float_type_p (t2)))
+    {
+      tree mv1 = TYPE_MAIN_VARIANT (t1);
+      tree mv2 = TYPE_MAIN_VARIANT (t2);
+      if (mv1 == mv2)
+	return build_type_attribute_variant (t1, attributes);
+
+      int cmpret = cp_compare_floating_point_conversion_ranks (mv1, mv2);
+      if (cmpret == 3)
+	return error_mark_node;
+      else if (cmpret >= 0)
+	return build_type_attribute_variant (t1, attributes);
+      else
+	return build_type_attribute_variant (t2, attributes);
+    }
 
   /* Both real or both integers; use the one with greater precision.  */
   if (TYPE_PRECISION (t1) > TYPE_PRECISION (t2))
@@ -4893,7 +4904,20 @@ cp_build_binary_op (const op_location_t &location,
        = targetm.invalid_binary_op (code, type0, type1)))
     {
       if (complain & tf_error)
-	error (invalid_op_diag);
+	{
+	  if (code0 == REAL_TYPE
+	      && code1 == REAL_TYPE
+	      && (extended_float_type_p (type0)
+		  || extended_float_type_p (type1))
+	      && cp_compare_floating_point_conversion_ranks (type0,
+							     type1) == 3)
+	    {
+	      rich_location richloc (line_table, location);
+	      binary_op_error (&richloc, code, type0, type1);
+	    }
+	  else
+	    error (invalid_op_diag);
+	}
       return error_mark_node;
     }
 
@@ -5806,20 +5830,12 @@ cp_build_binary_op (const op_location_t &location,
       && (shorten || common || short_compare))
     {
       result_type = cp_common_type (type0, type1);
-      if (result_type == error_mark_node)
+      if (result_type == error_mark_node
+	  && code0 == REAL_TYPE
+	  && code1 == REAL_TYPE
+	  && (extended_float_type_p (type0) || extended_float_type_p (type1))
+	  && cp_compare_floating_point_conversion_ranks (type0, type1) == 3)
 	{
-	  tree t1 = type0;
-	  tree t2 = type1;
-	  if (TREE_CODE (t1) == COMPLEX_TYPE)
-	    t1 = TREE_TYPE (t1);
-	  if (TREE_CODE (t2) == COMPLEX_TYPE)
-	    t2 = TREE_TYPE (t2);
-	  gcc_checking_assert (TREE_CODE (t1) == REAL_TYPE
-			       && TREE_CODE (t2) == REAL_TYPE
-			       && (extended_float_type_p (t1)
-				   || extended_float_type_p (t2))
-			       && cp_compare_floating_point_conversion_ranks
-				    (t1, t2) == 3);
 	  if (complain & tf_error)
 	    {
 	      rich_location richloc (line_table, location);

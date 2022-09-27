@@ -10656,17 +10656,6 @@ build_common_tree_nodes (bool signed_char)
       SET_TYPE_MODE (FLOATN_NX_TYPE_NODE (i), mode);
     }
   float128t_type_node = float128_type_node;
-#ifdef HAVE_BFmode
-  if (REAL_MODE_FORMAT (BFmode) == &arm_bfloat_half_format
-      && targetm.scalar_mode_supported_p (BFmode)
-      && targetm.libgcc_floating_mode_supported_p (BFmode))
-    {
-      bfloat16_type_node = make_node (REAL_TYPE);
-      TYPE_PRECISION (bfloat16_type_node) = GET_MODE_PRECISION (BFmode);
-      layout_type (bfloat16_type_node);
-      SET_TYPE_MODE (bfloat16_type_node, BFmode);
-    }
-#endif
 
   float_ptr_type_node = build_pointer_type (float_type_node);
   double_ptr_type_node = build_pointer_type (double_type_node);

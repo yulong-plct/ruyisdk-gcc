@@ -449,7 +449,19 @@ enum demangle_component_type
   /* A cloned function.  */
   DEMANGLE_COMPONENT_CLONE,
   DEMANGLE_COMPONENT_NOEXCEPT,
-  DEMANGLE_COMPONENT_THROW_SPEC
+  DEMANGLE_COMPONENT_THROW_SPEC,
+
+  DEMANGLE_COMPONENT_STRUCTURED_BINDING,
+
+  DEMANGLE_COMPONENT_MODULE_NAME,
+  DEMANGLE_COMPONENT_MODULE_PARTITION,
+  DEMANGLE_COMPONENT_MODULE_ENTITY,
+  DEMANGLE_COMPONENT_MODULE_INIT,
+
+  /* A builtin type with argument.  This holds the builtin type
+     information.  */
+  DEMANGLE_COMPONENT_EXTENDED_BUILTIN_TYPE
+
 };
 
 /* Types which are only used internally.  */
@@ -535,6 +547,15 @@ struct demangle_component
       /* Builtin type.  */
       const struct demangle_builtin_type_info *type;
     } s_builtin;
+
+    /* For DEMANGLE_COMPONENT_EXTENDED_BUILTIN_TYPE.  */
+    struct
+    {
+      /* Builtin type.  */
+      const struct demangle_builtin_type_info *type;
+      short arg;
+      char suffix;
+    } s_extended_builtin;
 
     /* For DEMANGLE_COMPONENT_SUB_STD.  */
     struct
