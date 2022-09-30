@@ -1,5 +1,6 @@
 // FIXME: This should use { target { c++11 && { ! c++20 } } }
 // { dg-do compile { target { c++11 } } }
+// { dg-require-effective-target hosted }
 
 #include <memory>
 

@@ -19,7 +19,8 @@
 
 // 27.4.3 fpos
 
-// { dg-do run }
+// { dg-do compile }
+// { dg-require-effective-target hosted }
 
 #include <typeinfo>
 #include <limits>

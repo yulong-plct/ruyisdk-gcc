@@ -1,5 +1,8 @@
 // { dg-do compile }
 
+// std::stable_partition is not freestanding.
+// { dg-require-effective-target hosted }
+
 // 2007-09-20 Benjamin Kosnik <bkoz@redhat.com>
 
 // Copyright (C) 2007-2021 Free Software Foundation, Inc.

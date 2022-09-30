@@ -18,6 +18,7 @@
 // { dg-options "-faligned-new" }
 // { dg-do run { target c++11 } }
 // { dg-require-cstdint "" }
+// { dg-require-effective-target hosted }
 
 #include <memory>
 #include <cstddef>

@@ -15,6 +15,9 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
+// { dg-add-options using-deprecated }
+// { dg-require-effective-target hosted }
+
 // 25.2.11 random_shuffle()
 
 #include <algorithm>
