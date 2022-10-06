@@ -1,5 +1,5 @@
-/* DWARF2 EH unwinding support for OpenRISC Linux.
-   Copyright (C) 2018-2021 Free Software Foundation, Inc.
+/* DWARF2 EH unwinding support for LoongArch Linux.
+   Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -27,61 +27,54 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    state data appropriately.  See unwind-dw2.c for the structs.  */
 
 #include <signal.h>
+#include <sys/syscall.h>
 #include <sys/ucontext.h>
 
-#define MD_FALLBACK_FRAME_STATE_FOR or1k_fallback_frame_state
+#define MD_FALLBACK_FRAME_STATE_FOR loongarch_fallback_frame_state
 
 static _Unwind_Reason_Code
-or1k_fallback_frame_state (struct _Unwind_Context *context,
-			   _Unwind_FrameState *fs)
+loongarch_fallback_frame_state (struct _Unwind_Context *context,
+				_Unwind_FrameState *fs)
 {
-  unsigned int *pc = context->ra;
-  struct rt_sigframe {
-    siginfo_t info;
-    ucontext_t uc;
-  } *rt;
+  u_int32_t *pc = (u_int32_t *) context->ra;
   struct sigcontext *sc;
-  long new_cfa;
+  _Unwind_Ptr new_cfa;
   int i;
 
-  if (pc[0] != 0xa960008b		/* l.ori r11, r0, NR_rt_sigreturn */
-      || pc[1] != 0x20000001)		/* l.sys 1 */
+  /* 03822c0b li.d a7, 0x8b (sigreturn)  */
+  /* 002b0000 syscall 0  */
+  if (pc[1] != 0x002b0000)
     return _URC_END_OF_STACK;
-  if (context->cfa == 0)
+  if (pc[0] == 0x03822c0b)
+    {
+      struct rt_sigframe
+      {
+	siginfo_t info;
+	ucontext_t uc;
+      } *rt_ = context->cfa;
+      sc = (struct sigcontext *) (void *) &rt_->uc.uc_mcontext;
+    }
+  else
     return _URC_END_OF_STACK;
 
-  rt = context->cfa;
-  sc = &rt->uc.uc_mcontext;
-
-  new_cfa = sc->regs.gpr[1];
+  new_cfa = (_Unwind_Ptr) sc;
   fs->regs.cfa_how = CFA_REG_OFFSET;
-  fs->regs.cfa_reg = 1;
-  fs->regs.cfa_offset = new_cfa - (long) context->cfa;
-  for (i = 2; i < 32; ++i)
+  fs->regs.cfa_reg = __LIBGCC_STACK_POINTER_REGNUM__;
+  fs->regs.cfa_offset = new_cfa - (_Unwind_Ptr) context->cfa;
+
+  for (i = 0; i < 32; i++)
     {
       fs->regs.how[i] = REG_SAVED_OFFSET;
-      fs->regs.reg[i].loc.offset = (long) &sc->regs.gpr[i] - new_cfa;
+      fs->regs.reg[i].loc.offset = (_Unwind_Ptr) & (sc->sc_regs[i]) - new_cfa;
     }
-  fs->regs.how[32] = REG_SAVED_OFFSET;
-  fs->regs.reg[32].loc.offset = (long)&sc->regs.pc - new_cfa;
-  fs->retaddr_column = 32;
+
   fs->signal_frame = 1;
+  fs->regs.how[__LIBGCC_DWARF_ALT_FRAME_RETURN_COLUMN__]
+    = REG_SAVED_VAL_OFFSET;
+  fs->regs.reg[__LIBGCC_DWARF_ALT_FRAME_RETURN_COLUMN__].loc.offset
+    = (_Unwind_Ptr) (sc->sc_pc) - new_cfa;
+  fs->retaddr_column = __LIBGCC_DWARF_ALT_FRAME_RETURN_COLUMN__;
 
   return _URC_NO_REASON;
-}
-
-#define MD_FROB_UPDATE_CONTEXT or1k_frob_update_context
-
-/* Fix up for signal handlers that don't have S flag set.  */
-
-static void
-or1k_frob_update_context (struct _Unwind_Context *context,
-			   _Unwind_FrameState *fs ATTRIBUTE_UNUSED)
-{
-  unsigned int *pc = context->ra;
-
-  if (pc[0] == 0xa960008b		/* l.ori r11, r0, NR_rt_sigreturn */
-      && pc[1] == 0x20000001)		/* l.sys 1 */
-    _Unwind_SetSignalFrame (context, 1);
 }
 #endif

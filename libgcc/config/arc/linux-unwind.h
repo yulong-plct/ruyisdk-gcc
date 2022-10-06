@@ -120,10 +120,11 @@ arc_fallback_frame_state (struct _Unwind_Context *context,
 	= ((_Unwind_Ptr) &(regs[i])) - new_cfa;
     }
 
-  fs->regs.reg[31].how = REG_SAVED_VAL_OFFSET;
-  fs->regs.reg[31].loc.offset = ((_Unwind_Ptr) (regs[ret])) - new_cfa;
-
-  fs->retaddr_column = 31;
+  fs->signal_frame = 1;
+  fs->retaddr_column = __LIBGCC_DWARF_ALT_FRAME_RETURN_COLUMN__;
+  fs->regs.how[fs->retaddr_column] = REG_SAVED_VAL_OFFSET;
+  fs->regs.reg[fs->retaddr_column].loc.offset =
+    ((_Unwind_Ptr) (regs[ret])) - new_cfa;
 
   return _URC_NO_REASON;
 }
@@ -139,7 +140,7 @@ arc_frob_update_context (struct _Unwind_Context *context,
   _Unwind_Word fp_val;
   asm ("mov %0,fp" : "=r" (fp_val));
 
-  switch (fs->regs.reg[27].how)
+  switch (fs->regs.how[27])
     {
     case REG_UNSAVED:
     case REG_UNDEFINED:
