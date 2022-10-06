@@ -82,6 +82,13 @@ relation_kind relation_union (relation_kind r1, relation_kind r2);
 relation_kind relation_intersect (relation_kind r1, relation_kind r2);
 relation_kind relation_negate (relation_kind r);
 relation_kind relation_swap (relation_kind r);
+inline bool relation_lt_le_gt_ge_p (relation_kind r)
+		      { return (r >= VREL_LT && r <= VREL_GE); }
+inline bool relation_partial_equiv_p (relation_kind r)
+		      { return (r >= VREL_PE8 && r <= VREL_PE64); }
+inline bool relation_equiv_p (relation_kind r)
+		      { return r == VREL_EQ || relation_partial_equiv_p (r); }
+
 void print_relation (FILE *f, relation_kind rel);
 
 
@@ -96,6 +103,7 @@ public:
 
   // Return equivalency set for an SSA name in a basic block.
   virtual const_bitmap equiv_set (tree, basic_block) = 0;
+  virtual const class pe_slice *partial_equiv_set (tree) { return NULL; }
   // register a relation between 2 ssa names in a basic block.
   virtual void register_relation (basic_block, relation_kind, tree, tree) = 0;
   // Query for a relation between two ssa names in a basic block.
@@ -122,6 +130,14 @@ public:
   equiv_chain *find (unsigned ssa);
 };
 
+class pe_slice
+{
+public:
+  tree ssa_base;  	// Slice of this name.
+  relation_kind code;	// bits that are equivalent.
+  bitmap members;	// Other members in the partial equivalency.
+};
+
 // The equivalency oracle maintains equivalencies using the dominator tree.
 // Equivalencies apply to an entire basic block.  Equivalencies on edges
 // can be represented only on edges whose destination is a single-pred block,
@@ -133,14 +149,18 @@ public:
   equiv_oracle ();
   ~equiv_oracle ();
 
-  const_bitmap equiv_set (tree ssa, basic_block bb);
+  const_bitmap equiv_set (tree ssa, basic_block bb) final override;
+  const pe_slice *partial_equiv_set (tree name) final override;
   void register_relation (basic_block bb, relation_kind k, tree ssa1,
 			  tree ssa2);
 
-  relation_kind query_relation (basic_block, tree, tree);
-  relation_kind query_relation (basic_block, const_bitmap, const_bitmap);
-  void dump (FILE *f, basic_block bb) const;
-  void dump (FILE *f) const;
+  void add_partial_equiv (relation_kind, tree, tree);
+  relation_kind partial_equiv (tree ssa1, tree ssa2, tree *base = NULL) const;
+  relation_kind query_relation (basic_block, tree, tree) override;
+  relation_kind query_relation (basic_block, const_bitmap, const_bitmap)
+    override;
+  void dump (FILE *f, basic_block bb) const override;
+  void dump (FILE *f) const override;
 
 protected:
   bitmap_obstack m_bitmaps;
@@ -149,6 +169,7 @@ private:
   bitmap m_equiv_set;	// Index by ssa-name. true if an equivalence exists.
   vec <equiv_chain *> m_equiv;	// Index by BB.  list of equivalences.
   vec <bitmap> m_self_equiv;  // Index by ssa-name, self equivalency set.
+  vec <pe_slice> m_partial;  // Partial equivalencies.
 
   void limit_check (basic_block bb = NULL);
   equiv_chain *find_equiv_block (unsigned ssa, int bb) const;
