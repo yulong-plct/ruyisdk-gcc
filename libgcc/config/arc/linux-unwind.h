@@ -139,7 +139,7 @@ arc_frob_update_context (struct _Unwind_Context *context,
   _Unwind_Word fp_val;
   asm ("mov %0,fp" : "=r" (fp_val));
 
-  switch (fs->regs.reg[27].how)
+  switch (fs->regs.how[27])
     {
     case REG_UNSAVED:
     case REG_UNDEFINED:
