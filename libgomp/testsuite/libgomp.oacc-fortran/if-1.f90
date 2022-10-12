@@ -393,7 +393,7 @@ program main
   b(:) = 1.0
 
   !$acc data copyin (a(1:N)) copyout (b(1:N)) if (0 == 1)
-  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target { ! openacc_host_selected } } .-1 }
+  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target { ! openacc_host_selected } } .-1 }
 
 #if !ACC_MEM_SHARED
   if (acc_is_present (a) .eqv. .TRUE.) STOP 21
@@ -406,16 +406,16 @@ program main
   b(:) = 21.0
 
   !$acc data copyin (a(1:N)) if (1 == 1)
-  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
-  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-2 }
+  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
+  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target { ! openacc_host_selected } } .-2 }
 
 #if !ACC_MEM_SHARED
     if (acc_is_present (a) .eqv. .FALSE.) STOP 23
 #endif
 
     !$acc data copyout (b(1:N)) if (0 == 1)
-    ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
-    ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-2 }
+    ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
+    ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target { ! openacc_host_selected } } .-2 }
 #if !ACC_MEM_SHARED
       if (acc_is_present (b) .eqv. .TRUE.) STOP 24
 #endif
@@ -863,7 +863,7 @@ program main
   b(:) = 1.0
 
   !$acc data copyin (a(1:N)) copyout (b(1:N)) if (0 == 1)
-  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target { ! openacc_host_selected } } .-1 }
+  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target { ! openacc_host_selected } } .-1 }
 
 #if !ACC_MEM_SHARED
   if (acc_is_present (a) .eqv. .TRUE.) STOP 56
@@ -876,16 +876,16 @@ program main
   b(:) = 21.0
 
   !$acc data copyin (a(1:N)) if (1 == 1)
-  ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
-  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-2 }
+  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
+  ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target { ! openacc_host_selected } } .-2 }
 
 #if !ACC_MEM_SHARED
     if (acc_is_present (a) .eqv. .FALSE.) STOP 58
 #endif
 
     !$acc data copyout (b(1:N)) if (0 == 1)
-    ! { dg-note {variable 'D\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
-    ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-2 }
+    ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: not addressable} "" { target *-*-* } .-1 }
+    ! { dg-note {variable 'parm\.[0-9]+' declared in block isn't candidate for adjusting OpenACC privatization level: artificial} "" { target { ! openacc_host_selected } } .-2 }
 #if !ACC_MEM_SHARED
       if (acc_is_present (b) .eqv. .TRUE.) STOP 59
 #endif
