@@ -883,13 +883,72 @@ gori_compute::compute_logical_operands (irange &r, gimple *stmt,
   if (!op1_in_chain && !op2_in_chain)
     return false;
 
-  tf_range op1_range, op2_range;
-  compute_logical_operands_in_chain (op1_range, stmt, lhs,
-				     name, op1, op1_in_chain);
-  compute_logical_operands_in_chain (op2_range, stmt, lhs,
-				     name, op2, op2_in_chain);
-  return logical_combine (r, gimple_expr_code (stmt), lhs,
-			  op1_range, op2_range);
+  // Determine if op2 is directly referenced as an operand.
+  if (def_op1 == use_op)
+    {
+      // def_stmt has op1 in the 1st operand position.
+      Value_Range other_op (TREE_TYPE (def_op2));
+      src.get_operand (other_op, def_op2);
+
+      // Using op1_range as the LHS, and relation REL, evaluate op2.
+      tree type = TREE_TYPE (def_op1);
+      Value_Range new_result (type);
+      if (!op_handler.op1_range (new_result, type,
+				 op1_def_p ? op1_range : op2_range,
+				 other_op, relation_trio::lhs_op2 (k)))
+	return false;
+      if (op1_def_p)
+	{
+	  change |= op2_range.intersect (new_result);
+	  // Recalculate op2.
+	  if (op_handler.fold_range (new_result, type, op2_range, other_op))
+	    {
+	      change |= op1_range.intersect (new_result);
+	    }
+	}
+      else
+	{
+	  change |= op1_range.intersect (new_result);
+	  // Recalculate op1.
+	  if (op_handler.fold_range (new_result, type, op1_range, other_op))
+	    {
+	      change |= op2_range.intersect (new_result);
+	    }
+	}
+    }
+  else if (def_op2 == use_op)
+    {
+      // def_stmt has op1 in the 1st operand position.
+      Value_Range other_op (TREE_TYPE (def_op1));
+      src.get_operand (other_op, def_op1);
+
+      // Using op1_range as the LHS, and relation REL, evaluate op2.
+      tree type = TREE_TYPE (def_op2);
+      Value_Range new_result (type);
+      if (!op_handler.op2_range (new_result, type,
+				 op1_def_p ? op1_range : op2_range,
+				 other_op, relation_trio::lhs_op1 (k)))
+	return false;
+      if (op1_def_p)
+	{
+	  change |= op2_range.intersect (new_result);
+	  // Recalculate op1.
+	  if (op_handler.fold_range (new_result, type, other_op, op2_range))
+	    {
+	      change |= op1_range.intersect (new_result);
+	    }
+	}
+      else
+	{
+	  change |= op1_range.intersect (new_result);
+	  // Recalculate op2.
+	  if (op_handler.fold_range (new_result, type, other_op, op1_range))
+	    {
+	      change |= op2_range.intersect (new_result);
+	    }
+	}
+    }
+  return change;
 }
 
 // Calculate a range for NAME from the operand 1 position of STMT
@@ -916,7 +975,27 @@ gori_compute::compute_operand1_range (vrange &r,
   if (op2)
     {
       src.get_operand (op2_range, op2);
-      if (!handler.calc_op1 (tmp, lhs, op2_range))
+      relation_kind k = VREL_VARYING;
+      relation_kind op_op = (op1 == op2) ? VREL_EQ : VREL_VARYING;
+      if (rel)
+	{
+	 if (lhs_name == rel->op1 () && op1 == rel->op2 ())
+	   k = rel->kind ();
+	 else if (lhs_name == rel->op2 () && op1 == rel->op1 ())
+	   k = relation_swap (rel->kind ());
+	 else if (op1 == rel->op1 () && op2 == rel->op2 ())
+	   {
+	     op_op = rel->kind ();
+	     refine_using_relation (op1, op1_range, op2, op2_range, src, op_op);
+	   }
+	 else if (op1 == rel->op2 () && op2 == rel->op1 ())
+	   {
+	     op_op = relation_swap (rel->kind ());
+	     refine_using_relation (op1, op1_range, op2, op2_range, src, op_op);
+	   }
+       }
+      if (!handler.calc_op1 (tmp, lhs, op2_range, relation_trio (VREL_VARYING,
+								 k, op_op)))
 	return false;
     }
   else
@@ -924,7 +1003,7 @@ gori_compute::compute_operand1_range (vrange &r,
       // We pass op1_range to the unary operation.  Nomally it's a
       // hidden range_for_type parameter, but sometimes having the
       // actual range can result in better information.
-      if (!handler.calc_op1 (tmp, lhs, op1_range))
+      if (!handler.calc_op1 (tmp, lhs, op1_range, TRIO_VARYING))
 	return false;
     }
 
@@ -963,11 +1042,31 @@ gori_compute::compute_operand2_range (vrange &r,
   Value_Range op2_range (TREE_TYPE (op2));
   Value_Range tmp (TREE_TYPE (op2));
 
-  expr_range_in_bb (op1_range, op1, gimple_bb (stmt));
-  expr_range_in_bb (op2_range, op2, gimple_bb (stmt));
+  src.get_operand (op1_range, op1);
+  src.get_operand (op2_range, op2);
+  relation_kind k = VREL_VARYING;
+  relation_kind op_op = (op1 == op2) ? VREL_EQ : VREL_VARYING;
+  if (rel)
+    {
+      if (lhs_name == rel->op1 () && op2 == rel->op2 ())
+	k = rel->kind ();
+      else if (lhs_name == rel->op2 () && op2 == rel->op1 ())
+	k = relation_swap (rel->kind ());
+      else if (op1 == rel->op1 () && op2 == rel->op2 ())
+	{
+	  op_op = rel->kind ();
+	  refine_using_relation (op1, op1_range, op2, op2_range, src, op_op);
+	}
+      else if (op1 == rel->op2 () && op2 == rel->op1 ())
+	{
+	  op_op = relation_swap (rel->kind ());
+	  refine_using_relation (op1, op1_range, op2, op2_range, src, op_op);
+	}
+    }
 
   // Intersect with range for op2 based on lhs and op1.
-  if (!handler.calc_op2 (tmp, lhs, op1_range))
+  if (!handler.calc_op2 (tmp, lhs, op1_range, relation_trio (k, VREL_VARYING,
+							     op_op)))
     return false;
   op2_range.intersect (r);
 

@@ -530,8 +530,11 @@ fold_using_range::range_of_range_op (vrange &r,
 	      fputc ('\n', dump_file);
 	    }
 	  // Fold range, and register any dependency if available.
-	  handler.fold_range (r, type, range1, range2, rel);
-	  relation_fold_and_or (r, s, src);
+	  if (!handler.fold_range (r, type, range1, range2,
+				   relation_trio::op1_op2 (rel)))
+	    r.set_varying (type);
+	  if (irange::supports_p (type))
+	    relation_fold_and_or (as_a <irange> (r), s, src);
 	  if (lhs)
 	    {
 	      if (src.gori ())
@@ -547,7 +550,7 @@ fold_using_range::range_of_range_op (vrange &r,
 		}
 	      if (gimple_range_ssa_p (op2))
 		{
-		  rel= handler.lhs_op2_relation (r, range1, range2, rel);
+		  rel = handler.lhs_op2_relation (r, range1, range2, rel);
 		  if (rel != VREL_VARYING)
 		    src.register_relation (s, rel, lhs, op2);
 		}

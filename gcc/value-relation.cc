@@ -32,26 +32,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "alloc-pool.h"
 #include "dominance.h"
 
-// These VREL codes are arranged such that VREL_NONE is the first
-// code, and all the rest are contiguous up to and including VREL_LAST.
-
-#define VREL_FIRST              VREL_NONE
-#define VREL_LAST               NE_EXPR
-#define VREL_COUNT              (VREL_LAST - VREL_FIRST + 1)
-
-// vrel_range_assert will either assert that the tree code passed is valid,
-// or mark invalid codes as unreachable to help with table optimation.
-#if CHECKING_P
-  #define vrel_range_assert(c) 			\
-    gcc_checking_assert ((c) >= VREL_FIRST && (c) <= VREL_LAST)
-#else
-  #define vrel_range_assert(c)			\
-    if ((c) < VREL_FIRST || (c) > VREL_LAST)	\
-      gcc_unreachable ();
-#endif
-
-static const char *kind_string[VREL_COUNT] =
-{ "none", "<", "<=", ">", ">=", "empty", "==", "!=" };
+static const char *kind_string[VREL_LAST] =
+{ "varying", "undefined", "<", "<=", ">", ">=", "==", "!=", "pe8", "pe16",
+  "pe32", "pe64" };
 
 // Print a relation_kind REL to file F.
 
@@ -63,9 +46,9 @@ print_relation (FILE *f, relation_kind rel)
 }
 
 // This table is used to negate the operands.  op1 REL op2 -> !(op1 REL op2).
-relation_kind rr_negate_table[VREL_COUNT] = {
-//     NONE, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, EMPTY,      EQ_EXPR, NE_EXPR
-  VREL_NONE, GE_EXPR, GT_EXPR, LE_EXPR, LT_EXPR, VREL_EMPTY, NE_EXPR, EQ_EXPR };
+relation_kind rr_negate_table[VREL_LAST] = {
+  VREL_VARYING, VREL_UNDEFINED, VREL_GE, VREL_GT, VREL_LE, VREL_LT, VREL_NE,
+  VREL_EQ };
 
 // Negate the relation, as in logical negation.
 
@@ -77,9 +60,9 @@ relation_negate (relation_kind r)
 }
 
 // This table is used to swap the operands.  op1 REL op2 -> op2 REL op1.
-relation_kind rr_swap_table[VREL_COUNT] = {
-//     NONE, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, EMPTY,      EQ_EXPR, NE_EXPR
-  VREL_NONE, GT_EXPR, GE_EXPR, LT_EXPR, LE_EXPR, VREL_EMPTY, EQ_EXPR, NE_EXPR };
+relation_kind rr_swap_table[VREL_LAST] = {
+  VREL_VARYING, VREL_UNDEFINED, VREL_GT, VREL_GE, VREL_LT, VREL_LE, VREL_EQ,
+  VREL_NE };
 
 // Return the relation as if the operands were swapped.
 
@@ -92,24 +75,31 @@ relation_swap (relation_kind r)
 
 // This table is used to perform an intersection between 2 relations.
 
-relation_kind rr_intersect_table[VREL_COUNT][VREL_COUNT] = {
-//   NONE, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, EMPTY, EQ_EXPR, NE_EXPR
-// VREL_NONE
-  { VREL_NONE, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, VREL_EMPTY, EQ_EXPR, NE_EXPR },
-// LT_EXPR
-  { LT_EXPR, LT_EXPR, LT_EXPR, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, LT_EXPR },
-// LE_EXPR
-  { LE_EXPR, LT_EXPR, LE_EXPR, VREL_EMPTY, EQ_EXPR, VREL_EMPTY, EQ_EXPR, LT_EXPR },
-// GT_EXPR
-  { GT_EXPR, VREL_EMPTY, VREL_EMPTY, GT_EXPR, GT_EXPR, VREL_EMPTY, VREL_EMPTY, GT_EXPR },
-// GE_EXPR
-  { GE_EXPR, VREL_EMPTY, EQ_EXPR, GT_EXPR, GE_EXPR, VREL_EMPTY, EQ_EXPR, GT_EXPR },
-// VREL_EMPTY
-  { VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY, VREL_EMPTY },
-// EQ_EXPR
-  { EQ_EXPR, VREL_EMPTY, EQ_EXPR, VREL_EMPTY, EQ_EXPR, VREL_EMPTY, EQ_EXPR, VREL_EMPTY },
-// NE_EXPR
-  { NE_EXPR, LT_EXPR, LT_EXPR, GT_EXPR, GT_EXPR, VREL_EMPTY, VREL_EMPTY, NE_EXPR } };
+relation_kind rr_intersect_table[VREL_LAST][VREL_LAST] = {
+// VREL_VARYING
+  { VREL_VARYING, VREL_UNDEFINED, VREL_LT, VREL_LE, VREL_GT, VREL_GE, VREL_EQ,
+    VREL_NE },
+// VREL_UNDEFINED
+  { VREL_UNDEFINED, VREL_UNDEFINED, VREL_UNDEFINED, VREL_UNDEFINED,
+    VREL_UNDEFINED, VREL_UNDEFINED, VREL_UNDEFINED, VREL_UNDEFINED },
+// VREL_LT
+  { VREL_LT, VREL_UNDEFINED, VREL_LT, VREL_LT, VREL_UNDEFINED, VREL_UNDEFINED,
+    VREL_UNDEFINED, VREL_LT },
+// VREL_LE
+  { VREL_LE, VREL_UNDEFINED, VREL_LT, VREL_LE, VREL_UNDEFINED, VREL_EQ,
+    VREL_EQ, VREL_LT },
+// VREL_GT
+  { VREL_GT, VREL_UNDEFINED, VREL_UNDEFINED, VREL_UNDEFINED, VREL_GT, VREL_GT,
+    VREL_UNDEFINED, VREL_GT },
+// VREL_GE
+  { VREL_GE, VREL_UNDEFINED, VREL_UNDEFINED, VREL_EQ, VREL_GT, VREL_GE,
+    VREL_EQ, VREL_GT },
+// VREL_EQ
+  { VREL_EQ, VREL_UNDEFINED, VREL_UNDEFINED, VREL_EQ, VREL_UNDEFINED, VREL_EQ,
+    VREL_EQ, VREL_UNDEFINED },
+// VREL_NE
+  { VREL_NE, VREL_UNDEFINED, VREL_LT, VREL_LT, VREL_GT, VREL_GT,
+    VREL_UNDEFINED, VREL_NE } };
 
 
 // Intersect relation R! with relation R2 and return the resulting relation.
@@ -125,24 +115,31 @@ relation_intersect (relation_kind r1, relation_kind r2)
 
 // This table is used to perform a union between 2 relations.
 
-relation_kind rr_union_table[VREL_COUNT][VREL_COUNT] = {
-//    	 NONE, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, EMPTY, EQ_EXPR, NE_EXPR
-// VREL_NONE
-  { VREL_NONE, VREL_NONE, VREL_NONE, VREL_NONE, VREL_NONE, VREL_NONE, VREL_NONE, VREL_NONE },
-// LT_EXPR
-  { VREL_NONE, LT_EXPR, LE_EXPR, NE_EXPR, VREL_NONE, LT_EXPR, LE_EXPR, NE_EXPR },
-// LE_EXPR
-  { VREL_NONE, LE_EXPR, LE_EXPR, VREL_NONE, VREL_NONE, LE_EXPR, LE_EXPR, VREL_NONE },
-// GT_EXPR
-  { VREL_NONE, NE_EXPR, VREL_NONE, GT_EXPR, GE_EXPR, GT_EXPR, GE_EXPR, NE_EXPR },
-// GE_EXPR
-  { VREL_NONE, VREL_NONE, VREL_NONE, GE_EXPR, GE_EXPR, GE_EXPR, GE_EXPR, VREL_NONE },
-// VREL_EMPTY
-  { VREL_NONE, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, VREL_EMPTY, EQ_EXPR, NE_EXPR },
-// EQ_EXPR
-  { VREL_NONE, LE_EXPR, LE_EXPR, GE_EXPR, GE_EXPR, EQ_EXPR, EQ_EXPR, VREL_NONE },
-// NE_EXPR
-  { VREL_NONE, NE_EXPR, VREL_NONE, NE_EXPR, VREL_NONE, NE_EXPR, VREL_NONE, NE_EXPR } };
+relation_kind rr_union_table[VREL_LAST][VREL_LAST] = {
+// VREL_VARYING
+  { VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING,
+    VREL_VARYING, VREL_VARYING, VREL_VARYING },
+// VREL_UNDEFINED
+  { VREL_VARYING, VREL_LT, VREL_LE, VREL_GT, VREL_GE, VREL_UNDEFINED,
+    VREL_EQ, VREL_NE },
+// VREL_LT
+  { VREL_VARYING, VREL_LT, VREL_LT, VREL_LE, VREL_NE, VREL_VARYING, VREL_LE,
+    VREL_NE },
+// VREL_LE
+  { VREL_VARYING, VREL_LE, VREL_LE, VREL_LE, VREL_VARYING, VREL_VARYING,
+    VREL_LE, VREL_VARYING },
+// VREL_GT
+  { VREL_VARYING, VREL_GT, VREL_NE, VREL_VARYING, VREL_GT, VREL_GE, VREL_GE,
+    VREL_NE },
+// VREL_GE
+  { VREL_VARYING, VREL_GE, VREL_VARYING, VREL_VARYING, VREL_GE, VREL_GE,
+    VREL_GE, VREL_VARYING },
+// VREL_EQ
+  { VREL_VARYING, VREL_EQ, VREL_LE, VREL_LE, VREL_GE, VREL_GE, VREL_EQ,
+    VREL_VARYING },
+// VREL_NE
+  { VREL_VARYING, VREL_NE, VREL_NE, VREL_VARYING, VREL_NE, VREL_VARYING,
+    VREL_VARYING, VREL_NE } };
 
 // Union relation R1 with relation R2 and return the result.
 
@@ -154,6 +151,127 @@ relation_union (relation_kind r1, relation_kind r2)
   return rr_union_table[r1 - VREL_FIRST][r2 - VREL_FIRST];
 }
 
+
+// This table is used to determine transitivity between 2 relations.
+// (A relation0 B) and (B relation1 C) implies  (A result C)
+
+relation_kind rr_transitive_table[VREL_LAST][VREL_LAST] = {
+// VREL_VARYING
+  { VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING,
+    VREL_VARYING, VREL_VARYING, VREL_VARYING },
+// VREL_UNDEFINED
+  { VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING,
+    VREL_VARYING, VREL_VARYING, VREL_VARYING },
+// VREL_LT
+  { VREL_VARYING, VREL_VARYING, VREL_LT, VREL_LT, VREL_VARYING, VREL_VARYING,
+    VREL_LT, VREL_VARYING },
+// VREL_LE
+  { VREL_VARYING, VREL_VARYING, VREL_LT, VREL_LE, VREL_VARYING, VREL_VARYING,
+    VREL_LE, VREL_VARYING },
+// VREL_GT
+  { VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_GT, VREL_GT,
+    VREL_GT, VREL_VARYING },
+// VREL_GE
+  { VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_GT, VREL_GE,
+    VREL_GE, VREL_VARYING },
+// VREL_EQ
+  { VREL_VARYING, VREL_VARYING, VREL_LT, VREL_LE, VREL_GT, VREL_GE, VREL_EQ,
+    VREL_VARYING },
+// VREL_NE
+  { VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING, VREL_VARYING,
+    VREL_VARYING, VREL_VARYING, VREL_VARYING } };
+
+// Apply transitive operation between relation R1 and relation R2, and
+// return the resulting relation, if any.
+
+relation_kind
+relation_transitive (relation_kind r1, relation_kind r2)
+{
+  return rr_transitive_table[r1][r2];
+}
+
+// This vector maps a relation to the equivalent tree code.
+
+tree_code relation_to_code [VREL_LAST] = {
+  ERROR_MARK, ERROR_MARK, LT_EXPR, LE_EXPR, GT_EXPR, GE_EXPR, EQ_EXPR,
+  NE_EXPR };
+
+// This routine validates that a relation can be applied to a specific set of
+// ranges.  In particular, floating point x == x may not be true if the NaN bit
+// is set in the range.  Symbolically the oracle will determine x == x,
+// but specific range instances may override this.
+// To verify, attempt to fold the relation using the supplied ranges.
+// One would expect [1,1] to be returned, anything else means there is something
+// in the range preventing the relation from applying.
+// If there is no mechanism to verify, assume the relation is acceptable.
+
+relation_kind
+relation_oracle::validate_relation (relation_kind rel, vrange &op1, vrange &op2)
+{
+  // If there is no mapping to a tree code, leave the relation as is.
+  tree_code code = relation_to_code [rel];
+  if (code == ERROR_MARK)
+    return rel;
+
+  // Undefined ranges cannot be checked either.
+  if (op1.undefined_p () || op2.undefined_p ())
+    return rel;
+
+  tree t1 = op1.type ();
+  tree t2 = op2.type ();
+
+  // If the range types are not compatible, no relation can exist.
+  if (!range_compatible_p (t1, t2))
+    return VREL_VARYING;
+
+  // If there is no handler, leave the relation as is.
+  range_op_handler handler (code, t1);
+  if (!handler)
+    return rel;
+
+  // If the relation cannot be folded for any reason, leave as is.
+  Value_Range result (boolean_type_node);
+  if (!handler.fold_range (result, boolean_type_node, op1, op2,
+			   relation_trio::op1_op2 (rel)))
+    return rel;
+
+  // The expression op1 REL op2 using REL should fold to [1,1].
+  // Any other result means the relation is not verified to be true.
+  if (result.varying_p () || result.zero_p ())
+    return VREL_VARYING;
+
+  return rel;
+}
+
+// If no range is available, create a varying range for each SSA name and
+// verify.
+
+relation_kind
+relation_oracle::validate_relation (relation_kind rel, tree ssa1, tree ssa2)
+{
+  Value_Range op1, op2;
+  op1.set_varying (TREE_TYPE (ssa1));
+  op2.set_varying (TREE_TYPE (ssa2));
+
+  return validate_relation (rel, op1, op2);
+}
+
+// Given an equivalence set EQUIV, set all the bits in B that are still valid
+// members of EQUIV in basic block BB.
+
+void
+relation_oracle::valid_equivs (bitmap b, const_bitmap equivs, basic_block bb)
+{
+  unsigned i;
+  bitmap_iterator bi;
+  EXECUTE_IF_SET_IN_BITMAP (equivs, 0, i, bi)
+    {
+      tree ssa = ssa_name (i);
+      const_bitmap ssa_equiv = equiv_set (ssa, bb);
+      if (ssa_equiv == equivs)
+	bitmap_set_bit (b, i);
+    }
+}
 
 // -------------------------------------------------------------------------
 
