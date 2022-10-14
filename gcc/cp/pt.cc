@@ -17234,6 +17234,18 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	return r;
       }
 
+    case EXCESS_PRECISION_EXPR:
+      {
+	tree type = tsubst (TREE_TYPE (t), args, complain, in_decl);
+	tree op0 = tsubst_copy (TREE_OPERAND (t, 0), args, complain, in_decl);
+	if (TREE_CODE (op0) == EXCESS_PRECISION_EXPR)
+	  {
+	    gcc_checking_assert (same_type_p (type, TREE_TYPE (op0)));
+	    return op0;
+	  }
+	return build1_loc (EXPR_LOCATION (t), code, type, op0);
+      }
+
     case COMPONENT_REF:
       {
 	tree object;
@@ -20035,6 +20047,16 @@ tsubst_copy_and_build (tree t,
       RETURN (build_x_unary_op (input_location, TREE_CODE (t),
 				RECUR (TREE_OPERAND (t, 0)),
 				complain|decltype_flag));
+
+    case EXCESS_PRECISION_EXPR:
+      {
+	tree type = tsubst (TREE_TYPE (t), args, complain, in_decl);
+	tree op0 = RECUR (TREE_OPERAND (t, 0));
+	if (TREE_CODE (op0) == EXCESS_PRECISION_EXPR)
+	  RETURN (op0);
+	RETURN (build1_loc (EXPR_LOCATION (t), EXCESS_PRECISION_EXPR,
+			    type, op0));
+      }
 
     case FIX_TRUNC_EXPR:
       /* convert_like should have created an IMPLICIT_CONV_EXPR.  */
