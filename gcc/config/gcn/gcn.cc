@@ -371,6 +371,97 @@ gcn_scalar_mode_supported_p (scalar_mode mode)
 	  || mode == TImode);
 }
 
+/* Return a vector mode with N lanes of MODE.  */
+
+static machine_mode
+VnMODE (int n, machine_mode mode)
+{
+  switch (mode)
+    {
+    case E_QImode:
+      switch (n)
+	{
+	case 2: return V2QImode;
+	case 4: return V4QImode;
+	case 8: return V8QImode;
+	case 16: return V16QImode;
+	case 32: return V32QImode;
+	case 64: return V64QImode;
+	}
+      break;
+    case E_HImode:
+      switch (n)
+	{
+	case 2: return V2HImode;
+	case 4: return V4HImode;
+	case 8: return V8HImode;
+	case 16: return V16HImode;
+	case 32: return V32HImode;
+	case 64: return V64HImode;
+	}
+      break;
+    case E_HFmode:
+      switch (n)
+	{
+	case 2: return V2HFmode;
+	case 4: return V4HFmode;
+	case 8: return V8HFmode;
+	case 16: return V16HFmode;
+	case 32: return V32HFmode;
+	case 64: return V64HFmode;
+	}
+      break;
+    case E_SImode:
+      switch (n)
+	{
+	case 2: return V2SImode;
+	case 4: return V4SImode;
+	case 8: return V8SImode;
+	case 16: return V16SImode;
+	case 32: return V32SImode;
+	case 64: return V64SImode;
+	}
+      break;
+    case E_SFmode:
+      switch (n)
+	{
+	case 2: return V2SFmode;
+	case 4: return V4SFmode;
+	case 8: return V8SFmode;
+	case 16: return V16SFmode;
+	case 32: return V32SFmode;
+	case 64: return V64SFmode;
+	}
+      break;
+    case E_DImode:
+      switch (n)
+	{
+	case 2: return V2DImode;
+	case 4: return V4DImode;
+	case 8: return V8DImode;
+	case 16: return V16DImode;
+	case 32: return V32DImode;
+	case 64: return V64DImode;
+	}
+      break;
+    case E_DFmode:
+      switch (n)
+	{
+	case 2: return V2DFmode;
+	case 4: return V4DFmode;
+	case 8: return V8DFmode;
+	case 16: return V16DFmode;
+	case 32: return V32DFmode;
+	case 64: return V64DFmode;
+	}
+      break;
+    default:
+      break;
+    }
+
+  return VOIDmode;
+}
+
 /* Implement TARGET_CLASS_MAX_NREGS.
  
    Return the number of hard registers needed to hold a value of MODE in
