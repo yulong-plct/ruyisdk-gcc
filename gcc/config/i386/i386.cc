@@ -2374,6 +2374,16 @@ classify_argument (machine_mode mode, const_tree type,
       classes[0] = X86_64_SSE_CLASS;
       classes[1] = X86_64_SSEUP_CLASS;
       return 2;
+    case E_HCmode:
+    case E_BCmode:
+      classes[0] = X86_64_SSE_CLASS;
+      if (!(bit_offset % 64))
+	return 1;
+      else
+	{
+	  classes[1] = X86_64_SSEHF_CLASS;
+	  return 2;
+	}
     case E_SCmode:
       classes[0] = X86_64_SSE_CLASS;
       if (!(bit_offset % 64))
@@ -21467,6 +21477,21 @@ ix86_scalar_mode_supported_p (scalar_mode mode)
     return default_scalar_mode_supported_p (mode);
 }
 
+/* Implement TARGET_LIBGCC_FLOATING_POINT_MODE_SUPPORTED_P - return TRUE
+   if MODE is HFmode, and punt to the generic implementation otherwise.  */
+
+static bool
+ix86_libgcc_floating_mode_supported_p (scalar_float_mode mode)
+{
+  /* NB: Always return TRUE for HFmode so that the _Float16 type will
+     be defined by the C front-end for AVX512FP16 intrinsics.  We will
+     issue an error in ix86_expand_move for HFmode if AVX512FP16 isn't
+     enabled.  */
+  return (((mode == HFmode || mode == BFmode) && TARGET_SSE2)
+	  ? true
+	  : default_libgcc_floating_mode_supported_p (mode));
+}
+
 /* Implements target hook vector_mode_supported_p.  */
 static bool
 ix86_vector_mode_supported_p (machine_mode mode)
@@ -21759,6 +21784,12 @@ ix86_mangle_type (const_tree type)
 
   switch (TYPE_MODE (type))
     {
+    case E_BFmode:
+      return "DF16b";
+    case E_HFmode:
+      /* _Float16 is "DF16_".
+	 Align with clang's decision in https://reviews.llvm.org/D33719. */
+      return "DF16_";
     case E_TFmode:
       /* __float128 is "g".  */
       return "g";

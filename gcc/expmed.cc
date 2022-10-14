@@ -2688,7 +2688,7 @@ expand_shift (enum tree_code code, machine_mode mode, rtx shifted,
 
 /* Likewise, but return 0 if that cannot be done.  */
 
-static rtx
+rtx
 maybe_expand_shift (enum tree_code code, machine_mode mode, rtx shifted,
 		    int amount, rtx target, int unsignedp)
 {

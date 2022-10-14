@@ -8506,6 +8506,20 @@ struct push_nested_class_guard
   }
 };
 
+/* True if TYPE is an extended floating-point type.  */
+
+inline bool
+extended_float_type_p (tree type)
+{
+  type = TYPE_MAIN_VARIANT (type);
+  for (int i = 0; i < NUM_FLOATN_NX_TYPES; ++i)
+    if (type == FLOATN_TYPE_NODE (i))
+      return true;
+  if (type == bfloat16_type_node)
+    return true;
+  return false;
+}
+
 #if CHECKING_P
 namespace selftest {
   extern void run_cp_tests (void);
