@@ -1093,7 +1093,10 @@ parm_ref_data_pass_through_p (struct ipa_func_body_info *fbi, int index,
    latter can be NULL), STMT is the load statement.  If function returns true,
    *INDEX_P, *OFFSET_P and *BY_REF is filled with the parameter index, offset
    within the aggregate and whether it is a load from a value passed by
-   reference respectively.  */
+   reference respectively.
+
+   Return false if the offset divided by BITS_PER_UNIT would not fit into an
+   unsigned int.  */
 
 bool
 ipa_load_from_parm_agg (struct ipa_func_body_info *fbi,
@@ -1107,7 +1110,8 @@ ipa_load_from_parm_agg (struct ipa_func_body_info *fbi,
   bool reverse;
   tree base = get_ref_base_and_extent_hwi (op, offset_p, &size, &reverse);
 
-  if (!base)
+  if (!base
+      || (*offset_p / BITS_PER_UNIT) > UINT_MAX)
     return false;
 
   /* We can not propagate across volatile loads.  */
@@ -2993,13 +2997,11 @@ ipa_analyze_node (struct cgraph_node *node)
     return;
   info->analysis_done = 1;
 
-  if (ipa_func_spec_opts_forbid_analysis_p (node))
+  if (ipa_func_spec_opts_forbid_analysis_p (node)
+      || (count_formal_params (node->decl)
+	  >= (1 << IPA_PROP_ARG_INDEX_LIMIT_BITS)))
     {
-      for (int i = 0; i < ipa_get_param_count (info); i++)
-	{
-	  ipa_set_param_used (info, i, true);
-	  ipa_set_controlled_uses (info, i, IPA_UNDESCRIBED_USE);
-	}
+      gcc_assert (!ipa_get_param_count (info));
       return;
     }
 
@@ -4302,11 +4304,11 @@ ipcp_free_transformation_sum (void)
 
 void
 ipa_set_node_agg_value_chain (struct cgraph_node *node,
-			      struct ipa_agg_replacement_value *aggvals)
+			      vec<ipa_argagg_value, va_gc> *aggs)
 {
   ipcp_transformation_initialize ();
   ipcp_transformation *s = ipcp_transformation_sum->get_create (node);
-  s->agg_values = aggvals;
+  s->m_agg_values = aggs;
 }
 
 /* Hook that is called by cgraph.cc when an edge is removed.  Adjust reference
@@ -4437,12 +4439,10 @@ ipa_add_new_function (cgraph_node *node, void *data ATTRIBUTE_UNUSED)
 /* Hook that is called by summary when a node is duplicated.  */
 
 void
-ipa_node_params_t::duplicate(cgraph_node *src, cgraph_node *dst,
+ipa_node_params_t::duplicate(cgraph_node *, cgraph_node *,
 			     ipa_node_params *old_info,
 			     ipa_node_params *new_info)
 {
-  ipa_agg_replacement_value *old_av, *new_av;
-
   new_info->descriptors = vec_safe_copy (old_info->descriptors);
   new_info->lattices = NULL;
   new_info->ipcp_orig_node = old_info->ipcp_orig_node;
@@ -4452,23 +4452,6 @@ ipa_node_params_t::duplicate(cgraph_node *src, cgraph_node *dst,
   new_info->analysis_done = old_info->analysis_done;
   new_info->node_enqueued = old_info->node_enqueued;
   new_info->versionable = old_info->versionable;
-
-  old_av = ipa_get_agg_replacements_for_node (src);
-  if (old_av)
-    {
-      new_av = NULL;
-      while (old_av)
-	{
-	  struct ipa_agg_replacement_value *v;
-
-	  v = ggc_alloc<ipa_agg_replacement_value> ();
-	  memcpy (v, old_av, sizeof (*v));
-	  v->next = new_av;
-	  new_av = v;
-	  old_av = old_av->next;
-	}
-      ipa_set_node_agg_value_chain (dst, new_av);
-    }
 }
 
 /* Duplication of ipcp transformation summaries.  */
@@ -4481,17 +4464,9 @@ ipcp_transformation_t::duplicate(cgraph_node *, cgraph_node *dst,
   /* Avoid redundant work of duplicating vectors we will never use.  */
   if (dst->inlined_to)
     return;
+  dst_trans->m_agg_values = vec_safe_copy (src_trans->m_agg_values);
   dst_trans->bits = vec_safe_copy (src_trans->bits);
   dst_trans->m_vr = vec_safe_copy (src_trans->m_vr);
-  ipa_agg_replacement_value *agg = src_trans->agg_values,
-			    **aggptr = &dst_trans->agg_values;
-  while (agg)
-    {
-      *aggptr = ggc_alloc<ipa_agg_replacement_value> ();
-      **aggptr = *agg;
-      agg = agg->next;
-      aggptr = &(*aggptr)->next;
-    }
 }
 
 /* Register our cgraph hooks if they are not already there.  */
@@ -4604,23 +4579,6 @@ ipa_print_all_params (FILE * f)
   fprintf (f, "\nFunction parameters:\n");
   FOR_EACH_FUNCTION (node)
     ipa_print_node_params (f, node);
-}
-
-/* Dump the AV linked list.  */
-
-void
-ipa_dump_agg_replacement_values (FILE *f, struct ipa_agg_replacement_value *av)
-{
-  bool comma = false;
-  fprintf (f, "     Aggregate replacements:");
-  for (; av; av = av->next)
-    {
-      fprintf (f, "%s %i[" HOST_WIDE_INT_PRINT_DEC "]=", comma ? "," : "",
-	       av->index, av->offset);
-      print_generic_expr (f, av->value);
-      comma = true;
-    }
-  fprintf (f, "\n");
 }
 
 /* Stream out jump function JUMP_FUNC to OB.  */
@@ -5250,31 +5208,31 @@ write_ipcp_transformation_info (output_block *ob, cgraph_node *node)
   int node_ref;
   unsigned int count = 0;
   lto_symtab_encoder_t encoder;
-  struct ipa_agg_replacement_value *aggvals, *av;
 
-  aggvals = ipa_get_agg_replacements_for_node (node);
   encoder = ob->decl_state->symtab_node_encoder;
   node_ref = lto_symtab_encoder_encode (encoder, node);
   streamer_write_uhwi (ob, node_ref);
 
-  for (av = aggvals; av; av = av->next)
-    count++;
-  streamer_write_uhwi (ob, count);
-
-  for (av = aggvals; av; av = av->next)
-    {
-      struct bitpack_d bp;
-
-      streamer_write_uhwi (ob, av->offset);
-      streamer_write_uhwi (ob, av->index);
-      stream_write_tree (ob, av->value, true);
-
-      bp = bitpack_create (ob->main_stream);
-      bp_pack_value (&bp, av->by_ref, 1);
-      streamer_write_bitpack (&bp);
-    }
-
   ipcp_transformation *ts = ipcp_get_transformation_summary (node);
+  if (ts && !vec_safe_is_empty (ts->m_agg_values))
+    {
+      streamer_write_uhwi (ob, ts->m_agg_values->length ());
+      for (const ipa_argagg_value &av : ts->m_agg_values)
+	{
+	  struct bitpack_d bp;
+
+	  stream_write_tree (ob, av.value, true);
+	  streamer_write_uhwi (ob, av.unit_offset);
+	  streamer_write_uhwi (ob, av.index);
+
+	  bp = bitpack_create (ob->main_stream);
+	  bp_pack_value (&bp, av.by_ref, 1);
+	  streamer_write_bitpack (&bp);
+	}
+    }
+  else
+    streamer_write_uhwi (ob, 0);
+
   if (ts && vec_safe_length (ts->m_vr) > 0)
     {
       count = ts->m_vr->length ();
@@ -5326,26 +5284,27 @@ static void
 read_ipcp_transformation_info (lto_input_block *ib, cgraph_node *node,
 			       data_in *data_in)
 {
-  struct ipa_agg_replacement_value *aggvals = NULL;
   unsigned int count, i;
 
   count = streamer_read_uhwi (ib);
-  for (i = 0; i <count; i++)
+  if (count > 0)
     {
-      struct ipa_agg_replacement_value *av;
-      struct bitpack_d bp;
+      ipcp_transformation_initialize ();
+      ipcp_transformation *ts = ipcp_transformation_sum->get_create (node);
+      vec_safe_grow_cleared (ts->m_agg_values, count, true);
+      for (i = 0; i <count; i++)
+	{
+	  ipa_argagg_value *av = &(*ts->m_agg_values)[i];;
 
-      av = ggc_alloc<ipa_agg_replacement_value> ();
-      av->offset = streamer_read_uhwi (ib);
-      av->index = streamer_read_uhwi (ib);
-      av->value = stream_read_tree (ib, data_in);
-      bp = streamer_read_bitpack (ib);
-      av->by_ref = bp_unpack_value (&bp, 1);
-      av->next = aggvals;
-      aggvals = av;
+	  av->value = stream_read_tree (ib, data_in);
+	  av->unit_offset = streamer_read_uhwi (ib);
+	  av->index = streamer_read_uhwi (ib);
+
+	  bitpack_d bp = streamer_read_bitpack (ib);
+	  av->by_ref = bp_unpack_value (&bp, 1);
+	}
     }
-  ipa_set_node_agg_value_chain (node, aggvals);
-  
+
   count = streamer_read_uhwi (ib);
   if (count > 0)
     {
@@ -5489,33 +5448,75 @@ ipcp_read_transformation_summaries (void)
     }
 }
 
-/* Adjust the aggregate replacements in AGGVAL to reflect parameters skipped in
-   NODE.  */
+/* Adjust the aggregate replacements in TS to reflect parameters skipped in
+   NODE but also if any parameter was IPA-SRAed into a scalar go ahead with
+   substitution of the default_definitions of that new param with the
+   appropriate constant.
 
-static void
-adjust_agg_replacement_values (struct cgraph_node *node,
-			       struct ipa_agg_replacement_value *aggval)
+   If after adjustments there are no aggregate replacements left, the
+   m_agg_values will be set to NULL.  In other cases, it may be shrunk.
+
+   Return true if any values were already substituted for scalarized parameters
+   and update_cfg shuld be run after replace_uses_by.  */
+
+static bool
+adjust_agg_replacement_values (cgraph_node *node,
+			       ipcp_transformation *ts,
+			       const vec<ipa_param_descriptor, va_gc>
+			         &descriptors)
 {
-  struct ipa_agg_replacement_value *v;
   clone_info *cinfo = clone_info::get (node);
-
   if (!cinfo || !cinfo->param_adjustments)
-    return;
+    return false;
 
-  auto_vec<int, 16> new_indices;
-  cinfo->param_adjustments->get_updated_indices (&new_indices);
-  for (v = aggval; v; v = v->next)
+  bool removed_item = false;
+  bool done_replacement = false;
+  unsigned dst_index = 0;
+  unsigned count = ts->m_agg_values->length ();
+  for (unsigned i = 0; i < count; i++)
     {
+      ipa_argagg_value *v = &(*ts->m_agg_values)[i];
       gcc_checking_assert (v->index >= 0);
 
-      if ((unsigned) v->index < new_indices.length ())
-	v->index = new_indices[v->index];
+      tree cst_type = TREE_TYPE (v->value);
+      int split_idx;
+      int new_idx
+	= cinfo->param_adjustments->get_updated_index_or_split (v->index,
+								v->unit_offset,
+								cst_type,
+								&split_idx);
+      if (new_idx >= 0)
+	{
+	  v->index = new_idx;
+	  if (removed_item)
+	    (*ts->m_agg_values)[dst_index] = *v;
+	  dst_index++;
+	}
       else
-	/* This can happen if we know about a constant passed by reference by
-	   an argument which is never actually used for anything, let alone
-	   loading that constant.  */
-	v->index = -1;
+	{
+	  removed_item = true;
+	  if (split_idx >= 0)
+	    {
+	      tree parm = ipa_get_param (descriptors, split_idx);
+	      tree ddef = ssa_default_def (cfun, parm);
+	      if (ddef)
+		{
+		  replace_uses_by (ddef, v->value);
+		  done_replacement = true;
+		}
+	    }
+	}
     }
+
+  if (dst_index == 0)
+    {
+      ggc_free (ts->m_agg_values);
+      ts->m_agg_values = NULL;
+    }
+  else if (removed_item)
+    ts->m_agg_values->truncate (dst_index);
+
+  return done_replacement;
 }
 
 /* Dominator walker driving the ipcp modification phase.  */
@@ -5525,10 +5526,9 @@ class ipcp_modif_dom_walker : public dom_walker
 public:
   ipcp_modif_dom_walker (struct ipa_func_body_info *fbi,
 			 vec<ipa_param_descriptor, va_gc> *descs,
-			 struct ipa_agg_replacement_value *av,
-			 bool *sc)
+			 ipcp_transformation *ts, bool *sc)
     : dom_walker (CDI_DOMINATORS), m_fbi (fbi), m_descriptors (descs),
-      m_aggval (av), m_something_changed (sc) {}
+      m_ts (ts), m_something_changed (sc) {}
 
   virtual edge before_dom_children (basic_block);
   bool cleanup_eh ()
@@ -5537,7 +5537,7 @@ public:
 private:
   struct ipa_func_body_info *m_fbi;
   vec<ipa_param_descriptor, va_gc> *m_descriptors;
-  struct ipa_agg_replacement_value *m_aggval;
+  ipcp_transformation *m_ts;
   bool *m_something_changed;
   auto_bitmap m_need_eh_cleanup;
 };
@@ -5548,10 +5548,9 @@ ipcp_modif_dom_walker::before_dom_children (basic_block bb)
   gimple_stmt_iterator gsi;
   for (gsi = gsi_start_bb (bb); !gsi_end_p (gsi); gsi_next (&gsi))
     {
-      struct ipa_agg_replacement_value *v;
       gimple *stmt = gsi_stmt (gsi);
       tree rhs, val, t;
-      HOST_WIDE_INT offset;
+      HOST_WIDE_INT bit_offset;
       poly_int64 size;
       int index;
       bool by_ref, vce;
@@ -5579,32 +5578,30 @@ ipcp_modif_dom_walker::before_dom_children (basic_block bb)
 	continue;
 
       if (!ipa_load_from_parm_agg (m_fbi, m_descriptors, stmt, rhs, &index,
-				   &offset, &size, &by_ref))
+				   &bit_offset, &size, &by_ref))
 	continue;
-      for (v = m_aggval; v; v = v->next)
-	if (v->index == index
-	    && v->offset == offset)
-	  break;
+      unsigned unit_offset = bit_offset / BITS_PER_UNIT;
+      ipa_argagg_value_list avl (m_ts);
+      tree v = avl.get_value (index, unit_offset, by_ref);
+
       if (!v
-	  || v->by_ref != by_ref
-	  || maybe_ne (tree_to_poly_int64 (TYPE_SIZE (TREE_TYPE (v->value))),
-		       size))
+	  || maybe_ne (tree_to_poly_int64 (TYPE_SIZE (TREE_TYPE (v))), size))
 	continue;
 
-      gcc_checking_assert (is_gimple_ip_invariant (v->value));
-      if (!useless_type_conversion_p (TREE_TYPE (rhs), TREE_TYPE (v->value)))
+      gcc_checking_assert (is_gimple_ip_invariant (v));
+      if (!useless_type_conversion_p (TREE_TYPE (rhs), TREE_TYPE (v)))
 	{
-	  if (fold_convertible_p (TREE_TYPE (rhs), v->value))
-	    val = fold_build1 (NOP_EXPR, TREE_TYPE (rhs), v->value);
+	  if (fold_convertible_p (TREE_TYPE (rhs), v))
+	    val = fold_build1 (NOP_EXPR, TREE_TYPE (rhs), v);
 	  else if (TYPE_SIZE (TREE_TYPE (rhs))
-		   == TYPE_SIZE (TREE_TYPE (v->value)))
-	    val = fold_build1 (VIEW_CONVERT_EXPR, TREE_TYPE (rhs), v->value);
+		   == TYPE_SIZE (TREE_TYPE (v)))
+	    val = fold_build1 (VIEW_CONVERT_EXPR, TREE_TYPE (rhs), v);
 	  else
 	    {
 	      if (dump_file)
 		{
 		  fprintf (dump_file, "    const ");
-		  print_generic_expr (dump_file, v->value);
+		  print_generic_expr (dump_file, v);
 		  fprintf (dump_file, "  can't be converted to type of ");
 		  print_generic_expr (dump_file, rhs);
 		  fprintf (dump_file, "\n");
@@ -5613,7 +5610,7 @@ ipcp_modif_dom_walker::before_dom_children (basic_block bb)
 	    }
 	}
       else
-	val = v->value;
+	val = v;
 
       if (dump_file && (dump_flags & TDF_DETAILS))
 	{
@@ -5890,7 +5887,6 @@ ipcp_transform_function (struct cgraph_node *node)
 {
   vec<ipa_param_descriptor, va_gc> *descriptors = NULL;
   struct ipa_func_body_info fbi;
-  struct ipa_agg_replacement_value *aggval;
   int param_count;
   bool something_changed = false;
 
@@ -5903,15 +5899,32 @@ ipcp_transform_function (struct cgraph_node *node)
 
   ipcp_update_bits (node);
   ipcp_update_vr (node);
-  aggval = ipa_get_agg_replacements_for_node (node);
-  if (!aggval)
+  ipcp_transformation *ts = ipcp_get_transformation_summary (node);
+  if (!ts || vec_safe_is_empty (ts->m_agg_values))
       return 0;
   param_count = count_formal_params (node->decl);
   if (param_count == 0)
     return 0;
-  adjust_agg_replacement_values (node, aggval);
+  vec_safe_grow_cleared (descriptors, param_count, true);
+  ipa_populate_param_decls (node, *descriptors);
+
+  bool cfg_changed = adjust_agg_replacement_values (node, ts, *descriptors);
+  if (vec_safe_is_empty (ts->m_agg_values))
+    {
+      vec_free (descriptors);
+      if (dump_file)
+	fprintf (dump_file, "  All affected aggregate parameters were either "
+		 "removed or converted into scalars, phase done.\n");
+      if (cfg_changed)
+	delete_unreachable_blocks_update_callgraph (node, false);
+      return 0;
+    }
   if (dump_file)
-    ipa_dump_agg_replacement_values (dump_file, aggval);
+    {
+      fprintf (dump_file, "     Aggregate replacements:");
+      ipa_argagg_value_list avs (ts);
+      avs.dump (dump_file);
+    }
 
   fbi.node = node;
   fbi.info = NULL;
@@ -5923,7 +5936,7 @@ ipcp_transform_function (struct cgraph_node *node)
   vec_safe_grow_cleared (descriptors, param_count, true);
   ipa_populate_param_decls (node, *descriptors);
   calculate_dominance_info (CDI_DOMINATORS);
-  ipcp_modif_dom_walker walker (&fbi, descriptors, aggval, &something_changed);
+  ipcp_modif_dom_walker walker (&fbi, descriptors, ts, &modified_mem_access);
   walker.walk (ENTRY_BLOCK_PTR_FOR_FN (cfun));
   free_dominance_info (CDI_DOMINATORS);
   bool cfg_changed = walker.cleanup_eh ();
@@ -5935,7 +5948,7 @@ ipcp_transform_function (struct cgraph_node *node)
   fbi.bb_infos.release ();
 
   ipcp_transformation *s = ipcp_transformation_sum->get (node);
-  s->agg_values = NULL;
+  s->m_agg_values = NULL;
   s->bits = NULL;
   s->m_vr = NULL;
 
