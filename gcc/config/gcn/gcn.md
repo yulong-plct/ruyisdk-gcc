@@ -369,6 +369,10 @@
    (sign_extend "extend")
    (zero_extend "zero_extend")])
 
+(define_code_attr fexpander
+  [(smin "fmin")
+   (smax "fmax")])
+
 ;; }}}
 ;; {{{ Miscellaneous instructions
 
