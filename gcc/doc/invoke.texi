@@ -197,11 +197,12 @@ in the following sections.
 
 @item C Language Options
 @xref{C Dialect Options,,Options Controlling C Dialect}.
-@gccoptlist{-ansi  -std=@var{standard}  -fgnu89-inline @gol
--fpermitted-flt-eval-methods=@var{standard} @gol
--aux-info @var{filename}  -fallow-parameterless-variadic-functions @gol
--fno-asm  -fno-builtin  -fno-builtin-@var{function}  -fgimple@gol
--fhosted  -ffreestanding @gol
+@gccoptlist{-ansi  -std=@var{standard}  -aux-info @var{filename} @gol
+-fno-asm  @gol
+-fno-builtin  -fno-builtin-@var{function}  -fcond-mismatch @gol
+-ffreestanding  -fgimple  -fgnu-tm  -fgnu89-inline  -fhosted @gol
+-flax-vector-conversions  -fms-extensions @gol
+-foffload=@var{arg}  -foffload-options=@var{arg} @gol
 -fopenacc  -fopenacc-dim=@var{geom} @gol
 -fopenmp  -fopenmp-simd @gol
 -fms-extensions  -fplan9-extensions  -fsso-struct=@var{endianness} @gol
@@ -2508,14 +2509,6 @@ definition (@samp{C} or @samp{F}, respectively, in the following
 character).  In the case of function definitions, a K&R-style list of
 arguments followed by their declarations is also provided, inside
 comments, after the declaration.
-
-@item -fallow-parameterless-variadic-functions
-@opindex fallow-parameterless-variadic-functions
-Accept variadic functions without named parameters.
-
-Although it is possible to define such a function, this is not very
-useful as it is not possible to read the arguments.  This is only
-supported for C as this construct is allowed by C++.
 
 @item -fno-asm
 @opindex fno-asm
