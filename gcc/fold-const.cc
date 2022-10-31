@@ -312,36 +312,62 @@ negate_mathfn_p (combined_fn fn)
   switch (fn)
     {
     CASE_CFN_ASIN:
+    CASE_CFN_ASIN_FN:
     CASE_CFN_ASINH:
+    CASE_CFN_ASINH_FN:
     CASE_CFN_ATAN:
+    CASE_CFN_ATAN_FN:
     CASE_CFN_ATANH:
+    CASE_CFN_ATANH_FN:
     CASE_CFN_CASIN:
+    CASE_CFN_CASIN_FN:
     CASE_CFN_CASINH:
+    CASE_CFN_CASINH_FN:
     CASE_CFN_CATAN:
+    CASE_CFN_CATAN_FN:
     CASE_CFN_CATANH:
+    CASE_CFN_CATANH_FN:
     CASE_CFN_CBRT:
+    CASE_CFN_CBRT_FN:
     CASE_CFN_CPROJ:
+    CASE_CFN_CPROJ_FN:
     CASE_CFN_CSIN:
+    CASE_CFN_CSIN_FN:
     CASE_CFN_CSINH:
+    CASE_CFN_CSINH_FN:
     CASE_CFN_CTAN:
+    CASE_CFN_CTAN_FN:
     CASE_CFN_CTANH:
+    CASE_CFN_CTANH_FN:
     CASE_CFN_ERF:
+    CASE_CFN_ERF_FN:
     CASE_CFN_LLROUND:
+    CASE_CFN_LLROUND_FN:
     CASE_CFN_LROUND:
+    CASE_CFN_LROUND_FN:
     CASE_CFN_ROUND:
     CASE_CFN_ROUNDEVEN:
     CASE_CFN_ROUNDEVEN_FN:
     CASE_CFN_SIN:
+    CASE_CFN_SIN_FN:
     CASE_CFN_SINH:
+    CASE_CFN_SINH_FN:
     CASE_CFN_TAN:
+    CASE_CFN_TAN_FN:
     CASE_CFN_TANH:
+    CASE_CFN_TANH_FN:
     CASE_CFN_TRUNC:
+    CASE_CFN_TRUNC_FN:
       return true;
 
     CASE_CFN_LLRINT:
+    CASE_CFN_LLRINT_FN:
     CASE_CFN_LRINT:
+    CASE_CFN_LRINT_FN:
     CASE_CFN_NEARBYINT:
+    CASE_CFN_NEARBYINT_FN:
     CASE_CFN_RINT:
+    CASE_CFN_RINT_FN:
       return !flag_rounding_math;
 
     default:
@@ -14314,9 +14340,12 @@ tree_expr_finite_p (const_tree x)
       switch (get_call_combined_fn (x))
 	{
 	CASE_CFN_FABS:
+	CASE_CFN_FABS_FN:
 	  return tree_expr_finite_p (CALL_EXPR_ARG (x, 0));
 	CASE_CFN_FMAX:
+	CASE_CFN_FMAX_FN:
 	CASE_CFN_FMIN:
+	CASE_CFN_FMIN_FN:
 	  return tree_expr_finite_p (CALL_EXPR_ARG (x, 0))
 		 && tree_expr_finite_p (CALL_EXPR_ARG (x, 1));
 	default:
@@ -14434,9 +14463,12 @@ tree_expr_maybe_signaling_nan_p (const_tree x)
       switch (get_call_combined_fn (x))
 	{
 	CASE_CFN_FABS:
+	CASE_CFN_FABS_FN:
 	  return tree_expr_maybe_signaling_nan_p (CALL_EXPR_ARG (x, 0));
 	CASE_CFN_FMAX:
+	CASE_CFN_FMAX_FN:
 	CASE_CFN_FMIN:
+	CASE_CFN_FMIN_FN:
 	  return tree_expr_maybe_signaling_nan_p (CALL_EXPR_ARG (x, 0))
 		 || tree_expr_maybe_signaling_nan_p (CALL_EXPR_ARG (x, 1));
 	default:
@@ -14507,9 +14539,12 @@ tree_expr_maybe_nan_p (const_tree x)
       switch (get_call_combined_fn (x))
 	{
 	CASE_CFN_FABS:
+	CASE_CFN_FABS_FN:
 	  return tree_expr_maybe_nan_p (CALL_EXPR_ARG (x, 0));
 	CASE_CFN_FMAX:
+	CASE_CFN_FMAX_FN:
 	CASE_CFN_FMIN:
+	CASE_CFN_FMIN_FN:
 	  return tree_expr_maybe_nan_p (CALL_EXPR_ARG (x, 0))
 		 || tree_expr_maybe_nan_p (CALL_EXPR_ARG (x, 1));
 	default:
@@ -14518,6 +14553,45 @@ tree_expr_maybe_nan_p (const_tree x)
     default:
       return true;
     }
+}
+
+/* Return true if expression X could evaluate to -0.0.
+   This function returns true if uncertain.  */
+
+bool
+tree_expr_maybe_real_minus_zero_p (const_tree x)
+{
+  if (!HONOR_SIGNED_ZEROS (x))
+    return false;
+  switch (TREE_CODE (x))
+    {
+    case REAL_CST:
+      return REAL_VALUE_MINUS_ZERO (TREE_REAL_CST (x));
+    case INTEGER_CST:
+    case FLOAT_EXPR:
+    case ABS_EXPR:
+      return false;
+    case NON_LVALUE_EXPR:
+    case SAVE_EXPR:
+      return tree_expr_maybe_real_minus_zero_p (TREE_OPERAND (x, 0));
+    case COND_EXPR:
+      return tree_expr_maybe_real_minus_zero_p (TREE_OPERAND (x, 1))
+	     || tree_expr_maybe_real_minus_zero_p (TREE_OPERAND (x, 2));
+    case CALL_EXPR:
+      switch (get_call_combined_fn (x))
+	{
+	CASE_CFN_FABS:
+	CASE_CFN_FABS_FN:
+	  return false;
+	default:
+	  break;
+	}
+    default:
+      break;
+    }
+  /* Ideally !(tree_expr_nonzero_p (X) || tree_expr_nonnegative_p (X))
+   * but currently those predicates require tree and not const_tree.  */
+  return true;
 }
 
 #define tree_expr_nonnegative_warnv_p(X, Y) \
@@ -14787,6 +14861,7 @@ tree_call_nonnegative_warnv_p (tree type, combined_fn fn, tree arg0, tree arg1,
     CASE_CFN_ACOS:
     CASE_CFN_ACOSH:
     CASE_CFN_CABS:
+    CASE_CFN_CABS_FN:
     CASE_CFN_COSH:
     CASE_CFN_ERFC:
     CASE_CFN_EXP:
