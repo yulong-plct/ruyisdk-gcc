@@ -19684,6 +19684,10 @@ tsubst_lambda_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	    }
 	  finish_member_declaration (fn);
 	}
+      finish_member_declaration (inst);
+      record_lambda_scope_sig_discriminator (r, inst);
+
+      tree fn = oldtmpl ? DECL_TEMPLATE_RESULT (inst) : inst;
 
       /* Let finish_function set this.  */
       DECL_DECLARED_CONSTEXPR_P (fn) = false;

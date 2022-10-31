@@ -11548,6 +11548,7 @@ cp_parser_lambda_declarator_opt (cp_parser* parser, tree lambda_expr)
       fco = finish_fully_implicit_template (parser, fco);
 
     finish_member_declaration (fco);
+    record_lambda_scope_sig_discriminator (lambda_expr, fco);
 
     obstack_free (&declarator_obstack, p);
 

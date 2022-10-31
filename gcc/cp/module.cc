@@ -6182,7 +6182,8 @@ trees_out::core_vals (tree t)
       if (streaming_p ())
 	{
 	  WU (((lang_tree_node *)t)->lambda_expression.default_capture_mode);
-	  WU (((lang_tree_node *)t)->lambda_expression.discriminator);
+	  WU (((lang_tree_node *)t)->lambda_expression.discriminator_scope);
+	  WU (((lang_tree_node *)t)->lambda_expression.discriminator_sig);
 	}
       break;
 
@@ -6661,7 +6662,8 @@ trees_in::core_vals (tree t)
 	= state->read_location (*this);
       RUC (cp_lambda_default_capture_mode_type,
 	   ((lang_tree_node *)t)->lambda_expression.default_capture_mode);
-      RU (((lang_tree_node *)t)->lambda_expression.discriminator);
+      RU (((lang_tree_node *)t)->lambda_expression.discriminator_scope);
+      RU (((lang_tree_node *)t)->lambda_expression.discriminator_sig);
       break;
 
     case OVERLOAD:
