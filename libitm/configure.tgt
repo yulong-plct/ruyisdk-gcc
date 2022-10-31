@@ -80,6 +80,8 @@ EOF
 	ARCH=x86
 	;;
 
+  riscv*)              ARCH=riscv ;;
+	
   sh*)		ARCH=sh ;;
 
   sparc)
