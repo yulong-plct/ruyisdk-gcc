@@ -322,22 +322,8 @@ Target::isVectorOpSupported (Type *type, TOK op, Type *)
       /* Logical operators must have a result type of bool.  */
       return false;
 
-    case TOKue:
-    case TOKlg:
-    case TOKule:
-    case TOKul:
-    case TOKuge:
-    case TOKug:
-    case TOKle:
-    case TOKlt:
-    case TOKge:
-    case TOKgt:
-    case TOKleg:
-    case TOKunord:
-    case TOKequal:
-    case TOKnotequal:
-    case TOKidentity:
-    case TOKnotidentity:
+    case EXP::identity:
+    case EXP::notIdentity:
       /* Comparison operators must have a result type of bool.  */
       return false;
 
