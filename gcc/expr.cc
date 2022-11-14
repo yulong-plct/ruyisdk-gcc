@@ -8049,16 +8049,17 @@ force_operand (rtx value, rtx target)
 	    return expand_divmod (0,
 				  FLOAT_MODE_P (GET_MODE (value))
 				  ? RDIV_EXPR : TRUNC_DIV_EXPR,
-				  GET_MODE (value), op1, op2, target, 0);
+				  GET_MODE (value), NULL, NULL, op1, op2,
+				  target, 0);
 	case MOD:
-	  return expand_divmod (1, TRUNC_MOD_EXPR, GET_MODE (value), op1, op2,
-				target, 0);
+	  return expand_divmod (1, TRUNC_MOD_EXPR, GET_MODE (value), NULL, NULL,
+				op1, op2, target, 0);
 	case UDIV:
-	  return expand_divmod (0, TRUNC_DIV_EXPR, GET_MODE (value), op1, op2,
-				target, 1);
+	  return expand_divmod (0, TRUNC_DIV_EXPR, GET_MODE (value), NULL, NULL,
+				op1, op2, target, 1);
 	case UMOD:
-	  return expand_divmod (1, TRUNC_MOD_EXPR, GET_MODE (value), op1, op2,
-				target, 1);
+	  return expand_divmod (1, TRUNC_MOD_EXPR, GET_MODE (value), NULL, NULL,
+				op1, op2, target, 1);
 	case ASHIFTRT:
 	  return expand_simple_binop (GET_MODE (value), code, op1, op2,
 				      target, 0, OPTAB_LIB_WIDEN);
@@ -8974,6 +8975,59 @@ expand_misaligned_mem_ref (rtx temp, machine_mode mode, int unsignedp,
 			      0, unsignedp, target,
 			      mode, mode, false, alt_rtl);
   return temp;
+}
+
+/* Helper function of expand_expr_2, expand a division or modulo.
+   op0 and op1 should be already expanded treeop0 and treeop1, using
+   expand_operands.  */
+
+static rtx
+expand_expr_divmod (tree_code code, machine_mode mode, tree treeop0,
+		    tree treeop1, rtx op0, rtx op1, rtx target, int unsignedp)
+{
+  bool mod_p = (code == TRUNC_MOD_EXPR || code == FLOOR_MOD_EXPR
+		|| code == CEIL_MOD_EXPR || code == ROUND_MOD_EXPR);
+  if (SCALAR_INT_MODE_P (mode)
+      && optimize >= 2
+      && get_range_pos_neg (treeop0) == 1
+      && get_range_pos_neg (treeop1) == 1)
+    {
+      /* If both arguments are known to be positive when interpreted
+	 as signed, we can expand it as both signed and unsigned
+	 division or modulo.  Choose the cheaper sequence in that case.  */
+      bool speed_p = optimize_insn_for_speed_p ();
+      do_pending_stack_adjust ();
+      start_sequence ();
+      rtx uns_ret = expand_divmod (mod_p, code, mode, treeop0, treeop1,
+				   op0, op1, target, 1);
+      rtx_insn *uns_insns = get_insns ();
+      end_sequence ();
+      start_sequence ();
+      rtx sgn_ret = expand_divmod (mod_p, code, mode, treeop0, treeop1,
+				   op0, op1, target, 0);
+      rtx_insn *sgn_insns = get_insns ();
+      end_sequence ();
+      unsigned uns_cost = seq_cost (uns_insns, speed_p);
+      unsigned sgn_cost = seq_cost (sgn_insns, speed_p);
+
+      /* If costs are the same then use as tie breaker the other other
+	 factor.  */
+      if (uns_cost == sgn_cost)
+	{
+	  uns_cost = seq_cost (uns_insns, !speed_p);
+	  sgn_cost = seq_cost (sgn_insns, !speed_p);
+	}
+
+      if (uns_cost < sgn_cost || (uns_cost == sgn_cost && unsignedp))
+	{
+	  emit_insn (uns_insns);
+	  return uns_ret;
+	}
+      emit_insn (sgn_insns);
+      return sgn_ret;
+    }
+  return expand_divmod (mod_p, code, mode, treeop0, treeop1,
+			op0, op1, target, unsignedp);
 }
 
 rtx
