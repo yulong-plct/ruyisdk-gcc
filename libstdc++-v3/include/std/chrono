@@ -3393,12 +3393,183 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // +/- 292 years, which covers the 1901-2446 date range for ext4.
       static constexpr chrono::seconds _S_epoch_diff{6437664000};
 
-    protected:
-      // For internal use only
-      template<typename _Dur>
-	static
-	chrono::time_point<__file_clock, _Dur>
-	_S_from_sys(const chrono::time_point<__sys_clock, _Dur>& __t) noexcept
+    class tzdb_list
+    {
+      struct _Node;
+    public:
+      tzdb_list(const tzdb_list&) = delete;
+      tzdb_list& operator=(const tzdb_list&) = delete;
+
+      class const_iterator
+      {
+      public:
+	using value_type        = tzdb;
+	using reference         = const tzdb&;
+	using pointer           = const tzdb*;
+	using difference_type   = ptrdiff_t;
+	using iterator_category = forward_iterator_tag;
+
+	constexpr const_iterator() = default;
+	const_iterator(const const_iterator&) = default;
+	const_iterator(const_iterator&&) = default;
+	const_iterator& operator=(const const_iterator&) = default;
+	const_iterator& operator=(const_iterator&&) = default;
+
+	reference operator*() const noexcept;
+	pointer operator->() const noexcept { return &**this; }
+	const_iterator& operator++();
+	const_iterator operator++(int);
+
+	bool operator==(const const_iterator&) const noexcept = default;
+
+      private:
+	explicit const_iterator(const shared_ptr<_Node>&) noexcept;
+
+	shared_ptr<_Node> _M_node;
+	void* _M_reserved = nullptr;
+      };
+
+      // TODO const tzdb& front() const noexcept;
+
+      const_iterator erase_after(const_iterator);
+
+      const_iterator begin() const noexcept;
+      const_iterator end() const noexcept { return {}; }
+      const_iterator cbegin() const noexcept { return begin(); }
+      const_iterator cend() const noexcept { return end(); }
+
+    private:
+      constexpr explicit tzdb_list(nullptr_t);
+
+      friend const tzdb_list& get_tzdb_list();
+      friend const tzdb& get_tzdb();
+      friend const tzdb& reload_tzdb();
+
+      static _Node* _S_head;
+      static shared_ptr<_Node> _S_head_owner;
+    };
+
+    // TODO
+    // const tzdb_list& get_tzdb_list();
+    // const tzdb& get_tzdb();
+
+    // const tzdb& reload_tzdb();
+    // string remove_version();
+
+    template<typename _Duration, typename _TimeZonePtr = const time_zone*>
+      class zoned_time; // TODO
+
+    using zoned_seconds = zoned_time<seconds>;
+
+    template<typename _Duration>
+      leap_second_info
+      get_leap_second_info(const utc_time<_Duration>& __ut)
+      {
+	if constexpr (is_same_v<_Duration, seconds>)
+	  {
+	    const seconds::rep __leaps[] {
+		78796800, // 1 Jul 1972
+		94694400, // 1 Jan 1973
+	       126230400, // 1 Jan 1974
+	       157766400, // 1 Jan 1975
+	       189302400, // 1 Jan 1976
+	       220924800, // 1 Jan 1977
+	       252460800, // 1 Jan 1978
+	       283996800, // 1 Jan 1979
+	       315532800, // 1 Jan 1980
+	       362793600, // 1 Jul 1981
+	       394329600, // 1 Jul 1982
+	       425865600, // 1 Jul 1983
+	       489024000, // 1 Jul 1985
+	       567993600, // 1 Jan 1988
+	       631152000, // 1 Jan 1990
+	       662688000, // 1 Jan 1991
+	       709948800, // 1 Jul 1992
+	       741484800, // 1 Jul 1993
+	       773020800, // 1 Jul 1994
+	       820454400, // 1 Jan 1996
+	       867715200, // 1 Jul 1997
+	       915148800, // 1 Jan 1999
+	      1136073600, // 1 Jan 2006
+	      1230768000, // 1 Jan 2009
+	      1341100800, // 1 Jul 2012
+	      1435708800, // 1 Jul 2015
+	      1483228800, // 1 Jan 2017
+	    };
+	    // The list above is known to be valid until 2023-06-28 00:00:00 UTC
+	    const seconds::rep __expires = 1687910400;
+	    const seconds::rep __s = __ut.time_since_epoch().count();
+
+	    const seconds::rep* __first = std::begin(__leaps);
+	    const seconds::rep* __last = std::end(__leaps);
+
+	    if (__s > __expires)
+	      {
+		// TODO: use updated leap_seconds from tzdb
+#if 0
+		auto __db = get_tzdb_list().begin();
+		__first = __db->leap_seconds.data();
+		__last = __first + __db->leap_seconds.size();
+#endif
+	      }
+
+	    // Don't bother searching the list if we're after the last one.
+	    if (__s > __last[-1])
+	      return { false, seconds(__last - __first) };
+
+	    auto __pos = std::upper_bound(__first, __last, __s);
+	    return {
+	      __pos != begin(__leaps) && __pos[-1] == __s,
+	      seconds{__pos - __first}
+	    };
+	  }
+	else
+	  {
+	    auto __s = chrono::time_point_cast<seconds>(__ut);
+	    return chrono::get_leap_second_info(__s);
+	  }
+      }
+
+    /// @} group chrono
+#endif // C++20
+  } // namespace chrono
+
+#if __cplusplus >= 202002L
+  inline namespace literals
+  {
+  inline namespace chrono_literals
+  {
+    /// @addtogroup chrono
+    /// @{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wliteral-suffix"
+    /// Literal suffix for creating chrono::day objects.
+    /// @since C++20
+    constexpr chrono::day
+    operator""d(unsigned long long __d) noexcept
+    { return chrono::day{static_cast<unsigned>(__d)}; }
+
+    /// Literal suffix for creating chrono::year objects.
+    /// @since C++20
+    constexpr chrono::year
+    operator""y(unsigned long long __y) noexcept
+    { return chrono::year{static_cast<int>(__y)}; }
+#pragma GCC diagnostic pop
+    /// @}
+  } // inline namespace chrono_literals
+  } // inline namespace literals
+
+  namespace chrono
+  {
+    /// @addtogroup chrono
+    /// @{
+
+    /// @cond undocumented
+    namespace __detail
+    {
+      template<typename _Period>
+	const char*
+	__units_suffix_misc(char* __buf, size_t __n) noexcept
 	{
 	  using __file_time = chrono::time_point<__file_clock, _Dur>;
 	  return __file_time{__t.time_since_epoch()} - _S_epoch_diff;
