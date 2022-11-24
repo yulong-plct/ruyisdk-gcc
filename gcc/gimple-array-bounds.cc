@@ -175,7 +175,7 @@ bool
 array_bounds_checker::check_array_ref (location_t location, tree ref,
 				       bool ignore_off_by_one)
 {
-  if (TREE_NO_WARNING (ref))
+  if (warning_suppressed_p (ref, OPT_Warray_bounds_))
     /* Return true to have the caller prevent warnings for enclosing
        refs.  */
     return true;
@@ -280,7 +280,7 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
 
   /* Empty array.  */
   if (up_bound && tree_int_cst_equal (low_bound, up_bound_p1))
-    warned = warning_at (location, OPT_Warray_bounds,
+    warned = warning_at (location, OPT_Warray_bounds_,
 			 "array subscript %E is outside array bounds of %qT",
 			 low_sub, artype);
 
@@ -306,7 +306,7 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
 	      : tree_int_cst_le (up_bound, up_sub))
 	  && TREE_CODE (low_sub) == INTEGER_CST
 	  && tree_int_cst_le (low_sub, low_bound))
-	warned = warning_at (location, OPT_Warray_bounds,
+	warned = warning_at (location, OPT_Warray_bounds_,
 			     "array subscript [%E, %E] is outside "
 			     "array bounds of %qT",
 			     low_sub, up_sub, artype);
@@ -316,12 +316,12 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
 	   && (ignore_off_by_one
 	       ? !tree_int_cst_le (up_sub, up_bound_p1)
 	       : !tree_int_cst_le (up_sub, up_bound)))
-    warned = warning_at (location, OPT_Warray_bounds,
+    warned = warning_at (location, OPT_Warray_bounds_,
 			 "array subscript %E is above array bounds of %qT",
 			 up_sub, artype);
   else if (TREE_CODE (low_sub) == INTEGER_CST
 	   && tree_int_cst_lt (low_sub, low_bound))
-    warned = warning_at (location, OPT_Warray_bounds,
+    warned = warning_at (location, OPT_Warray_bounds_,
 			 "array subscript %E is below array bounds of %qT",
 			 low_sub, artype);
 
@@ -346,7 +346,7 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
       /* Avoid more warnings when checking more significant subscripts
 	 of the same expression.  */
       ref = TREE_OPERAND (ref, 0);
-      TREE_NO_WARNING (ref) = 1;
+      suppress_warning (ref, OPT_Warray_bounds_);
 
       if (decl)
 	ref = decl;
@@ -411,7 +411,7 @@ bool
 array_bounds_checker::check_mem_ref (location_t location, tree ref,
 				     bool ignore_off_by_one)
 {
-  if (TREE_NO_WARNING (ref))
+  if (warning_suppressed_p (ref, OPT_Warray_bounds_))
     return false;
 
   tree arg = TREE_OPERAND (ref, 0);
@@ -704,12 +704,12 @@ array_bounds_checker::check_mem_ref (location_t location, tree ref,
   if (lboob)
     {
       if (offrange[0] == offrange[1])
-	warned = warning_at (location, OPT_Warray_bounds,
+	warned = warning_at (location, OPT_Warray_bounds_,
 			     "array subscript %wi is outside array bounds "
 			     "of %qT",
 			     offrange[0].to_shwi (), reftype);
       else
-	warned = warning_at (location, OPT_Warray_bounds,
+	warned = warning_at (location, OPT_Warray_bounds_,
 			     "array subscript [%wi, %wi] is outside "
 			     "array bounds of %qT",
 			     offrange[0].to_shwi (),
@@ -724,7 +724,7 @@ array_bounds_checker::check_mem_ref (location_t location, tree ref,
 	backtype = build_array_type_nelts (unsigned_char_type_node,
 					   arrbounds[1].to_uhwi ());
 
-      warned = warning_at (location, OPT_Warray_bounds,
+      warned = warning_at (location, OPT_Warray_bounds_,
 			   "array subscript %<%T[%wi]%> is partly "
 			   "outside array bounds of %qT",
 			   axstype, offrange[0].to_shwi (), backtype);
@@ -732,47 +732,9 @@ array_bounds_checker::check_mem_ref (location_t location, tree ref,
 
   if (warned)
     {
-      if (DECL_P (arg))
-	inform (DECL_SOURCE_LOCATION (arg), "while referencing %qD", arg);
-      else if (alloc_stmt)
-	{
-	  location_t loc = gimple_location (alloc_stmt);
-	  if (gimple_call_builtin_p (alloc_stmt, BUILT_IN_ALLOCA_WITH_ALIGN))
-	    {
-	      if (minbound == arrbounds[1])
-		inform (loc, "referencing a variable length array "
-			"of size %wu", minbound.to_uhwi ());
-	      else
-		inform (loc, "referencing a variable length array "
-			"of size between %wu and %wu",
-			minbound.to_uhwi (), arrbounds[1].to_uhwi ());
-	    }
-	  else if (tree fndecl = gimple_call_fndecl (alloc_stmt))
-	    {
-	      if (minbound == arrbounds[1])
-		inform (loc, "referencing an object of size %wu "
-			"allocated by %qD",
-			minbound.to_uhwi (), fndecl);
-	      else
-		inform (loc, "referencing an object of size between "
-			"%wu and %wu allocated by %qD",
-			minbound.to_uhwi (), arrbounds[1].to_uhwi (), fndecl);
-	    }
-	  else
-	    {
-	      tree fntype = gimple_call_fntype (alloc_stmt);
-	      if (minbound == arrbounds[1])
-		inform (loc, "referencing an object of size %wu "
-			"allocated by %qT",
-			minbound.to_uhwi (), fntype);
-	      else
-		inform (loc, "referencing an object of size between "
-			"%wu and %wu allocated by %qT",
-			minbound.to_uhwi (), arrbounds[1].to_uhwi (), fntype);
-	    }
-	}
-
-      TREE_NO_WARNING (ref) = 1;
+      /* TODO: Determine the access from the statement and use it.  */
+      aref.inform_access (access_none);
+      suppress_warning (ref, OPT_Warray_bounds_);
       return true;
     }
 
@@ -785,11 +747,11 @@ array_bounds_checker::check_mem_ref (location_t location, tree ref,
     {
       HOST_WIDE_INT tmpidx = (extrema[i] / eltsize).to_shwi ();
 
-      if (warning_at (location, OPT_Warray_bounds,
+      if (warning_at (location, OPT_Warray_bounds_,
 		      "intermediate array offset %wi is outside array bounds "
 		      "of %qT", tmpidx, reftype))
 	{
-	  TREE_NO_WARNING (ref) = 1;
+	  suppress_warning (ref, OPT_Warray_bounds_);
 	  return true;
 	}
     }
@@ -820,7 +782,7 @@ array_bounds_checker::check_addr_expr (location_t location, tree t)
 	warned = check_mem_ref (location, t, ignore_off_by_one);
 
       if (warned)
-	TREE_NO_WARNING (t) = true;
+	suppress_warning (t, OPT_Warray_bounds_);
 
       t = TREE_OPERAND (t, 0);
     }
@@ -828,7 +790,7 @@ array_bounds_checker::check_addr_expr (location_t location, tree t)
 
   if (TREE_CODE (t) != MEM_REF
       || TREE_CODE (TREE_OPERAND (t, 0)) != ADDR_EXPR
-      || TREE_NO_WARNING (t))
+      || warning_suppressed_p (t, OPT_Warray_bounds_))
     return;
 
   tree tem = TREE_OPERAND (TREE_OPERAND (t, 0), 0);
@@ -863,7 +825,7 @@ array_bounds_checker::check_addr_expr (location_t location, tree t)
 	  dump_generic_expr (MSG_NOTE, TDF_SLIM, t);
 	  fprintf (dump_file, "\n");
 	}
-      warned = warning_at (location, OPT_Warray_bounds,
+      warned = warning_at (location, OPT_Warray_bounds_,
 			   "array subscript %wi is below "
 			   "array bounds of %qT",
 			   idx.to_shwi (), TREE_TYPE (tem));
@@ -877,7 +839,7 @@ array_bounds_checker::check_addr_expr (location_t location, tree t)
 	  dump_generic_expr (MSG_NOTE, TDF_SLIM, t);
 	  fprintf (dump_file, "\n");
 	}
-      warned = warning_at (location, OPT_Warray_bounds,
+      warned = warning_at (location, OPT_Warray_bounds_,
 			   "array subscript %wu is above "
 			   "array bounds of %qT",
 			   idx.to_uhwi (), TREE_TYPE (tem));
@@ -888,7 +850,7 @@ array_bounds_checker::check_addr_expr (location_t location, tree t)
       if (DECL_P (t))
 	inform (DECL_SOURCE_LOCATION (t), "while referencing %qD", t);
 
-      TREE_NO_WARNING (t) = 1;
+      suppress_warning (t, OPT_Warray_bounds_);
     }
 }
 
@@ -984,7 +946,7 @@ array_bounds_checker::check_array_bounds (tree *tp, int *walk_subtree,
 
   /* Propagate the no-warning bit to the outer expression.  */
   if (warned)
-    TREE_NO_WARNING (t) = true;
+    suppress_warning (wi->stmt, OPT_Warray_bounds_);
 
   return NULL_TREE;
 }

@@ -1743,6 +1743,7 @@ maybe_diag_access_bounds (gimple *call, tree func, int strict,
   if (!oobref)
     return false;
 
+  const opt_code opt = OPT_Warray_bounds_;
   /* Return true without issuing a warning.  */
   if (!do_warn)
     return true;

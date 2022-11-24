@@ -1447,14 +1447,14 @@ c_strlen (tree arg, int only_value, c_strlen_data *data, unsigned eltsize)
     {
       /* Suppress multiple warnings for propagated constant strings.  */
       if (only_value != 2
-	  && !TREE_NO_WARNING (arg)
-	  && warning_at (loc, OPT_Warray_bounds,
+	  && !warning_suppressed_p (arg, OPT_Warray_bounds_)
+	  && warning_at (loc, OPT_Warray_bounds_,
 			 "offset %qwi outside bounds of constant string",
 			 eltoff))
 	{
 	  if (decl)
 	    inform (DECL_SOURCE_LOCATION (decl), "%qE declared here", decl);
-	  TREE_NO_WARNING (arg) = 1;
+	  suppress_warning (arg, OPT_Warray_bounds_);
 	}
       return NULL_TREE;
     }
