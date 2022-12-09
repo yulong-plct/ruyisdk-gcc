@@ -339,11 +339,26 @@ region_model::impl_call_malloc (const call_details &cd)
   return true;
 }
 
-/* Handle the on_call_pre part of "memcpy" and "__builtin_memcpy".  */
-// TODO: complain about overlapping src and dest.
+/* Handler for "memcpy" and "__builtin_memcpy",
+   "memmove", and "__builtin_memmove".  */
+/* TODO: complain about overlapping src and dest for the memcpy
+   variants.  */
+
+class kf_memcpy_memmove : public known_function
+{
+public:
+  bool matches_call_types_p (const call_details &cd) const final override
+  {
+    return (cd.num_args () == 3
+	    && cd.arg_is_pointer_p (0)
+	    && cd.arg_is_pointer_p (1)
+	    && cd.arg_is_size_p (2));
+  }
+  void impl_call_pre (const call_details &cd) const final override;
+};
 
 void
-region_model::impl_call_memcpy (const call_details &cd)
+kf_memcpy_memmove::impl_call_pre (const call_details &cd) const
 {
   const svalue *dest_ptr_sval = cd.get_arg_svalue (0);
   const svalue *src_ptr_sval = cd.get_arg_svalue (1);
@@ -361,8 +376,10 @@ region_model::impl_call_memcpy (const call_details &cd)
   const region *sized_dest_reg
     = m_mgr->get_sized_region (dest_reg, NULL_TREE, num_bytes_sval);
   const svalue *src_contents_sval
-    = get_store_value (sized_src_reg, cd.get_ctxt ());
-  set_value (sized_dest_reg, src_contents_sval, cd.get_ctxt ());
+    = model->get_store_value (sized_src_reg, cd.get_ctxt ());
+  model->check_for_poison (src_contents_sval, cd.get_arg_tree (1),
+			   cd.get_ctxt ());
+  model->set_value (sized_dest_reg, src_contents_sval, cd.get_ctxt ());
 }
 
 /* Handle the on_call_pre part of "memset" and "__builtin_memset".  */
@@ -507,7 +524,87 @@ region_model::impl_call_strlen (const call_details &cd)
 void
 region_model::impl_deallocation_call (const call_details &cd)
 {
-  impl_call_free (cd);
+  kf_free kf;
+  kf.impl_call_post (cd);
+}
+
+/* Populate KFM with instances of known functions supported by the core of the
+   analyzer (as opposed to plugins).  */
+
+void
+register_known_functions (known_function_manager &kfm)
+{
+  /* Debugging/test support functions, all  with a "__analyzer_" prefix.  */
+  register_known_analyzer_functions (kfm);
+
+  /* Internal fns the analyzer has known_functions for.  */
+  {
+    kfm.add (IFN_BUILTIN_EXPECT, make_unique<kf_expect> ());
+    kfm.add (IFN_UBSAN_BOUNDS, make_unique<kf_ubsan_bounds> ());
+  }
+
+  /* Built-ins the analyzer has known_functions for.  */
+  {
+    kfm.add (BUILT_IN_ALLOCA, make_unique<kf_alloca> ());
+    kfm.add (BUILT_IN_ALLOCA_WITH_ALIGN, make_unique<kf_alloca> ());
+    kfm.add (BUILT_IN_CALLOC, make_unique<kf_calloc> ());
+    kfm.add (BUILT_IN_EXPECT, make_unique<kf_expect> ());
+    kfm.add (BUILT_IN_EXPECT_WITH_PROBABILITY, make_unique<kf_expect> ());
+    kfm.add (BUILT_IN_FREE, make_unique<kf_free> ());
+    kfm.add (BUILT_IN_MALLOC, make_unique<kf_malloc> ());
+    kfm.add (BUILT_IN_MEMCPY, make_unique<kf_memcpy_memmove> ());
+    kfm.add (BUILT_IN_MEMCPY_CHK, make_unique<kf_memcpy_memmove> ());
+    kfm.add (BUILT_IN_MEMMOVE, make_unique<kf_memcpy_memmove> ());
+    kfm.add (BUILT_IN_MEMMOVE_CHK, make_unique<kf_memcpy_memmove> ());
+    kfm.add (BUILT_IN_MEMSET, make_unique<kf_memset> ());
+    kfm.add (BUILT_IN_MEMSET_CHK, make_unique<kf_memset> ());
+    kfm.add (BUILT_IN_REALLOC, make_unique<kf_realloc> ());
+    kfm.add (BUILT_IN_STACK_RESTORE, make_unique<kf_stack_restore> ());
+    kfm.add (BUILT_IN_STACK_SAVE, make_unique<kf_stack_save> ());
+    kfm.add (BUILT_IN_STRCHR, make_unique<kf_strchr> ());
+    kfm.add (BUILT_IN_STRCPY, make_unique<kf_strcpy> (2));
+    kfm.add (BUILT_IN_STRCPY_CHK, make_unique<kf_strcpy> (3));
+    kfm.add (BUILT_IN_STRLEN, make_unique<kf_strlen> ());
+
+    register_varargs_builtins (kfm);
+  }
+
+  /* Known builtins and C standard library functions.  */
+  {
+    kfm.add ("memset", make_unique<kf_memset> ());
+  }
+
+  /* Known POSIX functions, and some non-standard extensions.  */
+  {
+    kfm.add ("putenv", make_unique<kf_putenv> ());
+
+    register_known_fd_functions (kfm);
+    register_known_file_functions (kfm);
+  }
+
+  /* glibc functions.  */
+  {
+    kfm.add ("__errno_location", make_unique<kf_errno_location> ());
+    kfm.add ("error", make_unique<kf_error> (3));
+    kfm.add ("error_at_line", make_unique<kf_error> (5));
+  }
+
+  /* Other implementations of C standard library.  */
+  {
+    /* According to PR 107807 comment #2, Solaris implements "errno"
+       like this:
+	 extern int *___errno(void) __attribute__((__const__));
+	 #define errno (*(___errno()))
+       and OS X like this:
+	 extern int * __error(void);
+	 #define errno (*__error())
+       Add these as synonyms for "__errno_location".  */
+    kfm.add ("___errno", make_unique<kf_errno_location> ());
+    kfm.add ("__error", make_unique<kf_errno_location> ());
+  }
+
+  /* Language-specific support functions.  */
+  register_known_functions_lang_cp (kfm);
 }
 
 } // namespace ana
