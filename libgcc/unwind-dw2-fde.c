@@ -42,14 +42,38 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #endif
 #endif
 
+typedef __UINTPTR_TYPE__ uintptr_type;
+
+#ifdef ATOMIC_FDE_FAST_PATH
+#include "unwind-dw2-btree.h"
+
+static struct btree registered_frames;
+static bool in_shutdown;
+
+static void
+release_registered_frames (void) __attribute__ ((destructor));
+static void
+release_registered_frames (void)
+{
+  /* Release the b-tree and all frames. Frame releases that happen later are
+   * silently ignored */
+  btree_destroy (&registered_frames);
+  in_shutdown = true;
+}
+
+static void
+get_pc_range (const struct object *ob, uintptr_type *range);
+
+#else
+/* Without fast path frame deregistration must always succeed.  */
+static const int in_shutdown = 0;
+
 /* The unseen_objects list contains objects that have been registered
    but not yet categorized in any way.  The seen_objects list has had
    its pc_begin and count fields initialized at minimum, and is sorted
    by decreasing value of pc_begin.  */
 static struct object *unseen_objects;
 static struct object *seen_objects;
-#ifdef ATOMIC_FDE_FAST_PATH
-static int any_objects_registered;
 #endif
 
 #ifdef __GTHREAD_MUTEX_INIT
@@ -99,6 +123,12 @@ __register_frame_info_bases (const void *begin, struct object *ob,
   ob->fde_end = NULL;
 #endif
 
+#ifdef ATOMIC_FDE_FAST_PATH
+  // Register the frame in the b-tree
+  uintptr_type range[2];
+  get_pc_range (ob, range);
+  btree_insert (&registered_frames, range[0], range[1] - range[0], ob);
+#else
   init_object_mutex_once ();
   __gthread_mutex_lock (&object_mutex);
 
@@ -153,6 +183,12 @@ __register_frame_info_table_bases (void *begin, struct object *ob,
   ob->s.b.from_array = 1;
   ob->s.b.encoding = DW_EH_PE_omit;
 
+#ifdef ATOMIC_FDE_FAST_PATH
+  // Register the frame in the b-tree
+  uintptr_type range[2];
+  get_pc_range (ob, range);
+  btree_insert (&registered_frames, range[0], range[1] - range[0], ob);
+#else
   init_object_mutex_once ();
   __gthread_mutex_lock (&object_mutex);
 
@@ -818,7 +854,15 @@ init_object (struct object* ob)
   accu.linear->orig_data = ob->u.single;
   ob->u.sort = accu.linear;
 
+#ifdef ATOMIC_FDE_FAST_PATH
+  // We must update the sorted bit with an atomic operation
+  struct object tmp;
+  tmp.s.b = ob->s.b;
+  tmp.s.b.sorted = 1;
+  __atomic_store (&(ob->s.b), &(tmp.s.b), __ATOMIC_RELEASE);
+#else
   ob->s.b.sorted = 1;
+#endif
 }
 
 /* A linear search through a set of FDEs for the given PC.  This is
@@ -1026,6 +1070,21 @@ search_object (struct object* ob, void *pc)
     }
 }
 
+#ifdef ATOMIC_FDE_FAST_PATH
+
+// Check if the object was already initialized
+static inline bool
+is_object_initialized (struct object *ob)
+{
+  // We have to use acquire atomics for the read, which
+  // is a bit involved as we read from a bitfield
+  struct object tmp;
+  __atomic_load (&(ob->s.b), &(tmp.s.b), __ATOMIC_ACQUIRE);
+  return tmp.s.b.sorted;
+}
+
+#endif
+
 const fde *
 _Unwind_Find_FDE (void *pc, struct dwarf_eh_bases *bases)
 {
@@ -1043,7 +1102,24 @@ _Unwind_Find_FDE (void *pc, struct dwarf_eh_bases *bases)
   if (__builtin_expect (!__atomic_load_n (&any_objects_registered,
 					  __ATOMIC_RELAXED), 1))
     return NULL;
-#endif
+
+  // Initialize the object lazily
+  if (!is_object_initialized (ob))
+    {
+      // Check again under mutex
+      init_object_mutex_once ();
+      __gthread_mutex_lock (&object_mutex);
+
+      if (!ob->s.b.sorted)
+	{
+	  init_object (ob);
+	}
+
+      __gthread_mutex_unlock (&object_mutex);
+    }
+
+  f = search_object (ob, pc);
+#else
 
   init_object_mutex_once ();
   __gthread_mutex_lock (&object_mutex);
