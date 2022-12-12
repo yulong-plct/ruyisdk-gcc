@@ -1748,6 +1748,111 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
   (bit_not (bit_not @0))
   @0)
 
+(match zero_one_valued_p
+ @0
+ (if (INTEGRAL_TYPE_P (type) && tree_nonzero_bits (@0) == 1)))
+(match zero_one_valued_p
+ truth_valued_p@0)
+
+/* Transform { 0 or 1 } * { 0 or 1 } into { 0 or 1 } & { 0 or 1 }.  */
+(simplify
+ (mult zero_one_valued_p@0 zero_one_valued_p@1)
+ (if (INTEGRAL_TYPE_P (type))
+  (bit_and @0 @1)))
+
+(for cmp (tcc_comparison)
+     icmp (inverted_tcc_comparison)
+ /* Fold (((a < b) & c) | ((a >= b) & d)) into (a < b ? c : d) & 1.  */
+ (simplify
+  (bit_ior
+   (bit_and:c (convert? (cmp@0  @01 @02)) @3)
+   (bit_and:c (convert? (icmp@4 @01 @02)) @5))
+    (if (INTEGRAL_TYPE_P (type)
+	 /* The scalar version has to be canonicalized after vectorization
+	    because it makes unconditional loads conditional ones, which
+	    means we lose vectorization because the loads may trap.  */
+	 && canonicalize_math_after_vectorization_p ())
+     (bit_and (cond @0 @3 @5) { build_one_cst (type); })))
+
+ /* Fold ((-(a < b) & c) | (-(a >= b) & d)) into a < b ? c : d.  This is
+    canonicalized further and we recognize the conditional form:
+    (a < b ? c : 0) | (a >= b ? d : 0) into a < b ? c : d.  */
+ (simplify
+  (bit_ior
+   (cond (cmp@0  @01 @02) @3 zerop)
+   (cond (icmp@4 @01 @02) @5 zerop))
+    (if (INTEGRAL_TYPE_P (type)
+	 /* The scalar version has to be canonicalized after vectorization
+	    because it makes unconditional loads conditional ones, which
+	    means we lose vectorization because the loads may trap.  */
+	 && canonicalize_math_after_vectorization_p ())
+    (cond @0 @3 @5)))
+
+ /* Vector Fold (((a < b) & c) | ((a >= b) & d)) into a < b ? c : d. 
+    and ((~(a < b) & c) | (~(a >= b) & d)) into a < b ? c : d.  */
+ (simplify
+  (bit_ior
+   (bit_and:c (vec_cond:s (cmp@0 @6 @7) @4 @5) @2)
+   (bit_and:c (vec_cond:s (icmp@1 @6 @7) @4 @5) @3))
+    (if (integer_zerop (@5))
+     (switch
+      (if (integer_onep (@4))
+       (bit_and (vec_cond @0 @2 @3) @4))
+	(if (integer_minus_onep (@4))
+	 (vec_cond @0 @2 @3)))
+    (if (integer_zerop (@4))
+     (switch
+      (if (integer_onep (@5))
+       (bit_and (vec_cond @0 @3 @2) @5))
+      (if (integer_minus_onep (@5))
+       (vec_cond @0 @3 @2))))))
+
+ /* Scalar Vectorized Fold ((-(a < b) & c) | (-(a >= b) & d))
+    into a < b ? d : c.  */
+ (simplify
+  (bit_ior
+   (vec_cond:s (cmp@0 @4 @5) @2 integer_zerop)
+   (vec_cond:s (icmp@1 @4 @5) @3 integer_zerop))
+    (vec_cond @0 @2 @3)))
+
+/* Transform X & -Y into X * Y when Y is { 0 or 1 }.  */
+(simplify
+ (bit_and:c (convert? (negate zero_one_valued_p@0)) @1)
+ (if (INTEGRAL_TYPE_P (type)
+      && INTEGRAL_TYPE_P (TREE_TYPE (@0))
+      && TREE_CODE (TREE_TYPE (@0)) != BOOLEAN_TYPE
+      && !TYPE_UNSIGNED (TREE_TYPE (@0)))
+  (mult (convert @0) @1)))
+
+/* Narrow integer multiplication by a zero_one_valued_p operand.
+   Multiplication by [0,1] is guaranteed not to overflow.  */
+(simplify
+ (convert (mult@0 zero_one_valued_p@1 INTEGER_CST@2))
+ (if (INTEGRAL_TYPE_P (type)
+      && INTEGRAL_TYPE_P (TREE_TYPE (@0))
+      && TYPE_PRECISION (type) < TYPE_PRECISION (TREE_TYPE (@0)))
+  (mult (convert @1) (convert @2))))
+
+/* (X << C) != 0 can be simplified to X, when C is zero_one_valued_p.
+   Check that the shift is well-defined (C is less than TYPE_PRECISION)
+   as some targets (such as x86's SSE) may return zero for larger C.  */
+(simplify
+  (ne (lshift zero_one_valued_p@0 INTEGER_CST@1) integer_zerop@2)
+  (if (tree_fits_shwi_p (@1)
+       && tree_to_shwi (@1) > 0
+       && tree_to_shwi (@1) < TYPE_PRECISION (TREE_TYPE (@0)))
+    (convert @0)))
+
+/* (X << C) == 0 can be simplified to X == 0, when C is zero_one_valued_p.
+   Check that the shift is well-defined (C is less than TYPE_PRECISION)
+   as some targets (such as x86's SSE) may return zero for larger C.  */
+(simplify
+  (eq (lshift zero_one_valued_p@0 INTEGER_CST@1) integer_zerop@2)
+  (if (tree_fits_shwi_p (@1)
+       && tree_to_shwi (@1) > 0
+       && tree_to_shwi (@1) < TYPE_PRECISION (TREE_TYPE (@0)))
+    (eq @0 @2)))
+
 /* Convert ~ (-A) to A - 1.  */
 (simplify
  (bit_not (convert? (negate @0)))
