@@ -481,6 +481,11 @@ simd_clone_create (struct cgraph_node *old_node)
   new_node->externally_visible = old_node->externally_visible;
   new_node->calls_declare_variant_alt = old_node->calls_declare_variant_alt;
 
+  /* Mark clones with internal linkage as gc'able, so they will not be
+     emitted unless the vectorizer can actually use them.  */
+  if (!TREE_PUBLIC (new_node->decl))
+    new_node->gc_candidate = true;
+
   return new_node;
 }
 
