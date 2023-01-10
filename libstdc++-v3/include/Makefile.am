@@ -33,6 +33,36 @@ std_headers = \
 	${std_srcdir}/barrier \
 	${std_srcdir}/bit \
 	${std_srcdir}/bitset \
+	${std_srcdir}/concepts \
+	${std_srcdir}/coroutine \
+	${std_srcdir}/expected \
+	${std_srcdir}/functional \
+	${std_srcdir}/iterator \
+	${std_srcdir}/limits \
+	${std_srcdir}/memory \
+	${std_srcdir}/numbers \
+	${std_srcdir}/numeric \
+	${std_srcdir}/optional \
+	${std_srcdir}/ranges \
+	${std_srcdir}/ratio \
+	${std_srcdir}/scoped_allocator \
+	${std_srcdir}/source_location \
+	${std_srcdir}/span \
+	${std_srcdir}/string_view \
+	${std_srcdir}/tuple \
+	${std_srcdir}/type_traits \
+	${std_srcdir}/typeindex \
+	${std_srcdir}/utility \
+	${std_srcdir}/variant \
+	${std_srcdir}/version
+
+if !GLIBCXX_HOSTED
+std_headers = ${std_freestanding}
+else GLIBCXX_HOSTED
+std_headers = \
+	${std_freestanding} \
+	${std_srcdir}/any \
+	${std_srcdir}/barrier \
 	${std_srcdir}/charconv \
 	${std_srcdir}/chrono \
 	${std_srcdir}/codecvt \
@@ -83,7 +113,6 @@ std_headers = \
 	${std_srcdir}/stop_token \
 	${std_srcdir}/streambuf \
 	${std_srcdir}/string \
-	${std_srcdir}/string_view \
 	${std_srcdir}/system_error \
 	${std_srcdir}/thread \
 	${std_srcdir}/tuple \
@@ -103,6 +132,56 @@ bits_headers = \
 	${bits_srcdir}/algorithmfwd.h \
 	${bits_srcdir}/align.h \
 	${bits_srcdir}/alloc_traits.h \
+	${bits_srcdir}/atomic_base.h \
+	${bits_srcdir}/c++0x_warning.h \
+	${bits_srcdir}/boost_concept_check.h \
+	${bits_srcdir}/concept_check.h \
+	${bits_srcdir}/char_traits.h \
+	${bits_srcdir}/cpp_type_traits.h \
+	${bits_srcdir}/enable_special_members.h \
+	${bits_srcdir}/functexcept.h \
+	${bits_srcdir}/functional_hash.h \
+	${bits_srcdir}/invoke.h \
+	${bits_srcdir}/iterator_concepts.h \
+	${bits_srcdir}/max_size_type.h \
+	${bits_srcdir}/memoryfwd.h \
+	${bits_srcdir}/move.h \
+	${bits_srcdir}/predefined_ops.h \
+	${bits_srcdir}/parse_numbers.h \
+	${bits_srcdir}/ptr_traits.h \
+	${bits_srcdir}/range_access.h \
+	${bits_srcdir}/ranges_algo.h \
+	${bits_srcdir}/ranges_algobase.h \
+	${bits_srcdir}/ranges_base.h \
+	${bits_srcdir}/ranges_cmp.h \
+	${bits_srcdir}/ranges_uninitialized.h \
+	${bits_srcdir}/ranges_util.h \
+	${bits_srcdir}/refwrap.h \
+	${bits_srcdir}/stl_algo.h \
+	${bits_srcdir}/stl_algobase.h \
+	${bits_srcdir}/stl_construct.h \
+	${bits_srcdir}/stl_function.h \
+	${bits_srcdir}/stl_iterator.h \
+	${bits_srcdir}/stl_iterator_base_funcs.h \
+	${bits_srcdir}/stl_iterator_base_types.h \
+	${bits_srcdir}/stl_numeric.h \
+	${bits_srcdir}/stl_heap.h \
+	${bits_srcdir}/stl_pair.h \
+	${bits_srcdir}/stl_raw_storage_iter.h \
+	${bits_srcdir}/stl_relops.h \
+	${bits_srcdir}/stl_uninitialized.h \
+	${bits_srcdir}/string_view.tcc \
+	${bits_srcdir}/uniform_int_dist.h \
+	${bits_srcdir}/unique_ptr.h \
+	${bits_srcdir}/uses_allocator.h \
+	${bits_srcdir}/uses_allocator_args.h \
+	${bits_srcdir}/utility.h
+
+if !GLIBCXX_HOSTED
+bits_headers = ${bits_freestanding}
+else GLIBCXX_HOSTED
+bits_headers = \
+	${bits_freestanding} \
 	${bits_srcdir}/allocated_ptr.h \
 	${bits_srcdir}/allocator.h \
 	${bits_srcdir}/atomic_base.h \
@@ -113,9 +192,6 @@ bits_headers = \
 	${bits_srcdir}/basic_ios.tcc \
 	${bits_srcdir}/basic_string.h \
 	${bits_srcdir}/basic_string.tcc \
-	${bits_srcdir}/boost_concept_check.h \
-	${bits_srcdir}/c++0x_warning.h \
-	${bits_srcdir}/char_traits.h \
 	${bits_srcdir}/charconv.h \
 	${bits_srcdir}/codecvt.h \
 	${bits_srcdir}/concept_check.h \
@@ -226,7 +302,6 @@ bits_headers = \
 	${bits_srcdir}/streambuf_iterator.h \
 	${bits_srcdir}/streambuf.tcc \
 	${bits_srcdir}/stringfwd.h \
-	${bits_srcdir}/string_view.tcc \
 	${bits_srcdir}/this_thread_sleep.h \
 	${bits_srcdir}/uniform_int_dist.h \
 	${bits_srcdir}/unique_lock.h \

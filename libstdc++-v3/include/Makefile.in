@@ -426,16 +426,7 @@ std_headers = \
 	${std_srcdir}/shared_mutex \
 	${std_srcdir}/source_location \
 	${std_srcdir}/span \
-	${std_srcdir}/sstream \
-	${std_srcdir}/syncstream \
-	${std_srcdir}/stack \
-	${std_srcdir}/stdexcept \
-	${std_srcdir}/stop_token \
-	${std_srcdir}/streambuf \
-	${std_srcdir}/string \
 	${std_srcdir}/string_view \
-	${std_srcdir}/system_error \
-	${std_srcdir}/thread \
 	${std_srcdir}/tuple \
 	${std_srcdir}/typeindex \
 	${std_srcdir}/type_traits \
@@ -446,6 +437,58 @@ std_headers = \
 	${std_srcdir}/variant \
 	${std_srcdir}/vector \
 	${std_srcdir}/version
+
+@GLIBCXX_HOSTED_FALSE@std_headers = ${std_freestanding}
+@GLIBCXX_HOSTED_TRUE@std_headers = \
+@GLIBCXX_HOSTED_TRUE@	${std_freestanding} \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/any \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/barrier \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/charconv \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/chrono \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/codecvt \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/complex \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/condition_variable \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/deque \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/execution \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/filesystem \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/format \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/forward_list \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/fstream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/future \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/iomanip \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/ios \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/iosfwd \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/iostream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/istream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/latch \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/list \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/locale \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/map \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/memory_resource \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/mutex \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/ostream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/queue \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/random \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/regex \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/semaphore \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/set \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/shared_mutex \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/spanstream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/sstream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/syncstream \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/stack \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/stacktrace \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/stdexcept \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/stdfloat \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/stop_token \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/streambuf \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/string \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/system_error \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/thread \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/unordered_map \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/unordered_set \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/valarray \
+@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/vector
 
 bits_srcdir = ${glibcxx_srcdir}/include/bits
 bits_builddir = ./bits
@@ -469,6 +512,7 @@ bits_headers = \
 	${bits_srcdir}/charconv.h \
 	${bits_srcdir}/codecvt.h \
 	${bits_srcdir}/concept_check.h \
+	${bits_srcdir}/char_traits.h \
 	${bits_srcdir}/cpp_type_traits.h \
 	${bits_srcdir}/deque.tcc \
 	${bits_srcdir}/enable_special_members.h \
@@ -571,13 +615,7 @@ bits_headers = \
 	${bits_srcdir}/stl_tempbuf.h \
 	${bits_srcdir}/stl_tree.h \
 	${bits_srcdir}/stl_uninitialized.h \
-	${bits_srcdir}/stl_vector.h \
-	${bits_srcdir}/stream_iterator.h \
-	${bits_srcdir}/streambuf_iterator.h \
-	${bits_srcdir}/streambuf.tcc \
-	${bits_srcdir}/stringfwd.h \
 	${bits_srcdir}/string_view.tcc \
-	${bits_srcdir}/this_thread_sleep.h \
 	${bits_srcdir}/uniform_int_dist.h \
 	${bits_srcdir}/unique_lock.h \
 	${bits_srcdir}/unique_ptr.h \
@@ -585,11 +623,111 @@ bits_headers = \
 	${bits_srcdir}/unordered_set.h \
 	${bits_srcdir}/uses_allocator.h \
 	${bits_srcdir}/uses_allocator_args.h \
-	${bits_srcdir}/valarray_array.h \
-	${bits_srcdir}/valarray_array.tcc \
-	${bits_srcdir}/valarray_before.h \
-	${bits_srcdir}/valarray_after.h \
-	${bits_srcdir}/vector.tcc
+	${bits_srcdir}/utility.h
+
+@GLIBCXX_HOSTED_FALSE@bits_headers = ${bits_freestanding}
+@GLIBCXX_HOSTED_TRUE@bits_headers = \
+@GLIBCXX_HOSTED_TRUE@	${bits_freestanding} \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/allocated_ptr.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/atomic_futex.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/atomic_timed_wait.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/atomic_wait.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/basic_ios.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/basic_ios.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/basic_string.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/basic_string.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/charconv.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/chrono.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/chrono_io.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/codecvt.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/cow_string.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/deque.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/erase_if.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/forward_list.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/forward_list.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/fs_dir.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/fs_fwd.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/fs_ops.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/fs_path.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/fstream.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/gslice.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/gslice_array.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/hashtable.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/hashtable_policy.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/indirect_array.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/ios_base.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/istream.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/list.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_classes.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_classes.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_conv.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_facets.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_facets.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_facets_nonio.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/locale_facets_nonio.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/localefwd.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/mask_array.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/memory_resource.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/mofunc_impl.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/move_only_function.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/new_allocator.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/node_handle.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/ostream.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/ostream_insert.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/postypes.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/quoted_string.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/random.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/random.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_constants.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_error.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_scanner.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_scanner.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_automaton.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_automaton.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_compiler.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_compiler.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_executor.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/regex_executor.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/requires_hosted.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/semaphore_base.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/shared_ptr.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/shared_ptr_atomic.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/shared_ptr_base.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/slice_array.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/specfun.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/sstream.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/std_abs.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/std_function.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/std_mutex.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/std_thread.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_bvector.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_deque.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_list.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_map.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_multimap.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_multiset.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_queue.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_relops.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_set.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_stack.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_tempbuf.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_tree.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stl_vector.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stream_iterator.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/streambuf_iterator.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/streambuf.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/stringfwd.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/this_thread_sleep.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/unique_lock.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/unordered_map.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/unordered_set.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/valarray_array.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/valarray_array.tcc \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/valarray_before.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/valarray_after.h \
+@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/vector.tcc
 
 bits_host_headers = \
 	${glibcxx_srcdir}/${CPU_OPT_BITS_RANDOM}

@@ -26,15 +26,19 @@
 #include <algorithm>
 #include <testsuite_hooks.h>
 
-#ifndef __cpp_lib_boyer_moore_searcher
-# error "Feature-test macro for searchers missing"
-#elif __cpp_lib_boyer_moore_searcher < 201603
-# error "Feature-test macro for searchers has wrong value"
-#endif
+#if __STDC_HOSTED__
+# ifndef __cpp_lib_boyer_moore_searcher
+#  error "Feature-test macro for searchers missing"
+# elif __cpp_lib_boyer_moore_searcher < 201603
+#  error "Feature-test macro for searchers has wrong value"
+# endif
+#endif // HOSTED
 
 using std::default_searcher;
+#if __STDC_HOSTED__
 using std::boyer_moore_searcher;
 using std::boyer_moore_horspool_searcher;
+#endif // HOSTED
 
 void
 test01()
@@ -53,8 +57,10 @@ test01()
     auto nlen = std::strlen(n);
     auto ne = n + nlen;
     default_searcher d(n, ne);
+#if __STDC_HOSTED__
     boyer_moore_searcher bm(n, ne);
     boyer_moore_horspool_searcher bmh(n, ne);
+#endif // HOSTED
     for (auto h : haystacks)
     {
       auto he = h + std::strlen(h);
@@ -65,6 +71,8 @@ test01()
 	VERIFY( d_res.second == d_res.first );
       else
 	VERIFY( d_res.second == (d_res.first + nlen) );
+
+#if __STDC_HOSTED__
       auto bm_res = bm(h, he);
       VERIFY( bm_res.first == res );
       if (res == he)
@@ -77,6 +85,7 @@ test01()
 	VERIFY( bmh_res.second == bmh_res.first );
       else
 	VERIFY( bmh_res.second == (bmh_res.first + nlen) );
+#endif
     }
   }
 }
@@ -99,8 +108,10 @@ test02()
     auto nlen = std::wcslen(n);
     auto ne = n + nlen;
     default_searcher d(n, ne);
+#if __STDC_HOSTED__
     boyer_moore_searcher bm(n, ne);
     boyer_moore_horspool_searcher bmh(n, ne);
+#endif // HOSTED
     for (auto h : haystacks)
     {
       auto he = h + std::wcslen(h);
@@ -111,6 +122,7 @@ test02()
 	VERIFY( d_res.second == d_res.first );
       else
 	VERIFY( d_res.second == (d_res.first + nlen) );
+#if __STDC_HOSTED__
       auto bm_res = bm(h, he);
       VERIFY( bm_res.first == res );
       if (res == he)
@@ -123,6 +135,7 @@ test02()
 	VERIFY( bmh_res.second == bmh_res.first );
       else
 	VERIFY( bmh_res.second == (bmh_res.first + nlen) );
+#endif // HOSTED
     }
   }
 #endif
@@ -151,8 +164,10 @@ test03()
   const char* he = haystack + std::strlen(haystack);
 
   default_searcher d(needle, ne, eq);
+#if __STDC_HOSTED__
   boyer_moore_searcher bm(needle, ne, eq, eq);
   boyer_moore_horspool_searcher bmh(needle, ne, eq, eq);
+#endif
 
   auto res = std::search(haystack, he, needle, ne, eq);
   auto d_res = d(haystack, he);
@@ -161,6 +176,7 @@ test03()
     VERIFY( d_res.second == d_res.first );
   else
     VERIFY( d_res.second == (d_res.first + nlen) );
+#if __STDC_HOSTED__
   auto bm_res = bm(haystack, he);
   VERIFY( bm_res.first == res );
   if (res == he)
@@ -173,6 +189,7 @@ test03()
     VERIFY( bmh_res.second == bmh_res.first );
   else
     VERIFY( bmh_res.second == (bmh_res.first + nlen) );
+#endif // HOSTED
 }
 
 int

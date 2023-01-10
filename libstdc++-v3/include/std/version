@@ -183,6 +183,7 @@
 #define __cpp_lib_atomic_ref 201806L
 #define __cpp_lib_atomic_value_initialization 201911L
 #define __cpp_lib_bind_front 201907L
+#define __cpp_lib_starts_ends_with 201711L
 #if __has_builtin(__builtin_bit_cast)
 # define __cpp_lib_bit_cast 201806L
 #endif
@@ -195,6 +196,7 @@
 #if __cpp_impl_destroying_delete
 # define __cpp_lib_destroying_delete 201806L
 #endif
+#define __cpp_lib_constexpr_string_view 201811L
 #define __cpp_lib_endian 201907L
 #define __cpp_lib_int_pow2 202002L
 #define __cpp_lib_integer_comparison_functions 202002L
@@ -253,7 +255,6 @@
 #ifdef __cpp_lib_is_constant_evaluated
 # define __cpp_lib_constexpr_string 201811L
 #endif
-#define __cpp_lib_constexpr_string_view 201811L
 #define __cpp_lib_constexpr_tuple 201811L
 #define __cpp_lib_constexpr_utility 201811L
 #define __cpp_lib_constexpr_vector 201907L
@@ -277,7 +278,6 @@
 #endif
 #define __cpp_lib_shift 201806L
 #define __cpp_lib_smart_ptr_for_overwrite 202002L
-#define __cpp_lib_starts_ends_with 201711L
 # if _GLIBCXX_USE_CXX11_ABI
 // Only supported with cxx11-abi
 #  define __cpp_lib_syncbuf 201803L
