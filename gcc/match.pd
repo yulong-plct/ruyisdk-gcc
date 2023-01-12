@@ -1913,11 +1913,21 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
   (convert (bit_and (bit_not @1) @0))))
 
 /* (m1 CMP m2) * d -> (m1 CMP m2) ? d : 0  */
-(for cmp (gt lt ge le)
-(simplify
- (mult (convert (cmp @0 @1)) @2)
-  (if (GIMPLE || !TREE_SIDE_EFFECTS (@2))
-   (cond (cmp @0 @1) @2 { build_zero_cst (type); }))))
+(if (!canonicalize_math_p ())
+ (for cmp (tcc_comparison)
+  (simplify
+   (mult:c (convert (cmp@0 @1 @2)) @3)
+   (if (INTEGRAL_TYPE_P (type)
+	&& INTEGRAL_TYPE_P (TREE_TYPE (@0)))
+     (cond @0 @3 { build_zero_cst (type); })))
+/* (-(m1 CMP m2)) & d -> (m1 CMP m2) ? d : 0  */
+  (simplify
+   (bit_and:c (negate (convert (cmp@0 @1 @2))) @3)
+   (if (INTEGRAL_TYPE_P (type)
+	&& INTEGRAL_TYPE_P (TREE_TYPE (@0)))
+     (cond @0 @3 { build_zero_cst (type); })))
+ )
+)
 
 /* For integral types with undefined overflow and C != 0 fold
    x * C EQ/NE y * C into x EQ/NE y.  */
