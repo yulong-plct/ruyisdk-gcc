@@ -5207,6 +5207,15 @@ c_parser_initializer (c_parser *parser)
       struct c_expr ret;
       location_t loc = c_parser_peek_token (parser)->location;
       ret = c_parser_expr_no_commas (parser, NULL);
+      /* This is handled mostly by gimplify.cc, but we have to deal with
+	 not warning about int x = x; as it is a GCC extension to turn off
+	 this warning but only if warn_init_self is zero.  */
+      if (VAR_P (decl)
+	  && !DECL_EXTERNAL (decl)
+	  && !TREE_STATIC (decl)
+	  && ret.value == decl
+	  && !warning_enabled_at (DECL_SOURCE_LOCATION (decl), OPT_Winit_self))
+	suppress_warning (decl, OPT_Winit_self);
       if (TREE_CODE (ret.value) != STRING_CST
 	  && TREE_CODE (ret.value) != COMPOUND_LITERAL_EXPR)
 	ret = convert_lvalue_to_rvalue (loc, ret, true, true);
