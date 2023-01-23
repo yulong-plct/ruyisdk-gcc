@@ -863,6 +863,87 @@ omp_cxx_notice_variable (struct cp_genericize_omp_taskreg *omp_ctx, tree decl)
     }
 }
 
+/* If we might need to clean up a partially constructed object, break down the
+   CONSTRUCTOR with split_nonconstant_init.  Also expand VEC_INIT_EXPR at this
+   point.  If initializing TO with FROM is non-trivial, overwrite *REPLACE with
+   the result.  */
+
+static void
+cp_genericize_init (tree *replace, tree from, tree to)
+{
+  tree init = NULL_TREE;
+  if (TREE_CODE (from) == VEC_INIT_EXPR)
+    init = expand_vec_init_expr (to, from, tf_warning_or_error);
+  else if (flag_exceptions
+	   && TREE_CODE (from) == CONSTRUCTOR
+	   && TREE_SIDE_EFFECTS (from)
+	   && TYPE_HAS_NONTRIVIAL_DESTRUCTOR (TREE_TYPE (from)))
+    {
+      to = cp_stabilize_reference (to);
+      replace_placeholders (from, to);
+      init = split_nonconstant_init (to, from);
+    }
+
+  if (init)
+    {
+      if (*replace == from)
+	/* Make cp_gimplify_init_expr call replace_decl on this
+	   TARGET_EXPR_INITIAL.  */
+	init = fold_convert (void_type_node, init);
+      *replace = init;
+    }
+}
+
+/* For an INIT_EXPR, replace the INIT_EXPR itself.  */
+
+static void
+cp_genericize_init_expr (tree *stmt_p)
+{
+  iloc_sentinel ils = EXPR_LOCATION (*stmt_p);
+  tree to = TREE_OPERAND (*stmt_p, 0);
+  tree from = TREE_OPERAND (*stmt_p, 1);
+  if (SIMPLE_TARGET_EXPR_P (from)
+      /* Return gets confused if we clobber its INIT_EXPR this soon.  */
+      && TREE_CODE (to) != RESULT_DECL)
+    from = TARGET_EXPR_INITIAL (from);
+  cp_genericize_init (stmt_p, from, to);
+}
+
+/* For a TARGET_EXPR, change the TARGET_EXPR_INITIAL.  We will need to use
+   replace_decl later when we know what we're initializing.  */
+
+static void
+cp_genericize_target_expr (tree *stmt_p)
+{
+  iloc_sentinel ils = EXPR_LOCATION (*stmt_p);
+  tree slot = TARGET_EXPR_SLOT (*stmt_p);
+  cp_genericize_init (&TARGET_EXPR_INITIAL (*stmt_p),
+		      TARGET_EXPR_INITIAL (*stmt_p), slot);
+  gcc_assert (!DECL_INITIAL (slot));
+}
+
+/* Similar to if (target_expr_needs_replace) replace_decl, but TP is the
+   TARGET_EXPR_INITIAL, and this also updates *_SLOT.  We need this extra
+   replacement when cp_folding TARGET_EXPR to preserve the invariant that
+   AGGR_INIT_EXPR_SLOT agrees with the enclosing TARGET_EXPR_SLOT.  */
+
+bool
+maybe_replace_decl (tree *tp, tree decl, tree replacement)
+{
+  if (!*tp || !VOID_TYPE_P (TREE_TYPE (*tp)))
+    return false;
+  tree t = *tp;
+  while (TREE_CODE (t) == COMPOUND_EXPR)
+    t = TREE_OPERAND (t, 1);
+  if (TREE_CODE (t) == AGGR_INIT_EXPR)
+    replace_decl (&AGGR_INIT_EXPR_SLOT (t), decl, replacement);
+  else if (TREE_CODE (t) == VEC_INIT_EXPR)
+    replace_decl (&VEC_INIT_EXPR_SLOT (t), decl, replacement);
+  else
+    replace_decl (tp, decl, replacement);
+  return true;
+}
+
 /* Genericization context.  */
 
 struct cp_genericize_data
@@ -967,9 +1048,51 @@ cp_fold_r (tree *stmt_p, int *walk_subtrees, void *data_)
 	}
       cp_walk_tree (&OMP_FOR_PRE_BODY (stmt), cp_fold_r, data, NULL);
       *walk_subtrees = 0;
+      return NULL;
+      if (IF_STMT_CONSTEVAL_P (stmt))
+	{
+	  /* Don't walk THEN_CLAUSE (stmt) for consteval if.  IF_COND is always
+	     boolean_false_node.  */
+	  cp_walk_tree (&ELSE_CLAUSE (stmt), cp_fold_r, data, NULL);
+	  cp_walk_tree (&IF_SCOPE (stmt), cp_fold_r, data, NULL);
+	  *walk_subtrees = 0;
+	  return NULL;
+	}
+      break;
+
+      /* cp_genericize_{init,target}_expr are only for genericize time; they're
+	 here rather than in cp_genericize to avoid problems with the invisible
+	 reference transition.  */
+    case INIT_EXPR:
+      if (data->genericize)
+	cp_genericize_init_expr (stmt_p);
+      break;
+
+    case TARGET_EXPR:
+      if (data->genericize)
+	cp_genericize_target_expr (stmt_p);
+
+      /* Folding might replace e.g. a COND_EXPR with a TARGET_EXPR; in
+	 that case, strip it in favor of this one.  */
+      if (tree &init = TARGET_EXPR_INITIAL (stmt))
+	{
+	  cp_walk_tree (&init, cp_fold_r, data, NULL);
+	  cp_walk_tree (&TARGET_EXPR_CLEANUP (stmt), cp_fold_r, data, NULL);
+	  *walk_subtrees = 0;
+	  if (TREE_CODE (init) == TARGET_EXPR)
+	    {
+	      tree sub = TARGET_EXPR_INITIAL (init);
+	      maybe_replace_decl (&sub, TARGET_EXPR_SLOT (init),
+				  TARGET_EXPR_SLOT (stmt));
+	      init = sub;
+	    }
+	}
+      break;
+
+    default:
+      break;
     }
 
-  return NULL;
 }
 
 /* Fold ALL the trees!  FIXME we should be able to remove this, but
