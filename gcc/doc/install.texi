@@ -3715,7 +3715,7 @@ Instead of GNU Binutils, you will need to install LLVM 6, or later, and copy
 @file{bin/llvm-ar} to both @file{bin/amdgcn-amdhsa-ar} and
 @file{bin/amdgcn-amdhsa-ranlib}.
 
-Use Newlib (2019-01-16, or newer).
+Use Newlib (4.3.0 or newer).
 
 To run the binaries, install the HSA Runtime from the
 @uref{https://rocm.github.io,,ROCm Platform}, and use
@@ -4537,8 +4537,7 @@ Instead of GNU binutils, you will need to install
 Tell GCC where to find it:
 @option{--with-build-time-tools=[install-nvptx-tools]/nvptx-none/bin}.
 
-You will need newlib 3.0 git revision
-cd31fbb2aea25f94d7ecedc9db16dfc87ab0c316 or later.  It can be
+You will need newlib 4.3.0 or later.  It can be
 automatically built together with GCC@.  For this, add a symbolic link
 to nvptx-newlib's @file{newlib} directory to the directory containing
 the GCC sources.
