@@ -70,6 +70,71 @@ unsigned int ssa_name_nodes_created;
 #define FREE_SSANAMES(fun) (fun)->gimple_df->free_ssanames
 #define FREE_SSANAMES_QUEUE(fun) (fun)->gimple_df->free_ssanames_queue
 
+/* Return TRUE if NAME has global range info.  */
+
+inline bool
+range_info_p (const_tree name)
+{
+  return SSA_NAME_RANGE_INFO (name);
+}
+
+/* Return TRUE if R fits in the global range of NAME.  */
+
+inline bool
+range_info_fits_p (tree name, const vrange &r)
+{
+  gcc_checking_assert (range_info_p (name));
+  vrange_storage *mem = SSA_NAME_RANGE_INFO (name);
+  return mem->fits_p (r);
+}
+
+/* Allocate a new global range for NAME and set it to R.  Return the
+   allocation slot.  */
+
+inline void *
+range_info_alloc (tree name, const vrange &r)
+{
+  vrange_storage *mem = ggc_alloc_vrange_storage (r);
+  SSA_NAME_RANGE_INFO (name) = mem;
+  return mem;
+}
+
+/* Free storage allocated for the global range for NAME.  */
+
+inline void
+range_info_free (tree name)
+{
+  vrange_storage *mem = SSA_NAME_RANGE_INFO (name);
+  ggc_free (mem);
+}
+
+/* Return the global range for NAME in R.  */
+
+inline void
+range_info_get_range (const_tree name, vrange &r)
+{
+  SSA_NAME_RANGE_INFO (name)->get_vrange (r, TREE_TYPE (name));
+}
+
+/* Set the global range for NAME from R.  Return TRUE if successfull,
+   or FALSE if we can't set a range of NAME's type.  */
+
+inline bool
+range_info_set_range (tree name, const vrange &r)
+{
+  if (!range_info_p (name) || !range_info_fits_p (name, r))
+    {
+      if (range_info_p (name))
+	range_info_free (name);
+
+      return range_info_alloc (name, r);
+    }
+  else
+    {
+      SSA_NAME_RANGE_INFO (name)->set_vrange (r);
+      return true;
+    }
+}
 
 /* Initialize management of SSA_NAMEs to default SIZE.  If SIZE is
    zero use default.  */
@@ -549,7 +614,9 @@ get_nonzero_bits (const_tree name)
   if (!ri)
     return wi::shwi (-1, precision);
 
-  return ri->get_nonzero_bits ();
+  int_range_max tmp;
+  range_info_get_range (name, tmp);
+  return tmp.get_nonzero_bits ();
 }
 
 /* Return TRUE is OP, an SSA_NAME has a range of values [0..1], false

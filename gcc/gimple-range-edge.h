@@ -45,8 +45,9 @@ private:
   void calc_switch_ranges (gswitch *sw);
   bool switch_edge_range (irange &r, gswitch *sw, edge e);
 
-  hash_map<edge, irange *> *m_edge_table;
-  vrange_allocator m_range_allocator;
+  int m_max_edges;
+  hash_map<edge, vrange_storage *> *m_edge_table;
+  class vrange_allocator *m_range_allocator;
 };
 
 // If there is a range control statement at the end of block BB, return it.

@@ -6903,6 +6903,40 @@ and_comparisons_1 (tree type, enum tree_code code1, tree op1a, tree op1b,
   return NULL_TREE;
 }
 
+static basic_block fosa_bb;
+static vec<std::pair<tree, vrange_storage *> > *fosa_unwind;
+static tree
+follow_outer_ssa_edges (tree val)
+{
+  if (TREE_CODE (val) == SSA_NAME
+      && !SSA_NAME_IS_DEFAULT_DEF (val))
+    {
+      basic_block def_bb = gimple_bb (SSA_NAME_DEF_STMT (val));
+      if (!def_bb
+	  || def_bb == fosa_bb
+	  || (dom_info_available_p (CDI_DOMINATORS)
+	      && (def_bb == fosa_bb
+		  || dominated_by_p (CDI_DOMINATORS, fosa_bb, def_bb))))
+	return val;
+      /* We cannot temporarily rewrite stmts with undefined overflow
+	 behavior, so avoid expanding them.  */
+      if ((ANY_INTEGRAL_TYPE_P (TREE_TYPE (val))
+	   || POINTER_TYPE_P (TREE_TYPE (val)))
+	  && !TYPE_OVERFLOW_WRAPS (TREE_TYPE (val)))
+	return NULL_TREE;
+      /* If the definition does not dominate fosa_bb temporarily reset
+	 flow-sensitive info.  */
+      if (val->ssa_name.info.range_info)
+	{
+	  fosa_unwind->safe_push (std::make_pair
+				    (val, val->ssa_name.info.range_info));
+	  val->ssa_name.info.range_info = NULL;
+	}
+      return val;
+    }
+  return val;
+}
+
 /* Helper function for maybe_fold_and_comparisons and maybe_fold_or_comparisons
    : try to simplify the AND/OR of the ssa variable VAR with the comparison
    specified by (OP2A CODE2 OP2B) from match.pd.  Return NULL_EXPR if we can't
@@ -6915,7 +6949,8 @@ maybe_fold_comparisons_from_match_pd (tree type, enum tree_code code,
 				      enum tree_code code1,
 				      tree op1a, tree op1b,
 				      enum tree_code code2, tree op2a,
-				      tree op2b)
+				      tree op2b,
+              basic_block outer_cond_bb)
 {
   /* Allocate gimple stmt1 on the stack.  */
   gassign *stmt1
@@ -6953,7 +6988,11 @@ maybe_fold_comparisons_from_match_pd (tree type, enum tree_code code,
   gimple_match_op op (gimple_match_cond::UNCOND, code,
 		      type, gimple_assign_lhs (stmt1),
 		      gimple_assign_lhs (stmt2));
-  if (op.resimplify (NULL, follow_all_ssa_edges))
+  fosa_bb = outer_cond_bb;
+  auto_vec<std::pair<tree, vrange_storage *>, 8> unwind_stack;
+  fosa_unwind = &unwind_stack;
+  if (op.resimplify (NULL, (!outer_cond_bb
+			    ? follow_all_ssa_edges : follow_outer_ssa_edges)))
     {
       if (gimple_simplified_result_is_gimple_val (&op))
 	{

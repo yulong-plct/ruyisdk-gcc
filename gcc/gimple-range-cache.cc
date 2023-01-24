@@ -153,10 +153,10 @@ public:
   virtual bool get_bb_range (vrange &r, const_basic_block bb) override;
   virtual bool bb_range_p (const_basic_block bb) override;
 protected:
-  vrange **m_tab;	// Non growing vector.
+  vrange_storage **m_tab;	// Non growing vector.
   int m_tab_size;
-  vrange *m_varying;
-  vrange *m_undefined;
+  vrange_storage *m_varying;
+  vrange_storage *m_undefined;
   tree m_type;
   vrange_allocator *m_range_allocator;
   bool m_zero_p;
@@ -174,16 +174,14 @@ sbr_vector::sbr_vector (tree t, vrange_allocator *allocator, bool zero_p)
   m_zero_p = zero_p;
   m_range_allocator = allocator;
   m_tab_size = last_basic_block_for_fn (cfun) + 1;
-  m_tab = static_cast <vrange **>
-    (allocator->alloc (m_tab_size * sizeof (vrange *)));
+  m_tab = static_cast <vrange_storage **>
+    (allocator->alloc (m_tab_size * sizeof (vrange_storage *)));
   if (zero_p)
     memset (m_tab, 0, m_tab_size * sizeof (vrange *));
 
   // Create the cached type range.
-  m_varying = m_range_allocator->alloc_vrange (t);
-  m_undefined = m_range_allocator->alloc_vrange (t);
-  m_varying->set_varying (t);
-  m_undefined->set_undefined ();
+  m_varying = m_range_allocator->clone_varying (t);
+  m_undefined = m_range_allocator->clone_undefined (t);
 }
 
 // Grow the vector when the CFG has increased in size.
@@ -200,11 +198,11 @@ sbr_vector::grow ()
   int new_size = inc + curr_bb_size;
 
   // Allocate new memory, copy the old vector and clear the new space.
-  vrange **t = static_cast <vrange **>
-    (m_range_allocator->alloc (new_size * sizeof (vrange *)));
-  memcpy (t, m_tab, m_tab_size * sizeof (vrange *));
+  vrange_storage **t = static_cast <vrange_storage **>
+    (m_range_allocator->alloc (new_size * sizeof (vrange_storage *)));
+  memcpy (t, m_tab, m_tab_size * sizeof (vrange_storage *));
   if (m_zero_p)
-    memset (t + m_tab_size, 0, (new_size - m_tab_size) * sizeof (vrange *));
+    memset (t + m_tab_size, 0, (new_size - m_tab_size) * sizeof (vrange_storage *));
 
   m_tab = t;
   m_tab_size = new_size;
@@ -215,7 +213,7 @@ sbr_vector::grow ()
 bool
 sbr_vector::set_bb_range (const_basic_block bb, const vrange &r)
 {
-  vrange *m;
+  vrange_storage *m;
   if (bb->index >= m_tab_size)
     grow ();
   if (r.varying_p ())
@@ -236,10 +234,10 @@ sbr_vector::get_bb_range (vrange &r, const_basic_block bb)
 {
   if (bb->index >= m_tab_size)
     return false;
-  vrange *m = m_tab[bb->index];
+  vrange_storage *m = m_tab[bb->index];
   if (m)
     {
-      r = *m;
+      m->get_vrange (r, m_type);
       return true;
     }
   return false;
@@ -323,7 +321,7 @@ private:
   void bitmap_set_quad (bitmap head, int quad, int quad_value);
   int bitmap_get_quad (const_bitmap head, int quad);
   vrange_allocator *m_range_allocator;
-  vrange *m_range[SBR_NUM];
+  vrange_storage *m_range[SBR_NUM];
   bitmap_head bitvec;
   tree m_type;
 };
@@ -340,15 +338,16 @@ sbr_sparse_bitmap::sbr_sparse_bitmap (tree t, vrange_allocator *allocator,
   bitmap_tree_view (&bitvec);
   m_range_allocator = allocator;
   // Pre-cache varying.
-  m_range[0] = m_range_allocator->alloc_vrange (t);
-  m_range[0]->set_varying (t);
+  m_range[0] = m_range_allocator->clone_varying (t);
   // Pre-cache zero and non-zero values for pointers.
   if (POINTER_TYPE_P (t))
     {
-      m_range[1] = m_range_allocator->alloc_vrange (t);
-      m_range[1]->set_nonzero (t);
-      m_range[2] = m_range_allocator->alloc_vrange (t);
-      m_range[2]->set_zero (t);
+      int_range<2> nonzero;
+      nonzero.set_nonzero (t);
+      m_range[1] = m_range_allocator->clone (nonzero);
+      int_range<2> zero;
+      zero.set_zero (t);
+      m_range[2] = m_range_allocator->clone (zero);
     }
   else
     m_range[1] = m_range[2] = NULL;
@@ -389,7 +388,7 @@ sbr_sparse_bitmap::set_bb_range (const_basic_block bb, const vrange &r)
 
   // Loop thru the values to see if R is already present.
   for (int x = 0; x < SBR_NUM; x++)
-    if (!m_range[x] || r == *(m_range[x]))
+    if (!m_range[x] || m_range[x]->equal_p (r, m_type))
       {
 	if (!m_range[x])
 	  m_range[x] = m_range_allocator->clone (r);
@@ -416,7 +415,7 @@ sbr_sparse_bitmap::get_bb_range (vrange &r, const_basic_block bb)
   if (value == SBR_UNDEF)
     r.set_undefined ();
   else
-    r = *(m_range[value - 1]);
+    m_range[value - 1]->get_vrange (r, m_type);
   return true;
 }
 
@@ -624,10 +623,10 @@ ssa_global_cache::get_global_range (vrange &r, tree name) const
   if (v >= m_tab.length ())
     return false;
 
-  vrange *stow = m_tab[v];
+  vrange_storage *stow = m_tab[v];
   if (!stow)
     return false;
-  r = *stow;
+  stow->get_vrange (r, TREE_TYPE (name));
   return true;
 }
 
@@ -641,9 +640,9 @@ ssa_global_cache::set_global_range (tree name, const vrange &r)
   if (v >= m_tab.length ())
     m_tab.safe_grow_cleared (num_ssa_names + 1);
 
-  vrange *m = m_tab[v];
+  vrange_storage *m = m_tab[v];
   if (m && m->fits_p (r))
-    *m = r;
+    m->set_vrange (r);
   else
     m_tab[v] = m_range_allocator->clone (r);
   return m != NULL;

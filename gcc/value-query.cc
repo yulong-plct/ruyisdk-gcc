@@ -270,12 +270,11 @@ get_ssa_name_range_info (irange &r, const_tree name)
   gcc_checking_assert (!POINTER_TYPE_P (type));
   gcc_checking_assert (TREE_CODE (name) == SSA_NAME);
 
-  range_info_def *ri = SSA_NAME_RANGE_INFO (name);
+  vrange_storage *ri = SSA_NAME_RANGE_INFO (name);
 
-  // Return VR_VARYING for SSA_NAMEs with NULL RANGE_INFO or SSA_NAMEs
-  // with integral types width > 2 * HOST_BITS_PER_WIDE_INT precision.
-  if (!ri || (GET_MODE_PRECISION (SCALAR_INT_TYPE_MODE (TREE_TYPE (name)))
-	      > 2 * HOST_BITS_PER_WIDE_INT))
+  if (ri)
+    ri->get_vrange (r, TREE_TYPE (name));
+  else
     r.set_varying (type);
   else
     r.set (wide_int_to_tree (type, ri->get_min ()),

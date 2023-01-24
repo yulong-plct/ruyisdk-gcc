@@ -44,7 +44,7 @@ enum value_range_kind
 class irange
 {
   friend value_range_kind get_legacy_range (const irange &, tree &, tree &);
-  friend class vrange_allocator;
+  friend class irange_storage;
 public:
   // In-place setters.
   void set (tree, tree, value_range_kind = VR_RANGE);
@@ -172,8 +172,170 @@ private:
 // provided for backward compatibility with code that has not been
 // converted to multi-range irange's.
 //
-// There are copy operators to seamlessly copy to/fro multi-ranges.
-typedef int_range<1> value_range;
+// The representation is a type with a couple of endpoints, unioned
+// with the set of { -NAN, +Nan }.
+
+class GTY((user)) frange : public vrange
+{
+  friend class frange_storage;
+  friend class vrange_printer;
+  friend void gt_ggc_mx (frange *);
+  friend void gt_pch_nx (frange *);
+  friend void gt_pch_nx (frange *, gt_pointer_operator, void *);
+public:
+  frange ();
+  frange (const frange &);
+  frange (tree, tree, value_range_kind = VR_RANGE);
+  frange (tree type);
+  frange (tree type, const REAL_VALUE_TYPE &min, const REAL_VALUE_TYPE &max,
+	  value_range_kind = VR_RANGE);
+  static bool supports_p (const_tree type)
+  {
+    // ?? Decimal floats can have multiple representations for the
+    // same number.  Supporting them may be as simple as just
+    // disabling them in singleton_p.  No clue.
+    return SCALAR_FLOAT_TYPE_P (type) && !DECIMAL_FLOAT_TYPE_P (type);
+  }
+  virtual tree type () const override;
+  virtual void set (tree, tree, value_range_kind = VR_RANGE) override;
+  void set (tree type, const REAL_VALUE_TYPE &, const REAL_VALUE_TYPE &,
+	    value_range_kind = VR_RANGE);
+  void set (tree type, const REAL_VALUE_TYPE &, const REAL_VALUE_TYPE &,
+	    const nan_state &, value_range_kind = VR_RANGE);
+  void set_nan (tree type);
+  void set_nan (tree type, bool sign);
+  virtual void set_varying (tree type) override;
+  virtual void set_undefined () override;
+  virtual bool union_ (const vrange &) override;
+  virtual bool intersect (const vrange &) override;
+  virtual bool contains_p (tree) const override;
+  virtual bool singleton_p (tree *result = NULL) const override;
+  virtual bool supports_type_p (const_tree type) const override;
+  virtual void accept (const vrange_visitor &v) const override;
+  virtual bool zero_p () const override;
+  virtual bool nonzero_p () const override;
+  virtual void set_nonzero (tree type) override;
+  virtual void set_zero (tree type) override;
+  virtual void set_nonnegative (tree type) override;
+  frange& operator= (const frange &);
+  bool operator== (const frange &) const;
+  bool operator!= (const frange &r) const { return !(*this == r); }
+  const REAL_VALUE_TYPE &lower_bound () const;
+  const REAL_VALUE_TYPE &upper_bound () const;
+  nan_state get_nan_state () const;
+  void update_nan ();
+  void update_nan (bool sign);
+  void update_nan (tree) = delete; // Disallow silent conversion to bool.
+  void update_nan (const nan_state &);
+  void clear_nan ();
+  void flush_denormals_to_zero ();
+
+  // fpclassify like API
+  bool known_isfinite () const;
+  bool known_isnan () const;
+  bool known_isinf () const;
+  bool maybe_isnan () const;
+  bool maybe_isnan (bool sign) const;
+  bool maybe_isinf () const;
+  bool signbit_p (bool &signbit) const;
+  bool nan_signbit_p (bool &signbit) const;
+private:
+  void verify_range ();
+  bool normalize_kind ();
+  bool union_nans (const frange &);
+  bool intersect_nans (const frange &);
+  bool combine_zeros (const frange &, bool union_p);
+
+  tree m_type;
+  REAL_VALUE_TYPE m_min;
+  REAL_VALUE_TYPE m_max;
+  bool m_pos_nan;
+  bool m_neg_nan;
+};
+
+inline const REAL_VALUE_TYPE &
+frange::lower_bound () const
+{
+  gcc_checking_assert (!undefined_p () && !known_isnan ());
+  return m_min;
+}
+
+inline const REAL_VALUE_TYPE &
+frange::upper_bound () const
+{
+  gcc_checking_assert (!undefined_p () && !known_isnan ());
+  return m_max;
+}
+
+// Return the NAN state.
+
+inline nan_state
+frange::get_nan_state () const
+{
+  return nan_state (m_pos_nan, m_neg_nan);
+}
+
+// is_a<> and as_a<> implementation for vrange.
+
+// Anything we haven't specialized is a hard fail.
+template <typename T>
+inline bool
+is_a (vrange &)
+{
+  gcc_unreachable ();
+  return false;
+}
+
+template <typename T>
+inline bool
+is_a (const vrange &v)
+{
+  // Reuse is_a <vrange> to implement the const version.
+  const T &derived = static_cast<const T &> (v);
+  return is_a <T> (const_cast<T &> (derived));
+}
+
+template <typename T>
+inline T &
+as_a (vrange &v)
+{
+  gcc_checking_assert (is_a <T> (v));
+  return static_cast <T &> (v);
+}
+
+template <typename T>
+inline const T &
+as_a (const vrange &v)
+{
+  gcc_checking_assert (is_a <T> (v));
+  return static_cast <const T &> (v);
+}
+
+// Specializations for the different range types.
+
+template <>
+inline bool
+is_a <irange> (vrange &v)
+{
+  return v.m_discriminator == VR_IRANGE;
+}
+
+template <>
+inline bool
+is_a <frange> (vrange &v)
+{
+  return v.m_discriminator == VR_FRANGE;
+}
+
+class vrange_visitor
+{
+public:
+  virtual void visit (const irange &) const { }
+  virtual void visit (const frange &) const { }
+  virtual void visit (const unsupported_range &) const { }
+};
+
+typedef int_range<2> value_range;
 
 // This is an "infinite" precision irange for use in temporary
 // calculations.
