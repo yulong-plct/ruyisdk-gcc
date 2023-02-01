@@ -1637,7 +1637,17 @@ struct GTY(()) tree_type_common {
      so we need to store the value 32 (not 31, as we need the zero
      as well), hence six bits.  */
   unsigned align : 6;
+  /* TYPE_STRING_FLAG for INTEGER_TYPE and ARRAY_TYPE.
+     TYPE_CXX_ODR_P for RECORD_TYPE and UNION_TYPE.  */
+  unsigned string_flag : 1;
+  unsigned no_force_blk_flag : 1;
+
   unsigned warn_if_not_align : 6;
+  unsigned needs_constructing_flag : 1;
+  unsigned transparent_aggr_flag : 1;
+
+  unsigned contains_placeholder_bits : 2;
+  unsigned restrict_flag : 1;
   unsigned typeless_storage : 1;
   unsigned empty_flag : 1;
   unsigned indivisible_p : 1;
