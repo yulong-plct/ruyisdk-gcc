@@ -407,7 +407,7 @@ simm32_p (rtx x)
   return val <= 0x7FFFFFFFULL || val >= 0xFFFFFFFF80000000ULL;
 }
 
-static bool
+bool
 simm5_p (rtx x)
 {
   if (!CONST_INT_P (x))
