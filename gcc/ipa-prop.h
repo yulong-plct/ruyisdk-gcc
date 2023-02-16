@@ -348,14 +348,14 @@ struct GTY (()) ipa_jump_func
 
 /* Return the constant stored in a constant jump functin JFUNC.  */
 
-static inline tree
+inline tree
 ipa_get_jf_constant (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_CONST);
   return jfunc->value.constant.value;
 }
 
-static inline struct ipa_cst_ref_desc *
+inline struct ipa_cst_ref_desc *
 ipa_get_jf_constant_rdesc (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_CONST);
@@ -364,7 +364,7 @@ ipa_get_jf_constant_rdesc (struct ipa_jump_func *jfunc)
 
 /* Return the operand of a pass through jmp function JFUNC.  */
 
-static inline tree
+inline tree
 ipa_get_jf_pass_through_operand (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_PASS_THROUGH);
@@ -374,7 +374,7 @@ ipa_get_jf_pass_through_operand (struct ipa_jump_func *jfunc)
 /* Return the number of the caller's formal parameter that a pass through jump
    function JFUNC refers to.  */
 
-static inline int
+inline int
 ipa_get_jf_pass_through_formal_id (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_PASS_THROUGH);
@@ -383,7 +383,7 @@ ipa_get_jf_pass_through_formal_id (struct ipa_jump_func *jfunc)
 
 /* Return operation of a pass through jump function JFUNC.  */
 
-static inline enum tree_code
+inline enum tree_code
 ipa_get_jf_pass_through_operation (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_PASS_THROUGH);
@@ -392,7 +392,7 @@ ipa_get_jf_pass_through_operation (struct ipa_jump_func *jfunc)
 
 /* Return the agg_preserved flag of a pass through jump function JFUNC.  */
 
-static inline bool
+inline bool
 ipa_get_jf_pass_through_agg_preserved (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_PASS_THROUGH);
@@ -402,7 +402,7 @@ ipa_get_jf_pass_through_agg_preserved (struct ipa_jump_func *jfunc)
 /* Return true if pass through jump function JFUNC preserves type
    information.  */
 
-static inline bool
+inline bool
 ipa_get_jf_pass_through_type_preserved (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_PASS_THROUGH);
@@ -411,7 +411,7 @@ ipa_get_jf_pass_through_type_preserved (struct ipa_jump_func *jfunc)
 
 /* Return the offset of an ancestor jump function JFUNC.  */
 
-static inline HOST_WIDE_INT
+inline HOST_WIDE_INT
 ipa_get_jf_ancestor_offset (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_ANCESTOR);
@@ -421,7 +421,7 @@ ipa_get_jf_ancestor_offset (struct ipa_jump_func *jfunc)
 /* Return the number of the caller's formal parameter that an ancestor jump
    function JFUNC refers to.  */
 
-static inline int
+inline int
 ipa_get_jf_ancestor_formal_id (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_ANCESTOR);
@@ -430,7 +430,7 @@ ipa_get_jf_ancestor_formal_id (struct ipa_jump_func *jfunc)
 
 /* Return the agg_preserved flag of an ancestor jump function JFUNC.  */
 
-static inline bool
+inline bool
 ipa_get_jf_ancestor_agg_preserved (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_ANCESTOR);
@@ -439,7 +439,7 @@ ipa_get_jf_ancestor_agg_preserved (struct ipa_jump_func *jfunc)
 
 /* Return true if ancestor jump function JFUNC presrves type information.  */
 
-static inline bool
+inline bool
 ipa_get_jf_ancestor_type_preserved (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_ANCESTOR);
@@ -450,7 +450,7 @@ ipa_get_jf_ancestor_type_preserved (struct ipa_jump_func *jfunc)
    parameter for non-NULLness unless it does not matter because the offset is
    zero anyway.  */
 
-static inline bool
+inline bool
 ipa_get_jf_ancestor_keep_null (struct ipa_jump_func *jfunc)
 {
   gcc_checking_assert (jfunc->type == IPA_JF_ANCESTOR);
@@ -694,10 +694,21 @@ struct ipa_func_body_info
 
 /* Return the number of formal parameters. */
 
-static inline int
+inline int
 ipa_get_param_count (class ipa_node_params *info)
 {
   return vec_safe_length (info->descriptors);
+}
+
+/* Return the parameter declaration in DESCRIPTORS at index I and assert it is
+   indeed a PARM_DECL.  */
+
+inline tree
+ipa_get_param (const vec<ipa_param_descriptor, va_gc> &descriptors, int i)
+{
+  tree t = descriptors[i].decl_or_type;
+  gcc_checking_assert (TREE_CODE (t) == PARM_DECL);
+  return t;
 }
 
 /* Return the declaration of Ith formal parameter of the function corresponding
@@ -705,7 +716,7 @@ ipa_get_param_count (class ipa_node_params *info)
    using ipa_initialize_node_params.  This function should not be called in
    WPA.  */
 
-static inline tree
+inline tree
 ipa_get_param (class ipa_node_params *info, int i)
 {
   gcc_checking_assert (info->descriptors);
@@ -717,7 +728,7 @@ ipa_get_param (class ipa_node_params *info, int i)
 /* Return the type of Ith formal parameter of the function corresponding
    to INFO if it is known or NULL if not.  */
 
-static inline tree
+inline tree
 ipa_get_type (class ipa_node_params *info, int i)
 {
   if (vec_safe_length (info->descriptors) <= (unsigned) i)
@@ -734,7 +745,7 @@ ipa_get_type (class ipa_node_params *info, int i)
 /* Return the move cost of Ith formal parameter of the function corresponding
    to INFO.  */
 
-static inline int
+inline int
 ipa_get_param_move_cost (class ipa_node_params *info, int i)
 {
   gcc_checking_assert (info->descriptors);
@@ -744,7 +755,7 @@ ipa_get_param_move_cost (class ipa_node_params *info, int i)
 /* Set the used flag corresponding to the Ith formal parameter of the function
    associated with INFO to VAL.  */
 
-static inline void
+inline void
 ipa_set_param_used (class ipa_node_params *info, int i, bool val)
 {
   gcc_checking_assert (info->descriptors);
@@ -754,7 +765,7 @@ ipa_set_param_used (class ipa_node_params *info, int i, bool val)
 /* Set the used_by_ipa_predicates flag corresponding to the Ith formal
    parameter of the function associated with INFO to VAL.  */
 
-static inline void
+inline void
 ipa_set_param_used_by_ipa_predicates (class ipa_node_params *info, int i, bool val)
 {
   gcc_checking_assert (info->descriptors);
@@ -764,7 +775,7 @@ ipa_set_param_used_by_ipa_predicates (class ipa_node_params *info, int i, bool v
 /* Set the used_by_indirect_call flag corresponding to the Ith formal
    parameter of the function associated with INFO to VAL.  */
 
-static inline void
+inline void
 ipa_set_param_used_by_indirect_call (class ipa_node_params *info, int i, bool val)
 {
   gcc_checking_assert (info->descriptors);
@@ -774,7 +785,7 @@ ipa_set_param_used_by_indirect_call (class ipa_node_params *info, int i, bool va
 /* Set the .used_by_polymorphic_call flag corresponding to the Ith formal
    parameter of the function associated with INFO to VAL.  */
 
-static inline void
+inline void
 ipa_set_param_used_by_polymorphic_call (class ipa_node_params *info, int i, bool val)
 {
   gcc_checking_assert (info->descriptors);
@@ -784,7 +795,7 @@ ipa_set_param_used_by_polymorphic_call (class ipa_node_params *info, int i, bool
 /* Return how many uses described by ipa-prop a parameter has or
    IPA_UNDESCRIBED_USE if there is a use that is not described by these
    structures.  */
-static inline int
+inline int
 ipa_get_controlled_uses (class ipa_node_params *info, int i)
 {
   /* FIXME: introducing speculation causes out of bounds access here.  */
@@ -795,17 +806,35 @@ ipa_get_controlled_uses (class ipa_node_params *info, int i)
 
 /* Set the controlled counter of a given parameter.  */
 
-static inline void
+inline void
 ipa_set_controlled_uses (class ipa_node_params *info, int i, int val)
 {
   gcc_checking_assert (info->descriptors);
   (*info->descriptors)[i].controlled_uses = val;
 }
 
+/* Assuming a parameter does not have IPA_UNDESCRIBED_USE controlled uses,
+   return flag which indicates it has been dereferenced but only in a load.  */
+inline int
+ipa_get_param_load_dereferenced (class ipa_node_params *info, int i)
+{
+  gcc_assert (ipa_get_controlled_uses (info, i) != IPA_UNDESCRIBED_USE);
+  return (*info->descriptors)[i].load_dereferenced;
+}
+
+/* Set the load_dereferenced flag of a given parameter.  */
+
+inline void
+ipa_set_param_load_dereferenced (class ipa_node_params *info, int i, bool val)
+{
+  gcc_checking_assert (info->descriptors);
+  (*info->descriptors)[i].load_dereferenced = val;
+}
+
 /* Return the used flag corresponding to the Ith formal parameter of the
    function associated with INFO.  */
 
-static inline bool
+inline bool
 ipa_is_param_used (class ipa_node_params *info, int i)
 {
   gcc_checking_assert (info->descriptors);
@@ -815,7 +844,7 @@ ipa_is_param_used (class ipa_node_params *info, int i)
 /* Return the used_by_ipa_predicates flag corresponding to the Ith formal
    parameter of the function associated with INFO.  */
 
-static inline bool
+inline bool
 ipa_is_param_used_by_ipa_predicates (class ipa_node_params *info, int i)
 {
   gcc_checking_assert (info->descriptors);
@@ -825,7 +854,7 @@ ipa_is_param_used_by_ipa_predicates (class ipa_node_params *info, int i)
 /* Return the used_by_indirect_call flag corresponding to the Ith formal
    parameter of the function associated with INFO.  */
 
-static inline bool
+inline bool
 ipa_is_param_used_by_indirect_call (class ipa_node_params *info, int i)
 {
   gcc_checking_assert (info->descriptors);
@@ -835,7 +864,7 @@ ipa_is_param_used_by_indirect_call (class ipa_node_params *info, int i)
 /* Return the used_by_polymorphic_call flag corresponding to the Ith formal
    parameter of the function associated with INFO.  */
 
-static inline bool
+inline bool
 ipa_is_param_used_by_polymorphic_call (class ipa_node_params *info, int i)
 {
   gcc_checking_assert (info->descriptors);
@@ -910,7 +939,7 @@ class GTY((for_user)) ipa_edge_args
 
 /* Return the number of actual arguments. */
 
-static inline int
+inline int
 ipa_get_cs_argument_count (class ipa_edge_args *args)
 {
   return vec_safe_length (args->jump_functions);
@@ -920,7 +949,7 @@ ipa_get_cs_argument_count (class ipa_edge_args *args)
    there is no setter function as jump functions are all set up in
    ipa_compute_jump_functions. */
 
-static inline struct ipa_jump_func *
+inline struct ipa_jump_func *
 ipa_get_ith_jump_func (class ipa_edge_args *args, int i)
 {
   return &(*args->jump_functions)[i];
@@ -928,7 +957,7 @@ ipa_get_ith_jump_func (class ipa_edge_args *args, int i)
 
 /* Returns a pointer to the polymorphic call context for the ith argument.
    NULL if contexts are not computed.  */
-static inline class ipa_polymorphic_call_context *
+inline class ipa_polymorphic_call_context *
 ipa_get_ith_polymorhic_call_context (class ipa_edge_args *args, int i)
 {
   if (!args->polymorphic_call_contexts)
@@ -1032,7 +1061,7 @@ int count_formal_params (tree fndecl);
 /* This function ensures the array of node param infos is big enough to
    accommodate a structure for all nodes and reallocates it if not.  */
 
-static inline void
+inline void
 ipa_check_create_node_params (void)
 {
   if (!ipa_node_params_sum)
@@ -1045,13 +1074,13 @@ ipa_check_create_node_params (void)
    of this function is that debug dumping function can check info availability
    without causing allocations.  */
 
-static inline bool
+inline bool
 ipa_edge_args_info_available_for_edge_p (struct cgraph_edge *edge)
 {
   return ipa_edge_args_sum->exists (edge);
 }
 
-static inline ipcp_transformation *
+inline ipcp_transformation *
 ipcp_get_transformation_summary (cgraph_node *node)
 {
   if (ipcp_transformation_sum == NULL)

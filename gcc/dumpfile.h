@@ -205,32 +205,32 @@ enum dump_flag
 
 typedef enum dump_flag dump_flags_t;
 
-static inline dump_flags_t
+inline dump_flags_t
 operator| (dump_flags_t lhs, dump_flags_t rhs)
 {
   return (dump_flags_t)((int)lhs | (int)rhs);
 }
 
-static inline dump_flags_t
+inline dump_flags_t
 operator& (dump_flags_t lhs, dump_flags_t rhs)
 {
   return (dump_flags_t)((int)lhs & (int)rhs);
 }
 
-static inline dump_flags_t
+inline dump_flags_t
 operator~ (dump_flags_t flags)
 {
   return (dump_flags_t)~((int)flags);
 }
 
-static inline dump_flags_t &
+inline dump_flags_t &
 operator|= (dump_flags_t &lhs, dump_flags_t rhs)
 {
   lhs = (dump_flags_t)((int)lhs | (int)rhs);
   return lhs;
 }
 
-static inline dump_flags_t &
+inline dump_flags_t &
 operator&= (dump_flags_t &lhs, dump_flags_t rhs)
 {
   lhs = (dump_flags_t)((int)lhs & (int)rhs);
@@ -269,13 +269,13 @@ enum optgroup_flag
 
 typedef enum optgroup_flag optgroup_flags_t;
 
-static inline optgroup_flags_t
+inline optgroup_flags_t
 operator| (optgroup_flags_t lhs, optgroup_flags_t rhs)
 {
   return (optgroup_flags_t)((int)lhs | (int)rhs);
 }
 
-static inline optgroup_flags_t &
+inline optgroup_flags_t &
 operator|= (optgroup_flags_t &lhs, optgroup_flags_t rhs)
 {
   lhs = (optgroup_flags_t)((int)lhs | (int)rhs);
@@ -519,7 +519,7 @@ extern bool dumps_are_enabled;
 extern void set_dump_file (FILE *new_dump_file);
 
 /* Return true if any of the dumps is enabled, false otherwise. */
-static inline bool
+inline bool
 dump_enabled_p (void)
 {
   return dumps_are_enabled;

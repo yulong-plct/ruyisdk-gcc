@@ -2378,6 +2378,23 @@ recording::context::new_rvalue_from_const (recording::type *type,
   return result;
 }
 
+/* Don't call this directly.  Call types_kinda_same.  */
+bool
+types_kinda_same_internal (recording::type *a,
+			   recording::type *b);
+
+/* Strip all qualifiers and count pointer depth, returning true
+   if the types and pointer depth are the same, otherwise false.
+
+   For array and vector types the number of element also
+   has to match, aswell as the element types themself.  */
+inline bool
+types_kinda_same (recording::type *a, recording::type *b)
+{
+  /* Handle trivial case here, to allow for inlining.  */
+  return a == b || types_kinda_same_internal (a, b);
+}
+
 } // namespace gcc::jit
 
 } // namespace gcc

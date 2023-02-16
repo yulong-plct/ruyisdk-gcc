@@ -34,7 +34,7 @@ struct tree_stmt_iterator {
   tree container;
 };
 
-static inline tree_stmt_iterator
+inline tree_stmt_iterator
 tsi_start (tree t)
 {
   tree_stmt_iterator i;
@@ -45,7 +45,7 @@ tsi_start (tree t)
   return i;
 }
 
-static inline tree_stmt_iterator
+inline tree_stmt_iterator
 tsi_last (tree t)
 {
   tree_stmt_iterator i;
@@ -56,37 +56,37 @@ tsi_last (tree t)
   return i;
 }
 
-static inline bool
+inline bool
 tsi_end_p (tree_stmt_iterator i)
 {
   return i.ptr == NULL;
 }
 
-static inline bool
+inline bool
 tsi_one_before_end_p (tree_stmt_iterator i)
 {
   return i.ptr != NULL && i.ptr->next == NULL;
 }
 
-static inline void
+inline void
 tsi_next (tree_stmt_iterator *i)
 {
   i->ptr = i->ptr->next;
 }
 
-static inline void
+inline void
 tsi_prev (tree_stmt_iterator *i)
 {
   i->ptr = i->ptr->prev;
 }
 
-static inline tree *
+inline tree *
 tsi_stmt_ptr (tree_stmt_iterator i)
 {
   return &i.ptr->stmt;
 }
 
-static inline tree
+inline tree
 tsi_stmt (tree_stmt_iterator i)
 {
   return i.ptr->stmt;
