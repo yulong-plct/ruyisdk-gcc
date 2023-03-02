@@ -322,11 +322,6 @@ Target::isVectorOpSupported (Type *type, TOK op, Type *)
       /* Logical operators must have a result type of bool.  */
       return false;
 
-    case EXP::identity:
-    case EXP::notIdentity:
-      /* Comparison operators must have a result type of bool.  */
-      return false;
-
     default:
       break;
     }
