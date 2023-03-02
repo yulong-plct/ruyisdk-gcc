@@ -272,6 +272,21 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
     up_bound_p1 = int_const_binop (PLUS_EXPR, up_bound,
 				   build_int_cst (TREE_TYPE (up_bound), 1));
 
+/* Given the LOW_SUB_ORG, LOW_SUB and UP_SUB, and the computed UP_BOUND
+   and UP_BOUND_P1, check whether the array reference REF is out of bound.
+   When out of bounds, set OUT_OF_BOUND to true.
+   Issue warnings if FOR_ARRAY_BOUND is true.
+   return TRUE if warnings are issued.  */
+
+static bool
+check_out_of_bounds_and_warn (location_t location, tree ref,
+			      tree low_sub_org, tree low_sub, tree up_sub,
+			      tree up_bound, tree up_bound_p1,
+			      const value_range *vr,
+			      bool ignore_off_by_one, bool for_array_bound,
+			      bool *out_of_bound)
+{
+  tree min, max;
   tree low_bound = array_ref_low_bound (ref);
 
   tree artype = TREE_TYPE (TREE_OPERAND (ref, 0));
@@ -297,7 +312,7 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
 
   if (warned)
     ; /* Do nothing.  */
-  else if (vr && vr->kind () == VR_ANTI_RANGE)
+  else if (get_legacy_range (*vr, min, max) == VR_ANTI_RANGE)
     {
       if (up_bound
 	  && TREE_CODE (up_sub) == INTEGER_CST
@@ -321,9 +336,81 @@ array_bounds_checker::check_array_ref (location_t location, tree ref,
 			 up_sub, artype);
   else if (TREE_CODE (low_sub) == INTEGER_CST
 	   && tree_int_cst_lt (low_sub, low_bound))
-    warned = warning_at (location, OPT_Warray_bounds_,
-			 "array subscript %E is below array bounds of %qT",
-			 low_sub, artype);
+    {
+      *out_of_bound = true;
+      if (for_array_bound)
+	warned = warning_at (location, OPT_Warray_bounds_,
+			     "array subscript %E is below array bounds of %qT",
+			     low_sub, artype);
+    }
+  return warned;
+}
+
+/* Checks one ARRAY_REF in REF, located at LOCUS.  Ignores flexible
+   arrays and "struct" hacks.  If VRP can determine that the array
+   subscript is a constant, check if it is outside valid range.  If
+   the array subscript is a RANGE, warn if it is non-overlapping with
+   valid range.  IGNORE_OFF_BY_ONE is true if the ARRAY_REF is inside
+   a ADDR_EXPR.  Return  true if a warning has been issued or if
+   no-warning is set.  */
+
+bool
+array_bounds_checker::check_array_ref (location_t location, tree ref,
+				       gimple *stmt, bool ignore_off_by_one)
+{
+  if (warning_suppressed_p (ref, OPT_Warray_bounds_))
+    /* Return true to have the caller prevent warnings for enclosing
+       refs.  */
+    return true;
+
+  /* Upper bound and Upper bound plus one for -Warray-bounds.  */
+  tree up_bound = array_ref_up_bound (ref);
+  tree up_bound_p1 = NULL_TREE;
+
+  /* Referenced decl if one can be determined.  */
+  tree decl = NULL_TREE;
+
+  /* Set to the type of the special array member for a COMPONENT_REF.  */
+  special_array_member sam{ };
+  tree afield_decl = NULL_TREE;
+  tree arg = TREE_OPERAND (ref, 0);
+
+  if (TREE_CODE (arg) == COMPONENT_REF)
+    {
+      /* Try to determine special array member type for this COMPONENT_REF.  */
+      sam = component_ref_sam_type (arg);
+      afield_decl = TREE_OPERAND (arg, 1);
+    }
+
+  get_up_bounds_for_array_ref (ref, &decl, &up_bound, &up_bound_p1);
+
+  bool warned = false;
+  bool out_of_bound = false;
+
+  tree artype = TREE_TYPE (TREE_OPERAND (ref, 0));
+  tree low_sub_org = TREE_OPERAND (ref, 1);
+  tree up_sub = low_sub_org;
+  tree low_sub = low_sub_org;
+
+  value_range vr;
+  if (TREE_CODE (low_sub_org) == SSA_NAME)
+    {
+      get_value_range (vr, low_sub_org, stmt);
+      if (!vr.undefined_p () && !vr.varying_p ())
+	{
+	  tree min, max;
+	  value_range_kind kind = get_legacy_range (vr, min, max);
+	  low_sub = kind == VR_RANGE ? max : min;
+	  up_sub = kind == VR_RANGE ? min : max;
+	}
+    }
+
+  warned = check_out_of_bounds_and_warn (location, ref,
+					 low_sub_org, low_sub, up_sub,
+					 up_bound, up_bound_p1, &vr,
+					 ignore_off_by_one, warn_array_bounds,
+					 &out_of_bound);
+
 
   if (!warned && sam == special_array_member::int_0)
     warned = warning_at (location, OPT_Wzero_length_bounds,

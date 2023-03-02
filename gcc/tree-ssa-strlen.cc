@@ -213,17 +213,13 @@ get_range (tree val, gimple *stmt, wide_int minmax[2],
   if (TREE_CODE (val) != SSA_NAME)
     return NULL_TREE;
 
-  value_range vr;
-  if (rvals && stmt)
+  tree vrmin, vrmax;
+  value_range_kind rng = get_legacy_range (vr, vrmin, vrmax);
+  if (rng == VR_RANGE)
     {
-      if (!rvals->range_of_expr (vr, val, stmt))
-	return NULL_TREE;
-      value_range_kind rng = vr.kind ();
-      if (rng != VR_RANGE)
-	return NULL_TREE;
-
-      minmax[0] = wi::to_wide (vr.min ());
-      minmax[1] = wi::to_wide (vr.max ());
+      /* Only handle straight ranges.  */
+      minmax[0] = wi::to_wide (vrmin);
+      minmax[1] = wi::to_wide (vrmax);
       return val;
     }
 
@@ -2821,9 +2817,11 @@ maybe_diag_stxncpy_trunc (gimple_stmt_iterator gsi, tree src, tree cnt,
       || r.undefined_p ())
     return false;
 
-  cntrange[0] = wi::to_wide (r.min ());
-  cntrange[1] = wi::to_wide (r.max ());
-  if (r.kind () == VR_ANTI_RANGE)
+  tree min, max;
+  value_range_kind kind = get_legacy_range (r, min, max);
+  cntrange[0] = wi::to_wide (min);
+  cntrange[1] = wi::to_wide (max);
+  if (kind == VR_ANTI_RANGE)
     {
       wide_int maxobjsize = wi::to_wide (TYPE_MAX_VALUE (ptrdiff_type_node));
 
@@ -3995,8 +3993,9 @@ get_len_or_size (gimple *stmt, tree arg, int idx,
       else if (TREE_CODE (si->nonzero_chars) == SSA_NAME)
 	{
 	  value_range r;
-	  get_range_query (cfun)->range_of_expr (r, si->nonzero_chars);
-	  if (r.kind () == VR_RANGE)
+	  if (get_range_query (cfun)->range_of_expr (r, si->nonzero_chars)
+	      && !r.undefined_p ()
+	      && !r.varying_p ())
 	    {
 	      lenrng[0] = r.lower_bound ().to_uhwi ();
 	      lenrng[1] = r.upper_bound ().to_uhwi ();
@@ -4716,12 +4715,13 @@ count_nonzero_bytes_addr (tree exp, unsigned HOST_WIDE_INT offset,
 	       && TREE_CODE (si->nonzero_chars) == SSA_NAME)
 	{
 	  value_range vr;
-	  rvals->range_of_expr (vr, si->nonzero_chars, si->stmt);
-	  if (vr.kind () != VR_RANGE)
+	  if (!ptr_qry.rvals->range_of_expr (vr, si->nonzero_chars, stmt)
+	      || vr.undefined_p ()
+	      || vr.varying_p ())
 	    return false;
 
-	  minlen = tree_to_uhwi (vr.min ());
-	  maxlen = tree_to_uhwi (vr.max ());
+	  minlen = vr.lower_bound ().to_uhwi ();
+	  maxlen = vr.upper_bound ().to_uhwi ();
 	}
       else
 	return false;
