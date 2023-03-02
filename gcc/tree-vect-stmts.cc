@@ -10436,6 +10436,21 @@ vectorizable_condition (vec_info *vinfo,
 		  cond_code = cond.code;
 		  swap_cond_operands = true;
 		}
+	      else
+		{
+		  /* Try the inverse of the current mask.  We check if the
+		     inverse mask is live and if so we generate a negate of
+		     the current mask such that we still honor NaNs.  */
+		  cond.inverted_p = true;
+		  cond.code = orig_code;
+		  if (loop_vinfo->scalar_cond_masked_set.contains (cond))
+		    {
+		      masks = &LOOP_VINFO_MASKS (loop_vinfo);
+		      cond_code = cond.code;
+		      swap_cond_operands = true;
+		      must_invert_cmp_result = true;
+		    }
+		}
 	    }
 	}
     }
