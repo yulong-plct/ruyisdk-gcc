@@ -2890,9 +2890,12 @@ vect_do_peeling (loop_vec_info loop_vinfo, tree niters, tree nitersm1,
       /* It's guaranteed that vector loop bound before vectorization is at
 	 least VF, so set range information for newly generated var.  */
       if (new_var_p)
-	set_range_info (niters, VR_RANGE,
-			wi::to_wide (build_int_cst (type, vf)),
-			wi::to_wide (TYPE_MAX_VALUE (type)));
+	{
+	  value_range vr (type,
+			  wi::to_wide (build_int_cst (type, lowest_vf)),
+			  wi::to_wide (TYPE_MAX_VALUE (type)));
+	  set_range_info (niters, vr);
+	}
 
       /* Prolog iterates at most bound_prolog times, latch iterates at
 	 most bound_prolog - 1 times.  */
