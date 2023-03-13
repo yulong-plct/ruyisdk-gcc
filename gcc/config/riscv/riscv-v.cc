@@ -282,6 +282,10 @@ legitimize_move (rtx dest, rtx src, machine_mode mask_mode)
 	emit_move_insn (tmp, src);
       src = tmp;
     }
+
+  if (satisfies_constraint_vu (src))
+    return false;
+
   emit_vlmax_op (code_for_pred_mov (mode), dest, src, mask_mode);
   return true;
 }
