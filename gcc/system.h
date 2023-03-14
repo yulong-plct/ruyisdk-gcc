@@ -741,6 +741,10 @@ extern int vsnprintf (char *, size_t, const char *, va_list);
 # include "unique-ptr.h"
 #endif
 
+#ifdef INCLUDE_SSTREAM
+# include <sstream>
+#endif
+
 #ifdef INCLUDE_MALLOC_H
 #if defined(HAVE_MALLINFO) || defined(HAVE_MALLINFO2)
 #include <malloc.h>
