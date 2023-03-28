@@ -89,19 +89,8 @@ public:
   virtual range_query *query ();
 };
 
-// fur_stmt is the specification for drawing an operand from range_query Q
-// via a range_of_Expr call on stmt S.
-
-class fur_stmt : public fur_source
-{
-public:
-  fur_stmt (gimple *s, range_query *q = NULL);
-  virtual bool get_operand (irange &r, tree expr) OVERRIDE;
-  virtual bool get_phi_operand (irange &r, tree expr, edge e) OVERRIDE;
-  virtual range_query *query () OVERRIDE;
-private:
-  range_query *m_query;
-  gimple *m_stmt;
+  ssa_lazy_cache global;
+  gori_compute m_gori;
 };
 
 

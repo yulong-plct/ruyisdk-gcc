@@ -36,11 +36,13 @@ along with GCC; see the file COPYING3.  If not see
 // Internal construct to help facilitate debugging of solver.
 #define DEBUG_SOLVER (dump_file && (param_threader_debug == THREADER_DEBUG_ALL))
 
-path_range_query::path_range_query (bool resolve, gimple_ranger *ranger)
-  : m_cache (new ssa_global_cache),
-    m_has_cache_entry (BITMAP_ALLOC (NULL)),
-    m_resolve (resolve),
-    m_alloced_ranger (!ranger)
+path_range_query::path_range_query (gimple_ranger &ranger,
+				    const vec<basic_block> &path,
+				    const bitmap_head *dependencies,
+				    bool resolve)
+  : m_cache (),
+    m_ranger (ranger),
+    m_resolve (resolve)
 {
   if (m_alloced_ranger)
     m_ranger = new gimple_ranger;
@@ -49,17 +51,17 @@ path_range_query::path_range_query (bool resolve, gimple_ranger *ranger)
 
   m_oracle = new path_oracle (m_ranger->oracle ());
 
-  if (m_resolve && flag_checking)
-    verify_marked_backedges (cfun);
+path_range_query::path_range_query (gimple_ranger &ranger, bool resolve)
+  : m_cache (),
+    m_ranger (ranger),
+    m_resolve (resolve)
+{
+  m_oracle = new path_oracle (m_ranger.oracle ());
 }
 
 path_range_query::~path_range_query ()
 {
   delete m_oracle;
-  if (m_alloced_ranger)
-    delete m_ranger;
-  BITMAP_FREE (m_has_cache_entry);
-  delete m_cache;
 }
 
 // Return TRUE if NAME is in the import bitmap.
@@ -71,15 +73,6 @@ path_range_query::import_p (tree name)
 	  && bitmap_bit_p (m_imports, SSA_NAME_VERSION (name)));
 }
 
-// Mark cache entry for NAME as unused.
-
-void
-path_range_query::clear_cache (tree name)
-{
-  unsigned v = SSA_NAME_VERSION (name);
-  bitmap_clear_bit (m_has_cache_entry, v);
-}
-
 // If NAME has a cache entry, return it in R, and return TRUE.
 
 inline bool
@@ -88,21 +81,7 @@ path_range_query::get_cache (vrange &r, tree name)
   if (!gimple_range_ssa_p (name))
     return get_global_range_query ()->range_of_expr (r, name);
 
-  unsigned v = SSA_NAME_VERSION (name);
-  if (bitmap_bit_p (m_has_cache_entry, v))
-    return m_cache->get_global_range (r, name);
-
-  return false;
-}
-
-// Set the cache entry for NAME to R.
-
-void
-path_range_query::set_cache (const vrange &r, tree name)
-{
-  unsigned v = SSA_NAME_VERSION (name);
-  bitmap_set_bit (m_has_cache_entry, v);
-  m_cache->set_global_range (name, r);
+  return m_cache.get_range (r, name);
 }
 
 void
@@ -126,7 +105,7 @@ path_range_query::dump (FILE *dump_file)
       fprintf (dump_file, "\n");
     }
 
-  m_cache->dump (dump_file);
+  m_cache.dump (dump_file);
 }
 
 void
@@ -201,7 +180,7 @@ path_range_query::internal_range_of_expr (vrange &r, tree name, gimple *stmt)
   if (m_resolve && defined_outside_path (name))
     {
       range_on_path_entry (r, name);
-      set_cache (r, name);
+      m_cache.set_range (name, r);
       return true;
     }
 
@@ -215,7 +194,7 @@ path_range_query::internal_range_of_expr (vrange &r, tree name, gimple *stmt)
 	  r.intersect (glob);
 	}
 
-      set_cache (r, name);
+      m_cache.set_range (name, r);
       return true;
     }
 
@@ -254,7 +233,10 @@ path_range_query::set_path (const vec<basic_block> &path)
   gcc_checking_assert (path.length () > 1);
   m_path = path.copy ();
   m_pos = m_path.length () - 1;
-  bitmap_clear (m_has_cache_entry);
+  m_undefined_path = false;
+  m_cache.clear ();
+
+  compute_ranges (dependencies);
 }
 
 bool
@@ -284,7 +266,7 @@ path_range_query::ssa_range_in_phi (vrange &r, gphi *phi)
       if (m_resolve && m_ranger->range_of_expr (r, name, phi))
 	return;
 
-      // Try to fold the phi exclusively with global or cached values.
+      // Try to fold the phi exclusively with global values.
       // This will get things like PHI <5(99), 6(88)>.  We do this by
       // calling range_of_expr with no context.
       Value_Range arg_range (TREE_TYPE (name));
@@ -292,7 +274,7 @@ path_range_query::ssa_range_in_phi (vrange &r, gphi *phi)
       for (size_t i = 0; i < nargs; ++i)
 	{
 	  tree arg = gimple_phi_arg_def (phi, i);
-	  if (range_of_expr (arg_range, arg, /*stmt=*/NULL))
+	  if (m_ranger.range_of_expr (arg_range, arg, /*stmt=*/NULL))
 	    r.union_ (arg_range);
 	  else
 	    {
@@ -381,8 +363,6 @@ path_range_query::range_defined_in_block (vrange &r, tree name, basic_block bb)
 void
 path_range_query::compute_ranges_in_phis (basic_block bb)
 {
-  auto_bitmap phi_set;
-
   // PHIs must be resolved simultaneously on entry to the block
   // because any dependencies must be satistifed with values on entry.
   // Thus, we calculate all PHIs first, and then update the cache at
@@ -398,16 +378,8 @@ path_range_query::compute_ranges_in_phis (basic_block bb)
 
       Value_Range r (TREE_TYPE (name));
       if (range_defined_in_block (r, name, bb))
-	{
-	  unsigned v = SSA_NAME_VERSION (name);
-	  set_cache (r, name);
-	  bitmap_set_bit (phi_set, v);
-	  // Pretend we don't have a cache entry for this name until
-	  // we're done with all PHIs.
-	  bitmap_clear_bit (m_has_cache_entry, v);
-	}
+	m_cache.set_range (name, r);
     }
-  bitmap_ior_into (m_has_cache_entry, phi_set);
 }
 
 // Return TRUE if relations may be invalidated after crossing edge E.
@@ -441,7 +413,7 @@ path_range_query::compute_ranges_in_block (basic_block bb)
     {
       tree name = ssa_name (i);
       if (ssa_defined_in_bb (name, bb))
-	clear_cache (name);
+	m_cache.clear_range (name);
     }
 
   // Solve imports defined in this block, starting with the PHIs...
@@ -454,7 +426,7 @@ path_range_query::compute_ranges_in_block (basic_block bb)
 
       if (gimple_code (SSA_NAME_DEF_STMT (name)) != GIMPLE_PHI
 	  && range_defined_in_block (r, name, bb))
-	set_cache (r, name);
+	m_cache.set_range (name, r);
     }
 
   if (at_exit ())
@@ -485,10 +457,8 @@ path_range_query::compute_ranges_in_block (basic_block bb)
       gori_compute &g = m_ranger->gori ();
       bitmap exports = g.exports (bb);
 
-      if (bitmap_bit_p (exports, i))
-	{
-	  Value_Range r (TREE_TYPE (name));
-	  if (g.outgoing_edge_range_p (r, e, name, *this))
+	  m_cache.set_range (name, r);
+	  if (DEBUG_SOLVER)
 	    {
 	      Value_Range cached_range (TREE_TYPE (name));
 	      if (get_cache (cached_range, name))
@@ -537,15 +507,10 @@ path_range_query::adjust_for_non_null_uses (basic_block bb)
       else
 	r.set_varying (TREE_TYPE (name));
 
-      if (m_ranger->m_cache.m_exit.maybe_adjust_range (r, name, bb))
-	set_cache (r, name);
-    }
-}
-
-// If NAME is a supported SSA_NAME, add it the bitmap in IMPORTS.
+      if (m_ranger.m_cache.m_exit.maybe_adjust_range (r, name, bb))
+	m_cache.set_range (name, r);
 
 bool
-path_range_query::add_to_imports (tree name, bitmap imports)
 {
   if (TREE_CODE (name) == SSA_NAME
       && vrange::supports_type_p (TREE_TYPE (name)))
