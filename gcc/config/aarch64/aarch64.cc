@@ -6491,6 +6491,9 @@ aarch64_function_value_regno_p (const unsigned int regno)
   if (regno >= V0_REGNUM && regno < V0_REGNUM + HA_MAX_NUM_FLDS)
     return TARGET_FLOAT;
 
+  if (regno >= P0_REGNUM && regno < P0_REGNUM + HA_MAX_NUM_FLDS)
+    return TARGET_SVE;
+
   return false;
 }
 
@@ -6954,7 +6957,8 @@ bool
 aarch64_function_arg_regno_p (unsigned regno)
 {
   return ((GP_REGNUM_P (regno) && regno < R0_REGNUM + NUM_ARG_REGS)
-	  || (FP_REGNUM_P (regno) && regno < V0_REGNUM + NUM_FP_ARG_REGS));
+	  || (FP_REGNUM_P (regno) && regno < V0_REGNUM + NUM_FP_ARG_REGS)
+	  || (PR_REGNUM_P (regno) && regno < P0_REGNUM + NUM_PR_ARG_REGS));
 }
 
 /* Implement FUNCTION_ARG_BOUNDARY.  Every parameter gets at least
@@ -6993,6 +6997,10 @@ aarch64_get_reg_raw_mode (int regno)
        for SVE types are fundamentally incompatible with the
        __builtin_return/__builtin_apply interface.  */
     return as_a <fixed_size_mode> (V16QImode);
+  if (PR_REGNUM_P (regno))
+    /* For SVE PR regs, indicate that they should be ignored for
+       __builtin_apply/__builtin_return.  */
+    return as_a <fixed_size_mode> (VOIDmode);
   return default_get_reg_raw_mode (regno);
 }
 
