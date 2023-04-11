@@ -1751,12 +1751,6 @@ is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
   r_op2 = gimple_assign_rhs2 (stmt);
 
   /* Make R_OP1 to hold reduction variable.  */
-<<<<<<< HEAD
-  if (r_op2 == PHI_RESULT (header_phi)
-      && reduction_op == PLUS_EXPR)
-    std::swap (r_op1, r_op2);
-  else if (r_op1 != PHI_RESULT (header_phi))
-=======
   if (r_nop2 == PHI_RESULT (header_phi)
       && commutative_tree_code (reduction_op))
     {
@@ -1764,7 +1758,6 @@ is_cond_scalar_reduction (gimple *phi, gimple **reduc, tree arg_0, tree arg_1,
       std::swap (r_nop1, r_nop2);
     }
   else if (r_nop1 != PHI_RESULT (header_phi))
->>>>>>> 249b4eeef1f (Extend is_cond_scalar_reduction to handle bit_and/bit_xor/bit_ior.)
     return false;
 
   /* Check that R_OP1 is used in reduction stmt or in PHI only.  */
@@ -1812,13 +1805,9 @@ convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
   tree rhs1 = gimple_assign_rhs1 (reduc);
   tree tmp = make_temp_ssa_name (TREE_TYPE (rhs1), NULL, "_ifc_");
   tree c;
-<<<<<<< HEAD
-  tree zero = build_zero_cst (TREE_TYPE (rhs1));
-=======
   enum tree_code reduction_op  = gimple_assign_rhs_code (reduc);
   tree op_nochange = neutral_op_for_reduction (TREE_TYPE (rhs1), reduction_op, NULL);
   gimple_seq stmts = NULL;
->>>>>>> 249b4eeef1f (Extend is_cond_scalar_reduction to handle bit_and/bit_xor/bit_ior.)
 
   if (dump_file && (dump_flags & TDF_DETAILS))
     {
@@ -1836,11 +1825,6 @@ convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
   /* Create assignment stmt and insert it at GSI.  */
   new_assign = gimple_build_assign (tmp, c);
   gsi_insert_before (gsi, new_assign, GSI_SAME_STMT);
-<<<<<<< HEAD
-  /* Build rhs for unconditional increment/decrement.  */
-  rhs = fold_build2 (gimple_assign_rhs_code (reduc),
-		     TREE_TYPE (rhs1), op0, tmp);
-=======
   /* Build rhs for unconditional increment/decrement/logic_operation.  */
   rhs = gimple_build (&stmts, reduction_op,
 		      TREE_TYPE (rhs1), op0, tmp);
@@ -1854,7 +1838,6 @@ convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
       release_defs (nop_reduc);
     }
   gsi_insert_seq_before (gsi, stmts, GSI_SAME_STMT);
->>>>>>> 249b4eeef1f (Extend is_cond_scalar_reduction to handle bit_and/bit_xor/bit_ior.)
 
   /* Delete original reduction stmt.  */
   stmt_it = gsi_for_stmt (reduc);
@@ -2630,11 +2613,8 @@ predicate_statements (loop_p loop)
 	      update_stmt (stmt);
 	    }
 
-	  /* Convert functions that have a SIMD clone to IFN_MASK_CALL.  This
-	     will cause the vectorizer to match the "in branch" clone variants,
-	     and serves to build the mask vector in a natural way.  */
-	  gcall *call = dyn_cast <gcall *> (gsi_stmt (gsi));
-	  if (call && !gimple_call_internal_p (call))
+	  if (gimple_plf (gsi_stmt (gsi), GF_PLF_2)
+	      && is_gimple_call (gsi_stmt (gsi)))
 	    {
 	      tree orig_fn = gimple_call_fn (call);
 	      int orig_nargs = gimple_call_num_args (call);
