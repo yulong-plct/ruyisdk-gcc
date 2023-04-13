@@ -126,54 +126,6 @@ Maximum size (in bytes) of objects tracked bytewise by dead store elimination.
 Common Joined UInteger Var(param_early_inlining_insns) Init(6) Optimization Param
 Maximal estimated growth of function body caused by early inlining of single call.
 
--param=evrp-sparse-threshold=
-Common Joined UInteger Var(param_evrp_sparse_threshold) Init(800) Optimization Param
-Maximum number of basic blocks before EVRP uses a sparse cache.
-
--param=evrp-mode=
-Common Joined Var(param_evrp_mode) Enum(evrp_mode) Init(EVRP_MODE_EVRP_FIRST) Param Optimization
---param=evrp-mode=[legacy|ranger|legacy-first|ranger-first|ranger-trace|ranger-debug|trace|debug] Specifies the mode Early VRP should operate in.
-
-Enum
-Name(evrp_mode) Type(enum evrp_mode) UnknownError(unknown evrp mode %qs)
-
-EnumValue
-Enum(evrp_mode) String(legacy) Value(EVRP_MODE_EVRP_ONLY)
-
-EnumValue
-Enum(evrp_mode) String(ranger) Value(EVRP_MODE_RVRP_ONLY)
-
-EnumValue
-Enum(evrp_mode) String(legacy-first) Value(EVRP_MODE_EVRP_FIRST)
-
-EnumValue
-Enum(evrp_mode) String(ranger-first) Value(EVRP_MODE_RVRP_FIRST)
-
-EnumValue
-Enum(evrp_mode) String(ranger-trace) Value(EVRP_MODE_RVRP_TRACE)
-
-EnumValue
-Enum(evrp_mode) String(ranger-debug) Value(EVRP_MODE_RVRP_DEBUG)
-
-EnumValue
-Enum(evrp_mode) String(trace) Value(EVRP_MODE_TRACE)
-
-EnumValue
-Enum(evrp_mode) String(debug) Value(EVRP_MODE_DEBUG)
-
--param=ranger-logical-depth=
-Common Joined UInteger Var(param_ranger_logical_depth) Init(6) IntegerRange(1, 999) Param Optimization
-Maximum depth of logical expression evaluation ranger will look through when
-evaluating outgoing edge ranges.
-
--param=fsm-maximum-phi-arguments=
-Common Joined UInteger Var(param_fsm_maximum_phi_arguments) Init(100) IntegerRange(1, 999999) Param Optimization
-Maximum number of arguments a PHI may have before the FSM threader will not try to thread through its block.
-
--param=fsm-scale-path-blocks=
-Common Joined UInteger Var(param_fsm_scale_path_blocks) Init(3) IntegerRange(1, 10) Param Optimization
-Scale factor to apply to the number of blocks in a threading path when comparing to the number of (scaled) statements.
-
 -param=fsm-scale-path-stmts=
 Common Joined UInteger Var(param_fsm_scale_path_stmts) Init(2) IntegerRange(1, 10) Param Optimization
 Scale factor to apply to the number of statements in a threading path when comparing to the number of (scaled) blocks.
@@ -1143,21 +1095,16 @@ The maximum factor which the loop vectorizer applies to the cost of statements i
 Common Joined UInteger Var(param_vect_induction_float) Init(1) IntegerRange(0, 1) Param Optimization
 Enable loop vectorization of floating point inductions.
 
--param=vrp1-mode=
-Common Joined Var(param_vrp1_mode) Enum(vrp_mode) Init(VRP_MODE_VRP) Param Optimization
---param=vrp1-mode=[vrp|ranger] Specifies the mode VRP1 should operate in.
+-param=vrp-sparse-threshold=
+Common Joined UInteger Var(param_vrp_sparse_threshold) Init(3000) Optimization Param
+Maximum number of basic blocks before VRP uses a sparse bitmap cache.
 
--param=vrp2-mode=
-Common Joined Var(param_vrp2_mode) Enum(vrp_mode) Init(VRP_MODE_RANGER) Param Optimization
---param=vrp2-mode=[vrp|ranger] Specifies the mode VRP2 should operate in.
+-param=vrp-switch-limit=
+Common Joined UInteger Var(param_vrp_switch_limit) Init(50) Optimization Param
+Maximum number of outgoing edges in a switch before VRP will not process it.
 
-Enum
-Name(vrp_mode) Type(enum vrp_mode) UnknownError(unknown vrp mode %qs)
-
-EnumValue
-Enum(vrp_mode) String(vrp) Value(VRP_MODE_VRP)
-
-EnumValue
-Enum(vrp_mode) String(ranger) Value(VRP_MODE_RANGER)
+-param=vrp-vector-threshold=
+Common Joined UInteger Var(param_vrp_vector_threshold) Init(250) Optimization Param
+Maximum number of basic blocks for VRP to use a basic cache vector.
 
 ; This comment is to ensure we retain the blank line above.
