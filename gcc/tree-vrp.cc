@@ -73,38 +73,161 @@ along with GCC; see the file COPYING3.  If not see
 class live_names
 {
 public:
-  live_names ();
-  ~live_names ();
-  void set (tree, basic_block);
-  void clear (tree, basic_block);
-  void merge (basic_block dest, basic_block src);
-  bool live_on_block_p (tree, basic_block);
-  bool live_on_edge_p (tree, edge);
-  bool block_has_live_names_p (basic_block);
-  void clear_block (basic_block);
-
-private:
-  sbitmap *live;
-  unsigned num_blocks;
-  void init_bitmap_if_needed (basic_block);
+  remove_unreachable (gimple_ranger &r) : m_ranger (r) { m_list.create (30); }
+  ~remove_unreachable () { m_list.release (); }
+  void maybe_register_block (basic_block bb);
+  bool remove_and_update_globals (bool final_p);
+  vec<std::pair<int, int> > m_list;
+  gimple_ranger &m_ranger;
 };
 
 void
 live_names::init_bitmap_if_needed (basic_block bb)
 {
-  unsigned i = bb->index;
-  if (!live[i])
-    {
-      live[i] = sbitmap_alloc (num_ssa_names);
-      bitmap_clear (live[i]);
-    }
+  gimple *s = gimple_outgoing_range_stmt_p (bb);
+  if (!s || gimple_code (s) != GIMPLE_COND)
+    return;
+
+  edge e0 = EDGE_SUCC (bb, 0);
+  basic_block bb0 = e0->dest;
+  bool un0 = EDGE_COUNT (bb0->succs) == 0
+	     && gimple_seq_unreachable_p (bb_seq (bb0));
+  edge e1 = EDGE_SUCC (bb, 1);
+  basic_block bb1 = e1->dest;
+  bool un1 = EDGE_COUNT (bb1->succs) == 0
+	     && gimple_seq_unreachable_p (bb_seq (bb1));
+
+  // If the 2 blocks are not different, ignore.
+  if (un0 == un1)
+    return;
+
+  if (un0)
+    m_list.safe_push (std::make_pair (e1->src->index, e1->dest->index));
+  else
+    m_list.safe_push (std::make_pair (e0->src->index, e0->dest->index));
 }
 
 bool
 live_names::block_has_live_names_p (basic_block bb)
 {
-  unsigned i = bb->index;
-  return live[i] && bitmap_empty_p (live[i]);
+  if (m_list.length () == 0)
+    return false;
+
+  // Ensure the cache in SCEV has been cleared before processing
+  // globals to be removed.
+  scev_reset ();
+
+  bool change = false;
+  tree name;
+  unsigned i;
+  bitmap_iterator bi;
+  auto_bitmap all_exports;
+  for (i = 0; i < m_list.length (); i++)
+    {
+      auto eb = m_list[i];
+      basic_block src = BASIC_BLOCK_FOR_FN (cfun, eb.first);
+      basic_block dest = BASIC_BLOCK_FOR_FN (cfun, eb.second);
+      if (!src || !dest)
+	continue;
+      edge e = find_edge (src, dest);
+      gimple *s = gimple_outgoing_range_stmt_p (e->src);
+      gcc_checking_assert (gimple_code (s) == GIMPLE_COND);
+      bool lhs_p = TREE_CODE (gimple_cond_lhs (s)) == SSA_NAME;
+      bool rhs_p = TREE_CODE (gimple_cond_rhs (s)) == SSA_NAME;
+      // Do not remove __builtin_unreachable if it confers a relation, or
+      // that relation will be lost in subsequent passes.  Unless its the
+      // final pass.
+      if (!final_p && lhs_p && rhs_p)
+	continue;
+      // If this is already a constant condition, don't look either
+      if (!lhs_p && !rhs_p)
+	continue;
+
+      bool dominate_exit_p = true;
+      FOR_EACH_GORI_EXPORT_NAME (m_ranger.gori (), e->src, name)
+	{
+	  // Ensure the cache is set for NAME in the succ block.
+	  Value_Range r(TREE_TYPE (name));
+	  Value_Range ex(TREE_TYPE (name));
+	  m_ranger.range_on_entry (r, e->dest, name);
+	  m_ranger.range_on_entry (ex, EXIT_BLOCK_PTR_FOR_FN (cfun), name);
+	  // If the range produced by this __builtin_unreachacble expression
+	  // is not fully reflected in the range at exit, then it does not
+	  // dominate the exit of the function.
+	  if (ex.intersect (r))
+	    dominate_exit_p = false;
+	}
+
+      // If the exit is dominated, add to the export list.  Otherwise if this
+      // isn't the final VRP pass, leave the call in the IL.
+      if (dominate_exit_p)
+	bitmap_ior_into (all_exports, m_ranger.gori ().exports (e->src));
+      else if (!final_p)
+	continue;
+
+      change = true;
+      // Rewrite the condition.
+      if (e->flags & EDGE_TRUE_VALUE)
+	gimple_cond_make_true (as_a<gcond *> (s));
+      else
+	gimple_cond_make_false (as_a<gcond *> (s));
+      update_stmt (s);
+    }
+
+  if (bitmap_empty_p (all_exports))
+    return false;
+  // Invoke DCE on all exported names to eliminate dead feeding defs.
+  auto_bitmap dce;
+  bitmap_copy (dce, all_exports);
+  // Don't attempt to DCE parameters.
+  EXECUTE_IF_SET_IN_BITMAP (all_exports, 0, i, bi)
+    if (!ssa_name (i) || SSA_NAME_IS_DEFAULT_DEF (ssa_name (i)))
+      bitmap_clear_bit (dce, i);
+  simple_dce_from_worklist (dce);
+
+  // Loop over all uses of each name and find maximal range. This is the
+  // new global range.
+  use_operand_p use_p;
+  imm_use_iterator iter;
+  EXECUTE_IF_SET_IN_BITMAP (all_exports, 0, i, bi)
+    {
+      name = ssa_name (i);
+      if (!name || SSA_NAME_IN_FREE_LIST (name))
+	continue;
+      Value_Range r (TREE_TYPE (name));
+      Value_Range exp_range (TREE_TYPE (name));
+      r.set_undefined ();
+      FOR_EACH_IMM_USE_FAST (use_p, iter, name)
+	{
+	  gimple *use_stmt = USE_STMT (use_p);
+	  if (is_gimple_debug (use_stmt))
+	    continue;
+	  if (!m_ranger.range_of_expr (exp_range, name, use_stmt))
+	    exp_range.set_varying (TREE_TYPE (name));
+	  r.union_ (exp_range);
+	  if (r.varying_p ())
+	    break;
+	}
+      // Include the on-exit range to ensure non-dominated unreachables
+      // don't incorrectly impact the global range.
+      m_ranger.range_on_entry (exp_range, EXIT_BLOCK_PTR_FOR_FN (cfun), name);
+      r.union_ (exp_range);
+      if (r.varying_p () || r.undefined_p ())
+	continue;
+      if (!set_range_info (name, r))
+	continue;
+      change = true;
+      if (dump_file)
+	{
+	  fprintf (dump_file, "Global Exported (via unreachable): ");
+	  print_generic_expr (dump_file, name, TDF_SLIM);
+	  fprintf (dump_file, " = ");
+	  gimple_range_global (r, name);
+	  r.dump (dump_file);
+	  fputc ('\n', dump_file);
+	}
+    }
+  return change;
 }
 
 void
