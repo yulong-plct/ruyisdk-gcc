@@ -1156,28 +1156,29 @@ See RS/6000 and PowerPC Options.
 -mabi=@var{variant}}
 
 @emph{RISC-V Options}
-@gccoptlist{-mbranch-cost=@var{N-instruction} @gol
--mplt  -mno-plt @gol
--mabi=@var{ABI-string} @gol
--mfdiv  -mno-fdiv @gol
--mdiv  -mno-div @gol
--misa-spec=@var{ISA-spec-string} @gol
--march=@var{ISA-string} @gol
--mtune=@var{processor-string} @gol
--mpreferred-stack-boundary=@var{num} @gol
--msmall-data-limit=@var{N-bytes} @gol
--msave-restore  -mno-save-restore @gol
--mshorten-memrefs  -mno-shorten-memrefs @gol
--mstrict-align  -mno-strict-align @gol
--mcmodel=medlow  -mcmodel=medany @gol
--mexplicit-relocs  -mno-explicit-relocs @gol
--mrelax  -mno-relax @gol
--mriscv-attribute  -mno-riscv-attribute @gol
--malign-data=@var{type} @gol
--mbig-endian  -mlittle-endian @gol
--mstack-protector-guard=@var{guard}  -mstack-protector-guard-reg=@var{reg} @gol
--mstack-protector-guard-offset=@var{offset} @gol
--mcsr-check -mno-csr-check}
+@gccoptlist{-mbranch-cost=@var{N-instruction}
+-mplt  -mno-plt
+-mabi=@var{ABI-string}
+-mfdiv  -mno-fdiv
+-mdiv  -mno-div
+-misa-spec=@var{ISA-spec-string}
+-march=@var{ISA-string}
+-mtune=@var{processor-string}
+-mpreferred-stack-boundary=@var{num}
+-msmall-data-limit=@var{N-bytes}
+-msave-restore  -mno-save-restore
+-mshorten-memrefs  -mno-shorten-memrefs
+-mstrict-align  -mno-strict-align
+-mcmodel=medlow  -mcmodel=medany
+-mexplicit-relocs  -mno-explicit-relocs
+-mrelax  -mno-relax
+-mriscv-attribute  -mno-riscv-attribute
+-malign-data=@var{type}
+-mbig-endian  -mlittle-endian
+-mstack-protector-guard=@var{guard}  -mstack-protector-guard-reg=@var{reg}
+-mstack-protector-guard-offset=@var{offset}
+-mcsr-check -mno-csr-check
+-minline-atomics  -mno-inline-atomics}
 
 @emph{RL78 Options}
 @gccoptlist{-msim  -mmul=none  -mmul=g13  -mmul=g14  -mallregs @gol
@@ -26771,6 +26772,14 @@ Do or don't use smaller but slower prologue and epilogue code that uses
 library function calls.  The default is to use fast inline prologues and
 epilogues.
 
+@opindex minline-atomics
+@item -minline-atomics
+@itemx -mno-inline-atomics
+Do or don't use smaller but slower subword atomic emulation code that uses
+libatomic function calls.  The default is to use fast inline subword atomics
+that do not require libatomic.
+
+@opindex mshorten-memrefs
 @item -mshorten-memrefs
 @itemx -mno-shorten-memrefs
 @opindex mshorten-memrefs
