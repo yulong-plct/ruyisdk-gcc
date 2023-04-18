@@ -193,7 +193,6 @@ tree_ssa_phiopt_worker (bool do_store_elim, bool do_hoist_loads, bool early_p)
 
   for (i = 0; i < n; i++)
     {
-      gimple *cond_stmt;
       gphi *phi;
       basic_block bb1, bb2;
       edge e1, e2;
@@ -201,10 +200,9 @@ tree_ssa_phiopt_worker (bool do_store_elim, bool do_hoist_loads, bool early_p)
 
       bb = bb_order[i];
 
-      cond_stmt = last_stmt (bb);
       /* Check to see if the last statement is a GIMPLE_COND.  */
-      if (!cond_stmt
-          || gimple_code (cond_stmt) != GIMPLE_COND)
+      gcond *cond_stmt = safe_dyn_cast <gcond *> (*gsi_last_bb (bb));
+      if (!cond_stmt)
         continue;
 
       e1 = EDGE_SUCC (bb, 0);
@@ -433,12 +431,14 @@ replace_phi_edge_with_variable (basic_block cond_block,
     }
   else
     {
-      EDGE_SUCC (cond_block, 1)->flags |= EDGE_FALLTHRU;
-      EDGE_SUCC (cond_block, 1)->flags
-	&= ~(EDGE_TRUE_VALUE | EDGE_FALSE_VALUE);
-      EDGE_SUCC (cond_block, 1)->probability = profile_probability::always ();
-
-      block_to_remove = EDGE_SUCC (cond_block, 0)->dest;
+      /* If there are other edges into the middle block make
+	 CFG cleanup deal with the edge removal to avoid
+	 updating dominators here in a non-trivial way.  */
+      gcond *cond = as_a <gcond *> (*gsi_last_bb (cond_block));
+      if (keep_edge->flags & EDGE_FALSE_VALUE)
+	      gimple_cond_make_false (cond);
+      else if (keep_edge->flags & EDGE_TRUE_VALUE)
+	      gimple_cond_make_true (cond);
     }
   delete_basic_block (block_to_remove);
 
@@ -679,7 +679,7 @@ two_value_replacement (basic_block cond_bb, basic_block middle_bb,
   if (!empty_block_p (middle_bb))
     return false;
 
-  gimple *stmt = last_stmt (cond_bb);
+  gcond *stmt = as_a <gcond *> (*gsi_last_bb (cond_bb));
   tree lhs = gimple_cond_lhs (stmt);
   tree rhs = gimple_cond_rhs (stmt);
 
@@ -1149,7 +1149,6 @@ value_replacement (basic_block cond_bb, basic_block middle_bb,
 		   tree arg0, tree arg1)
 {
   gimple_stmt_iterator gsi;
-  gimple *cond;
   edge true_edge, false_edge;
   enum tree_code code;
   bool empty_or_with_defined_p = true;
@@ -1184,7 +1183,7 @@ value_replacement (basic_block cond_bb, basic_block middle_bb,
 	empty_or_with_defined_p = false;
     }
 
-  cond = last_stmt (cond_bb);
+  gcond *cond = as_a <gcond *> (*gsi_last_bb (cond_bb));
   code = gimple_cond_code (cond);
 
   /* This transformation is only valid for equality comparisons.  */
@@ -1469,7 +1468,7 @@ minmax_replacement (basic_block cond_bb, basic_block middle_bb,
   if (HONOR_NANS (type) || HONOR_SIGNED_ZEROS (type))
     return false;
 
-  gcond *cond = as_a <gcond *> (last_stmt (cond_bb));
+  gcond *cond = as_a <gcond *> (*gsi_last_bb (cond_bb));
   enum tree_code cmp = gimple_cond_code (cond);
   tree rhs = gimple_cond_rhs (cond);
 
@@ -2020,7 +2019,7 @@ spaceship_replacement (basic_block cond_bb, basic_block middle_bb,
   if (!empty_block_p (middle_bb))
     return false;
 
-  gcond *cond1 = as_a <gcond *> (last_stmt (cond_bb));
+  gcond *cond1 = as_a <gcond *> (*gsi_last_bb (cond_bb));
   enum tree_code cmp1 = gimple_cond_code (cond1);
   switch (cmp1)
     {
@@ -2062,8 +2061,8 @@ spaceship_replacement (basic_block cond_bb, basic_block middle_bb,
   tree arg2 = gimple_phi_arg_def (phi, cond2_phi_edge->dest_idx);
   if (!tree_fits_shwi_p (arg2))
     return false;
-  gimple *cond2 = last_stmt (cond2_bb);
-  if (cond2 == NULL || gimple_code (cond2) != GIMPLE_COND)
+  gcond *cond2 = safe_dyn_cast <gcond *> (*gsi_last_bb (cond2_bb));
+  if (!cond2)
     return false;
   enum tree_code cmp2 = gimple_cond_code (cond2);
   tree lhs2 = gimple_cond_lhs (cond2);
@@ -2119,7 +2118,7 @@ spaceship_replacement (basic_block cond_bb, basic_block middle_bb,
   tree arg3 = arg2;
   basic_block cond3_bb = cond2_bb;
   edge cond3_phi_edge = cond2_phi_edge;
-  gimple *cond3 = cond2;
+  gcond *cond3 = cond2;
   enum tree_code cmp3 = cmp2;
   tree lhs3 = lhs2;
   tree rhs3 = rhs2;
@@ -2179,8 +2178,8 @@ spaceship_replacement (basic_block cond_bb, basic_block middle_bb,
       else
 	cond3_phi_edge = EDGE_SUCC (cond3_bb, 0);
       arg3 = gimple_phi_arg_def (phi, cond3_phi_edge->dest_idx);
-      cond3 = last_stmt (cond3_bb);
-      if (cond3 == NULL || gimple_code (cond3) != GIMPLE_COND)
+      cond3 = safe_dyn_cast <gcond *> (*gsi_last_bb (cond3_bb));
+      if (!cond3)
 	return false;
       cmp3 = gimple_cond_code (cond3);
       lhs3 = gimple_cond_lhs (cond3);
@@ -2405,7 +2404,6 @@ cond_removal_in_popcount_clz_ctz_pattern (basic_block cond_bb,
 					  edge e1, edge e2, gimple *phi,
 					  tree arg0, tree arg1)
 {
-  gimple *cond;
   gimple_stmt_iterator gsi, gsi_from;
   gimple *call;
   gimple *cast = NULL;
@@ -2496,11 +2494,11 @@ cond_removal_in_popcount_clz_ctz_pattern (basic_block cond_bb,
       arg = gimple_assign_rhs1 (cast);
     }
 
-  cond = last_stmt (cond_bb);
+  gcond *cond = dyn_cast <gcond *> (*gsi_last_bb (cond_bb));
 
   /* Cond_bb has a check for b_4 [!=|==] 0 before calling the popcount/clz/ctz
      builtin.  */
-  if (gimple_code (cond) != GIMPLE_COND
+  if (!cond
       || (gimple_cond_code (cond) != NE_EXPR
 	  && gimple_cond_code (cond) != EQ_EXPR)
       || !integer_zerop (gimple_cond_rhs (cond))

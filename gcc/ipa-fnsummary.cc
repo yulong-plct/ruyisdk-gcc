@@ -1552,7 +1552,6 @@ set_cond_stmt_execution_predicate (struct ipa_func_body_info *fbi,
 				   class ipa_node_params *params_summary,
 				   basic_block bb)
 {
-  gimple *last;
   tree op, op2;
   int index;
   struct agg_position_info aggpos;
@@ -1563,8 +1562,8 @@ set_cond_stmt_execution_predicate (struct ipa_func_body_info *fbi,
   tree param_type;
   expr_eval_ops param_ops;
 
-  last = last_stmt (bb);
-  if (!last || gimple_code (last) != GIMPLE_COND)
+  gcond *last = safe_dyn_cast <gcond *> (*gsi_last_bb (bb));
+  if (!last)
     return;
   if (!is_gimple_ip_invariant (gimple_cond_rhs (last)))
     return;
@@ -1646,7 +1645,6 @@ set_switch_stmt_execution_predicate (struct ipa_func_body_info *fbi,
 				     class ipa_node_params *params_summary,
 				     basic_block bb)
 {
-  gimple *lastg;
   tree op;
   int index;
   struct agg_position_info aggpos;
@@ -1657,10 +1655,9 @@ set_switch_stmt_execution_predicate (struct ipa_func_body_info *fbi,
   tree param_type;
   expr_eval_ops param_ops;
 
-  lastg = last_stmt (bb);
-  if (!lastg || gimple_code (lastg) != GIMPLE_SWITCH)
+  gswitch *last = safe_dyn_cast <gswitch *> (*gsi_last_bb (bb));
+  if (!last)
     return;
-  gswitch *last = as_a <gswitch *> (lastg);
   op = gimple_switch_index (last);
   if (!decompose_param_expr (fbi, last, op, &index, &param_type, &aggpos,
 			     &param_ops))
@@ -2303,7 +2300,6 @@ phi_result_unknown_predicate (ipa_func_body_info *fbi,
   edge e;
   edge_iterator ei;
   basic_block first_bb = NULL;
-  gimple *stmt;
 
   if (single_pred_p (bb))
     {
@@ -2334,9 +2330,8 @@ phi_result_unknown_predicate (ipa_func_body_info *fbi,
   if (!first_bb)
     return false;
 
-  stmt = last_stmt (first_bb);
+  gcond *stmt = safe_dyn_cast <gcond *> (*gsi_last_bb (first_bb));
   if (!stmt
-      || gimple_code (stmt) != GIMPLE_COND
       || !is_gimple_ip_invariant (gimple_cond_rhs (stmt)))
     return false;
 

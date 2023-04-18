@@ -434,10 +434,11 @@ back_threader::find_paths_to_names (basic_block bb, bitmap interesting)
 void
 back_threader::find_paths (basic_block bb, tree name)
 {
-  gimple *stmt = last_stmt (bb);
-  if (!stmt
-      || (gimple_code (stmt) != GIMPLE_COND
-	  && gimple_code (stmt) != GIMPLE_SWITCH))
+  if (EDGE_COUNT (bb->succs) <= 1)
+    return;
+
+  gimple *stmt = *gsi_last_bb (bb);
+  if (!stmt)
     return;
 
   if (EDGE_COUNT (bb->succs) > 1
@@ -747,10 +748,11 @@ back_threader_profitability::profitable_path_p (const vec<basic_block> &m_path,
 	  if (last && (gimple_code (last) == GIMPLE_SWITCH
 		       || gimple_code (last) == GIMPLE_GOTO))
 	    {
-	      if (j == 0)
-		threaded_multiway_branch = true;
-	      else
-		multiway_branch_in_path = true;
+	      gimple *last = *gsi_last_bb (bb);
+	      if (last
+		  && (gimple_code (last) == GIMPLE_SWITCH
+		      || gimple_code (last) == GIMPLE_GOTO))
+		       m_multiway_branch_in_path = true;
 	    }
 	}
 

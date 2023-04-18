@@ -4409,10 +4409,8 @@ vn_phi_eq (const_vn_phi_t const vp1, const_vn_phi_t const vp2)
 	      return false;
 
 	    /* Verify the controlling stmt is the same.  */
-	    gcond *last1 = safe_dyn_cast <gcond *> (last_stmt (idom1));
-	    gcond *last2 = safe_dyn_cast <gcond *> (last_stmt (idom2));
-	    if (! last1 || ! last2)
-	      return false;
+	    gcond *last1 = as_a <gcond *> (*gsi_last_bb (idom1));
+	    gcond *last2 = as_a <gcond *> (*gsi_last_bb (idom2));
 	    bool inverted_p;
 	    if (! cond_stmts_equal_p (last1, vp1->cclhs, vp1->ccrhs,
 				      last2, vp2->cclhs, vp2->ccrhs,
@@ -4498,15 +4496,19 @@ vn_phi_lookup (gimple *phi, bool backedges_varying_p)
   /* Extract values of the controlling condition.  */
   vp1->cclhs = NULL_TREE;
   vp1->ccrhs = NULL_TREE;
-  basic_block idom1 = get_immediate_dominator (CDI_DOMINATORS, vp1->block);
-  if (EDGE_COUNT (idom1->succs) == 2)
-    if (gcond *last1 = safe_dyn_cast <gcond *> (last_stmt (idom1)))
-      {
-	/* ???  We want to use SSA_VAL here.  But possibly not
-	   allow VN_TOP.  */
-	vp1->cclhs = vn_valueize (gimple_cond_lhs (last1));
-	vp1->ccrhs = vn_valueize (gimple_cond_rhs (last1));
-      }
+  if (EDsOUNT (vp1->block->preds) == 2
+      && vp1->block->loop_father->header != vp1->block)
+    {
+      basic_block idom1 = get_immediate_dominator (CDI_DOMINATORS, vp1->block);
+      if (EDGE_COUNT (idom1->succs) == 2)
+	if (gcond *last1 = safe_dyn_cast <gcond *> (*gsi_last_bb (idom1)))
+	  {
+	    /* ???  We want to use SSA_VAL here.  But possibly not
+	       allow VN_TOP.  */
+	    vp1->cclhs = vn_valueize (gimple_cond_lhs (last1));
+	    vp1->ccrhs = vn_valueize (gimple_cond_rhs (last1));
+	  }
+    }
   vp1->hashcode = vn_phi_compute_hash (vp1);
   slot = valid_info->phis->find_slot_with_hash (vp1, vp1->hashcode, NO_INSERT);
   if (!slot)
@@ -4543,15 +4545,19 @@ vn_phi_insert (gimple *phi, tree result, bool backedges_varying_p)
   /* Extract values of the controlling condition.  */
   vp1->cclhs = NULL_TREE;
   vp1->ccrhs = NULL_TREE;
-  basic_block idom1 = get_immediate_dominator (CDI_DOMINATORS, vp1->block);
-  if (EDGE_COUNT (idom1->succs) == 2)
-    if (gcond *last1 = safe_dyn_cast <gcond *> (last_stmt (idom1)))
-      {
-	/* ???  We want to use SSA_VAL here.  But possibly not
-	   allow VN_TOP.  */
-	vp1->cclhs = vn_valueize (gimple_cond_lhs (last1));
-	vp1->ccrhs = vn_valueize (gimple_cond_rhs (last1));
-      }
+  if (EDGE_COUNT (vp1->block->preds) == 2
+      && vp1->block->loop_father->header != vp1->block)
+    {
+      basic_block idom1 = get_immediate_dominator (CDI_DOMINATORS, vp1->block);
+      if (EDGE_COUNT (idom1->succs) == 2)
+	if (gcond *last1 = safe_dyn_cast <gcond *> (*gsi_last_bb (idom1)))
+	  {
+	    /* ???  We want to use SSA_VAL here.  But possibly not
+	       allow VN_TOP.  */
+	    vp1->cclhs = vn_valueize (gimple_cond_lhs (last1));
+	    vp1->ccrhs = vn_valueize (gimple_cond_rhs (last1));
+	  }
+    }
   vp1->result = result;
   vp1->hashcode = vn_phi_compute_hash (vp1);
 

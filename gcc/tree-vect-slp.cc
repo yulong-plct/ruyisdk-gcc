@@ -7682,7 +7682,7 @@ vect_slp_function (function *fun)
       /* When we have a stmt ending this block and defining a
 	 value we have to insert on edges when inserting after it for
 	 a vector containing its definition.  Avoid this for now.  */
-      if (gimple *last = last_stmt (bb))
+      if (gimple *last = *gsi_last_bb (bb))
 	if (gimple_get_lhs (last)
 	    && is_ctrl_altering_stmt (last))
 	  {

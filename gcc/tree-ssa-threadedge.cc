@@ -1273,7 +1273,6 @@ void
 jump_threader::thread_outgoing_edges (basic_block bb)
 {
   int flags = (EDGE_IGNORE | EDGE_COMPLEX | EDGE_ABNORMAL);
-  gimple *last;
 
   /* If we have an outgoing edge to a block with multiple incoming and
      outgoing edges, then we may be able to thread the edge, i.e., we
@@ -1281,8 +1280,7 @@ jump_threader::thread_outgoing_edges (basic_block bb)
      will be traversed when the incoming edge from BB is traversed.  */
   if (single_succ_to_potentially_threadable_block (bb))
     thread_across_edge (single_succ_edge (bb));
-  else if ((last = last_stmt (bb))
-	   && gimple_code (last) == GIMPLE_COND
+  else if (safe_is_a <gcond *> (*gsi_last_bb (bb))
 	   && EDGE_COUNT (bb->succs) == 2
 	   && (EDGE_SUCC (bb, 0)->flags & flags) == 0
 	   && (EDGE_SUCC (bb, 1)->flags & flags) == 0)
