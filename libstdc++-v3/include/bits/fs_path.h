@@ -269,7 +269,11 @@ namespace __detail
   /// @{
 
   /// A filesystem path
-  /// @ingroup filesystem
+  /**
+   * @ingroup filesystem
+   * @headerfile filesystem
+   * @since C++17
+   */
   class path
   {
   public:
@@ -721,6 +725,10 @@ namespace __detail
   /// @}
 
   /// Exception type thrown by the Filesystem library
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class filesystem_error : public std::system_error
   {
   public:
@@ -783,6 +791,8 @@ namespace __detail
   /** Create a path from a UTF-8-encoded sequence of char
    *
    * @relates std::filesystem::path
+   * @headerfile filesystem
+   * @since C++17
    */
   template<typename _InputIterator,
 	   typename _Require = __detail::_Path2<_InputIterator>,
@@ -806,6 +816,8 @@ namespace __detail
   /** Create a path from a UTF-8-encoded sequence of char
    *
    * @relates std::filesystem::path
+   * @headerfile filesystem
+   * @since C++17
    */
   template<typename _Source,
 	   typename _Require = __detail::_Path<_Source>,
@@ -889,6 +901,10 @@ namespace __detail
   /// @endcond
 
   /// An iterator for the components of a path
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class path::iterator
   {
   public:

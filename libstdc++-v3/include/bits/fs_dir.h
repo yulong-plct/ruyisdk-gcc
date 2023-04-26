@@ -51,6 +51,10 @@ namespace filesystem
    */
 
   /// Information about a file's type and permissions.
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class file_status
   {
   public:
@@ -93,6 +97,10 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
   class recursive_directory_iterator;
 
   /// The value type used by directory iterators
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class directory_entry
   {
   public:
@@ -353,7 +361,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
     file_type		_M_type = file_type::none;
   };
 
+  /// @cond undocumented
+
   /// Proxy returned by post-increment on directory iterators.
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   struct __directory_iterator_proxy
   {
     const directory_entry& operator*() const& noexcept { return _M_entry; }
@@ -369,8 +383,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
 
     directory_entry _M_entry;
   };
+  /// @endcond
 
   /// Iterator type for traversing the entries in a single directory.
+  /**
+   * @headerfile filesystem
+   * @since C++17
+   */
   class directory_iterator
   {
   public:
@@ -441,7 +460,11 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
     std::__shared_ptr<_Dir> _M_dir;
   };
 
-  /// @relates std::filesystem::directory_iterator @{
+  /** @relates std::filesystem::directory_iterator
+   *  @headerfile filesystem
+   *  @since C++17
+   *  @{
+   */
 
   /** @brief Enable range-based `for` using directory_iterator.
    *
@@ -458,6 +481,10 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
   /// @}
 
   /// Iterator type for recursively traversing a directory hierarchy.
+  /**
+   *  @headerfile filesystem
+   *  @since C++17
+   */
   class recursive_directory_iterator
   {
   public:
@@ -539,7 +566,11 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
     std::__shared_ptr<_Dir_stack> _M_dirs;
   };
 
-  /// @relates std::filesystem::recursive_directory_iterator @{
+  /** @relates std::filesystem::directory_iterator
+   *  @headerfile filesystem
+   *  @since C++17
+   *  @{
+   */
 
   /** @brief Enable range-based `for` using recursive_directory_iterator.
    *
