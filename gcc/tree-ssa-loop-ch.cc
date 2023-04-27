@@ -384,6 +384,8 @@ ch_base::copy_headers (function *fun)
 
   auto_vec<loop_p> candidates;
   auto_vec<std::pair<edge, loop_p> > copied;
+  auto_vec<class loop *> loops_to_unloop;
+  auto_vec<int> loops_to_unloop_nunroll;
 
   gimple_ranger *ranger = new gimple_ranger;
   path_range_query *query = new path_range_query (*ranger, /*resolve=*/true);
@@ -396,6 +398,14 @@ ch_base::copy_headers (function *fun)
 		 "Analyzing loop %i\n", loop->num);
 
       header = loop->header;
+      if (!get_max_loop_iterations_int (loop))
+	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file, "Loop %d never loops.\n", loop->num);
+	  loops_to_unloop.safe_push (loop);
+	  loops_to_unloop_nunroll.safe_push (0);
+	  continue;
+	}
 
       /* If the loop is already a do-while style one (either because it was
 	 written as such, or because jump threading transformed it into one),
@@ -545,6 +555,80 @@ ch_base::copy_headers (function *fun)
 		     loop->num);
 	}
 
+      /* We possibly decreased number of itrations by 1.  */
+      auto_vec<edge> exits = get_loop_exit_edges (loop);
+      bool precise = (nexits == (int) exits.length ());
+      /* Check that loop may not terminate in other way than via
+	 basic blocks we duplicated.  */
+      if (precise)
+	{
+	  basic_block *bbs = get_loop_body (loop);
+	  for (unsigned i = 0; i < loop->num_nodes && precise; ++i)
+	   {
+	     basic_block bb = bbs[i];
+	     bool found_exit = false;
+	     FOR_EACH_EDGE (e, ei, bb->succs)
+	      if (!flow_bb_inside_loop_p (loop, e->dest))
+		{
+		  found_exit = true;
+		  break;
+		}
+	     /* If BB has exit, it was duplicated.  */
+	     if (found_exit)
+	       continue;
+	     /* Give up on irreducible loops.  */
+	     if (bb->flags & BB_IRREDUCIBLE_LOOP)
+	       {
+		 precise = false;
+		 break;
+	       }
+	     /* Check that inner loops are finite.  */
+	     for (class loop *l = bb->loop_father; l != loop && precise;
+		  l = loop_outer (l))
+	       if (!l->finite_p)
+		 {
+		   precise = false;
+		   break;
+		 }
+	     /* Verify that there is no statement that may be terminate
+		execution in a way not visible to CFG.  */
+	     for (gimple_stmt_iterator bsi = gsi_start_bb (bb);
+		  !gsi_end_p (bsi); gsi_next (&bsi))
+	       if (stmt_can_terminate_bb_p (gsi_stmt (bsi)))
+		 precise = false;
+	   }
+	}
+      if (precise
+	  && get_max_loop_iterations_int (loop) == 1)
+	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file, "Loop %d no longer loops.\n", loop->num);
+	  loops_to_unloop.safe_push (loop);
+	  loops_to_unloop_nunroll.safe_push (0);
+	}
+      else if (precise)
+	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file,
+		     "Peeled all exits:"
+		     " decreased number of iterations of loop %d by 1.\n",
+		     loop->num);
+	  adjust_loop_info_after_peeling (loop, 1, true);
+	}
+      else if (exit_count >= entry_count.apply_scale (9, 10))
+	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file,
+		     "Peeled likely exits: likely decreased number "
+		     "of iterations of loop %d by 1.\n", loop->num);
+	  adjust_loop_info_after_peeling (loop, 1, false);
+	}
+      else if (dump_file && (dump_flags & TDF_DETAILS))
+	fprintf (dump_file,
+		 "Not decreased number"
+		 " of iterations of loop %d; likely exits remains.\n",
+		 loop->num);
+
       changed = true;
     }
 
@@ -569,6 +653,12 @@ ch_base::copy_headers (function *fun)
 	  do_rpo_vn (cfun, entry, exit_bbs);
 	  BITMAP_FREE (exit_bbs);
 	}
+    }
+  if (!loops_to_unloop.is_empty ())
+    {
+      bool irred_invalidated;
+      unloop_loops (loops_to_unloop, loops_to_unloop_nunroll, NULL, &irred_invalidated);
+      changed = true;
     }
   free (bbs);
   free (copied_bbs);

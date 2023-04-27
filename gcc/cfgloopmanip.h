@@ -46,6 +46,10 @@ extern class loop *loopify (edge, edge,
 			     basic_block, edge, edge, bool,
 			     profile_probability, profile_probability);
 extern void unloop (class loop *, bool *, bitmap);
+extern void unloop_loops (vec<class loop *> &loops_to_unloop,
+			  vec<int> &loops_to_unloop_nunroll,
+			  bitmap loop_closed_ssa_invalidated,
+			  bool *irred_invalidated);
 extern void copy_loop_info (class loop *loop, class loop *target);
 extern class loop * duplicate_loop (class loop *, class loop *,
 				     class loop * = NULL);
