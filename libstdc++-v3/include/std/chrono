@@ -38,14 +38,16 @@
 # include <bits/c++0x_warning.h>
 #else
 
-#include <ratio>
-#include <type_traits>
-#include <limits>
-#include <ctime>
-#include <bits/parse_numbers.h> // for literals support.
-#if __cplusplus > 201703L
-# include <concepts>
-# include <compare>
+#include <bits/chrono.h>
+
+#if __cplusplus >= 202002L
+# include <bit>
+# include <sstream>
+# include <string>
+# include <vector>
+# include <bits/stl_algo.h> // upper_bound
+# include <bits/shared_ptr.h>
+# include <bits/unique_ptr.h>
 #endif
 
 namespace std _GLIBCXX_VISIBILITY(default)

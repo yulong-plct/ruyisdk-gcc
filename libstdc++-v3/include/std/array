@@ -41,6 +41,9 @@
 #include <bits/range_access.h>
 #include <debug/assertions.h>
 
+#define __glibcxx_want_to_array
+#include <bits/version.h>
+
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -300,7 +303,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     operator==(const array<_Tp, _Nm>& __one, const array<_Tp, _Nm>& __two)
     { return std::equal(__one.begin(), __one.end(), __two.begin()); }
 
-#if __cpp_lib_three_way_comparison && __cpp_lib_concepts
+#if __cpp_lib_three_way_comparison // C++ >= 20 && lib_concepts
   template<typename _Tp, size_t _Nm>
     [[nodiscard]]
     constexpr __detail::__synth3way_t<_Tp>
@@ -420,19 +423,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return std::move(std::get<_Int>(__arr));
     }
 
-#if __cplusplus > 201703L
-#define __cpp_lib_to_array 201907L
-
-  template<bool _Move = false, typename _Tp, size_t... _Idx>
-    constexpr array<remove_cv_t<_Tp>, sizeof...(_Idx)>
-    __to_array(_Tp (&__a)[sizeof...(_Idx)], index_sequence<_Idx...>)
-    {
-      if constexpr (_Move)
-	return {{std::move(__a[_Idx])...}};
-      else
-	return {{__a[_Idx]...}};
-    }
-
+#ifdef __cpp_lib_to_array // C++ >= 20 && __cpp_generic_lambdas >= 201707L
   template<typename _Tp, size_t _Nm>
     [[nodiscard]]
     constexpr array<remove_cv_t<_Tp>, _Nm>
@@ -458,7 +449,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return __to_array<1>(__a, make_index_sequence<_Nm>{});
       __builtin_unreachable(); // FIXME: see PR c++/91388
     }
-#endif // C++20
+#endif // __cpp_lib_to_array
 
   // Tuple interface to class template array.
 

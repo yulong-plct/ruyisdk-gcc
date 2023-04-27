@@ -46,6 +46,9 @@
 # include <system_error>
 #endif
 
+#define __glibcxx_want_ios_noreplace
+#include <bits/version.h>
+
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -465,6 +468,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     /// Truncate an existing stream when opening.  Default for @c ofstream.
     static const openmode trunc =	_S_trunc;
+
+    static const openmode __noreplace =	_S_noreplace;
+
+#ifdef __cpp_lib_ios_noreplace // C++ >= 23 && HOSTED
+    /// Open a file in exclusive mode.
+    static const openmode noreplace =	_S_noreplace;
+#endif
 
     // 27.4.2.1.5  Type ios_base::seekdir
     /**

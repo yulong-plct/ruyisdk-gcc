@@ -38,13 +38,15 @@
 # include <ext/numeric_traits.h>
 #endif
 
+#define __glibcxx_want_constexpr_dynamic_alloc
+#define __glibcxx_want_allocator_traits_is_always_equal
+#include <bits/version.h>
+
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #if __cplusplus >= 201103L
-#define __cpp_lib_allocator_traits_is_always_equal 201411
-
   /// @cond undocumented
   struct __allocator_traits_base
   {
@@ -415,10 +417,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return _S_select(__rhs, 0); }
     };
 
-#if __cplusplus > 201703L
-# define __cpp_lib_constexpr_dynamic_alloc 201907L
-#endif
-
+#if _GLIBCXX_HOSTED
   /// Partial specialization for std::allocator.
   template<typename _Tp>
     struct allocator_traits<allocator<_Tp>>

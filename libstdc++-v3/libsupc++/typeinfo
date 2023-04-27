@@ -36,6 +36,9 @@
 #include <bits/hash_bytes.h>
 #endif
 
+#define __glibcxx_want_constexpr_typeinfo
+#include <bits/version.h>
+
 #pragma GCC visibility push(default)
 
 extern "C++" {

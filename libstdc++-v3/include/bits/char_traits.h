@@ -57,6 +57,9 @@
 # define _GLIBCXX_ALWAYS_INLINE inline __attribute__((__always_inline__))
 #endif
 
+#define __glibcxx_want_constexpr_char_traits
+#include <bits/version.h>
+
 namespace __gnu_cxx _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -311,59 +314,6 @@ _GLIBCXX_END_NAMESPACE_VERSION
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
-
-#if __cplusplus >= 201703L
-
-#ifdef __cpp_lib_is_constant_evaluated
-// Unofficial macro indicating P1032R1 support in C++20
-# define __cpp_lib_constexpr_char_traits 201811L
-#elif __cplusplus >= 201703L && _GLIBCXX_HAVE_IS_CONSTANT_EVALUATED
-   *  @brief Determine whether the characters of a NULL-terminated
-   *  string are known at compile time.
-   *  @param  __s  The string.
-   *
-   *  Assumes that _CharT is a built-in character type.
-   */
-  template<typename _CharT>
-    _GLIBCXX_ALWAYS_INLINE constexpr bool
-    __constant_string_p(const _CharT* __s)
-    {
-#ifdef _GLIBCXX_HAVE_BUILTIN_IS_CONSTANT_EVALUATED
-      (void) __s;
-      // In constexpr contexts all strings should be constant.
-      return __builtin_is_constant_evaluated();
-#else
-      while (__builtin_constant_p(*__s) && *__s)
-	__s++;
-      return __builtin_constant_p(*__s);
-#endif
-    }
-
-  /**
-   *  @brief Determine whether the characters of a character array are
-   *  known at compile time.
-   *  @param  __a  The character array.
-   *  @param  __n  Number of characters.
-   *
-   *  Assumes that _CharT is a built-in character type.
-   */
-  template<typename _CharT>
-    _GLIBCXX_ALWAYS_INLINE constexpr bool
-    __constant_char_array_p(const _CharT* __a, size_t __n)
-    {
-#ifdef _GLIBCXX_HAVE_BUILTIN_IS_CONSTANT_EVALUATED
-      (void) __a;
-      (void) __n;
-      // In constexpr contexts all character arrays should be constant.
-      return __builtin_is_constant_evaluated();
-#else
-      size_t __i = 0;
-      while (__i < __n && __builtin_constant_p(__a[__i]))
-	__i++;
-      return __i == __n;
-#endif
-    }
-#endif
 
   // 21.1
   /**

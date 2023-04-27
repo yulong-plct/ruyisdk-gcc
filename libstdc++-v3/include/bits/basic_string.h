@@ -48,21 +48,19 @@
 # include <string_view>
 #endif
 
+#define __glibcxx_want_constexpr_string
+#define __glibcxx_want_string_resize_and_overwrite
+#define __glibcxx_want_string_udls
+#include <bits/version.h>
+
+#if ! _GLIBCXX_USE_CXX11_ABI
+# include "cow_string.h"
+#else
+
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
-#ifdef __cpp_lib_is_constant_evaluated
-// Support P0980R1 in C++20.
-# define __cpp_lib_constexpr_string 201907L
-#elif __cplusplus >= 201703L && _GLIBCXX_HAVE_IS_CONSTANT_EVALUATED
-// Support P0426R1 changes to char_traits in C++17.
-# define __cpp_lib_constexpr_string 201611L
-#elif __cplusplus > 201703L
-#endif
-
-#if _GLIBCXX_USE_CXX11_ABI
-_GLIBCXX_BEGIN_NAMESPACE_CXX11
   /**
    *  @class basic_string basic_string.h <string>
    *  @brief  Managing sequences of characters and character-like objects.
@@ -1009,6 +1007,41 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
       shrink_to_fit() noexcept
       { reserve(); }
 #pragma GCC diagnostic pop
+#endif
+
+#ifdef __cpp_lib_string_resize_and_overwrite // C++ >= 23
+      /** Resize the string and call a function to fill it.
+       *
+       * @param __n   The maximum size requested.
+       * @param __op  A callable object that writes characters to the string.
+       *
+       * This is a low-level function that is easy to misuse, be careful.
+       *
+       * Calling `str.resize_and_overwrite(n, op)` will reserve at least `n`
+       * characters in `str`, evaluate `n2 = std::move(op)(str.data(), n)`,
+       * and finally set the string length to `n2` (adding a null terminator
+       * at the end). The function object `op` is allowed to write to the
+       * extra capacity added by the initial reserve operation, which is not
+       * allowed if you just call `str.reserve(n)` yourself.
+       *
+       * This can be used to efficiently fill a `string` buffer without the
+       * overhead of zero-initializing characters that will be overwritten
+       * anyway.
+       *
+       * The callable `op` must not access the string directly (only through
+       * the pointer passed as its first argument), must not write more than
+       * `n` characters to the string, must return a value no greater than `n`,
+       * and must ensure that all characters up to the returned length are
+       * valid after it returns (i.e. there must be no uninitialized values
+       * left in the string after the call, because accessing them would
+       * have undefined behaviour). If `op` exits by throwing an exception
+       * the behaviour is undefined.
+       *
+       * @since C++23
+       */
+      template<typename _Operation>
+	constexpr void
+	resize_and_overwrite(size_type __n, _Operation __op);
 #endif
 
       /**
@@ -6988,10 +7021,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct __is_fast_hash<hash<u32string>> : std::false_type
     { };
 
-#if __cplusplus >= 201402L
-
-#define __cpp_lib_string_udls 201304
-
+#ifdef __cpp_lib_string_udls // C++ >= 14
   inline namespace literals
   {
   inline namespace string_literals
@@ -7030,6 +7060,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 #pragma GCC diagnostic pop
   } // inline namespace string_literals
   } // inline namespace literals
+#endif // __cpp_lib_string_udls
 
 #if __cplusplus >= 201703L
   namespace __detail::__variant
@@ -7047,7 +7078,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { };
   }  // namespace __detail::__variant
 #endif // C++17
-#endif // C++14
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std

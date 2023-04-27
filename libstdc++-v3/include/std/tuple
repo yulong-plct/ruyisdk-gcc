@@ -41,8 +41,14 @@
 #include <bits/invoke.h>
 #if __cplusplus > 201703L
 # include <compare>
-# define __cpp_lib_constexpr_tuple 201811L
+# include <bits/ranges_util.h>		// for std::ranges::subrange
 #endif
+
+#define __glibcxx_want_constexpr_tuple
+#define __glibcxx_want_tuples_by_type
+#define __glibcxx_want_apply
+#define __glibcxx_want_make_from_tuple
+#include <bits/version.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -1811,32 +1817,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return std::forward<const __element_type>(std::__get_helper<__i>(__t));
     }
 
-#if __cplusplus >= 201402L
+  /// @cond undocumented
+  // Deleted overload chosen for invalid indices.
+  template<size_t __i, typename... _Elements>
+    constexpr __enable_if_t<(__i >= sizeof...(_Elements))>
+    get(const tuple<_Elements...>&) = delete;
+  /// @endcond
 
-#define __cpp_lib_tuples_by_type 201304
-
-  // Return the index of _Tp in _Types, if it occurs exactly once.
-  // Otherwise, return sizeof...(_Types).
-  // TODO reuse this for __detail::__variant::__exactly_once.
-  template<typename _Tp, typename... _Types>
-    constexpr size_t
-    __find_uniq_type_in_pack()
-    {
-      constexpr size_t __sz = sizeof...(_Types);
-      constexpr bool __found[__sz] = { __is_same(_Tp, _Types) ... };
-      size_t __n = __sz;
-      for (size_t __i = 0; __i < __sz; ++__i)
-	{
-	  if (__found[__i])
-	    {
-	      if (__n < __sz) // more than one _Tp found
-		return __sz;
-	      __n = __i;
-	    }
-	}
-      return __n;
-    }
-
+#ifdef __cpp_lib_tuples_by_type // C++ >= 14
   /// Return a reference to the unique element of type _Tp of a tuple.
   template <typename _Tp, typename... _Types>
     constexpr _Tp&
@@ -2223,8 +2211,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	second(std::forward<_Args2>(std::get<_Indexes2>(__tuple2))...)
       { }
 
-#if __cplusplus >= 201703L
-
+#if defined(__cpp_lib_apply) || defined(__cpp_lib_make_from_tuple) // C++ >= 17
   // Unpack a std::tuple into a type trait and use its value.
   // For cv std::tuple<_Up> the result is _Trait<_Tp, cv _Up...>::value.
   // For cv std::tuple<_Up>& the result is _Trait<_Tp, cv _Up&...>::value.
@@ -2247,9 +2234,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<template<typename...> class _Trait, typename _Tp, typename... _Up>
     inline constexpr bool __unpack_std_tuple<_Trait, _Tp, const tuple<_Up...>&>
       = _Trait<_Tp, const _Up&...>::value;
+#endif
 
-# define __cpp_lib_apply 201603
-
+#ifdef __cpp_lib_apply // C++ >= 17
   template <typename _Fn, typename _Tuple, size_t... _Idx>
     constexpr decltype(auto)
     __apply_impl(_Fn&& __f, _Tuple&& __t, index_sequence<_Idx...>)
@@ -2269,9 +2256,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			       std::forward<_Tuple>(__t),
 			       _Indices{});
     }
+#endif
 
-#define __cpp_lib_make_from_tuple  201606
-
+#ifdef __cpp_lib_make_from_tuple // C++ >= 17
   template <typename _Tp, typename _Tuple, size_t... _Idx>
     constexpr _Tp
     __make_from_tuple_impl(_Tuple&& __t, index_sequence<_Idx...>)
@@ -2286,7 +2273,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         std::forward<_Tuple>(__t),
 	make_index_sequence<tuple_size_v<remove_reference_t<_Tuple>>>{});
     }
-#endif // C++17
+#endif
 
 #if __cplusplus > 202002L
   template<typename... _TTypes, typename... _UTypes,

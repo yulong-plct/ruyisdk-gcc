@@ -64,6 +64,10 @@
 # include <compare>
 #endif
 
+#define __glibcxx_want_smart_ptr_for_overwrite
+#define __glibcxx_want_shared_ptr_arrays
+#include <bits/version.h>
+
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -567,6 +571,231 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _Impl _M_impl;
     };
 
+#ifdef __cpp_lib_smart_ptr_for_overwrite // C++ >= 20 && HOSTED
+  struct _Sp_overwrite_tag { };
+
+  // Partial specialization used for make_shared_for_overwrite<non-array>().
+  // This partial specialization is used when the allocator's value type
+  // is the special _Sp_overwrite_tag type.
+#if __cpp_concepts
+  template<typename _Tp, typename _Alloc, _Lock_policy _Lp>
+    requires is_same_v<typename _Alloc::value_type, _Sp_overwrite_tag>
+    class _Sp_counted_ptr_inplace<_Tp, _Alloc, _Lp> final
+#else
+  template<typename _Tp, template<typename> class _Alloc, _Lock_policy _Lp>
+    class _Sp_counted_ptr_inplace<_Tp, _Alloc<_Sp_overwrite_tag>, _Lp> final
+#endif
+    : public _Sp_counted_base<_Lp>
+    {
+      [[no_unique_address]] _Alloc _M_alloc;
+
+      union {
+	_Tp _M_obj;
+	char _M_unused;
+      };
+
+      friend class __shared_count<_Lp>; // To be able to call _M_ptr().
+
+      _Tp* _M_ptr() noexcept { return std::__addressof(_M_obj); }
+
+    public:
+      using __allocator_type = __alloc_rebind<_Alloc, _Sp_counted_ptr_inplace>;
+
+      _Sp_counted_ptr_inplace(const _Alloc& __a)
+      : _M_alloc(__a)
+      {
+	::new((void*)_M_ptr()) _Tp; // default-initialized, for overwrite.
+      }
+
+      ~_Sp_counted_ptr_inplace() noexcept { }
+
+      virtual void
+      _M_dispose() noexcept
+      {
+	_M_obj.~_Tp();
+      }
+
+      // Override because the allocator needs to know the dynamic type
+      virtual void
+      _M_destroy() noexcept
+      {
+	using pointer = typename allocator_traits<__allocator_type>::pointer;
+	__allocator_type __a(_M_alloc);
+	auto __p = pointer_traits<pointer>::pointer_to(*this);
+	__allocated_ptr<__allocator_type> __guard_ptr{ __a, __p };
+	this->~_Sp_counted_ptr_inplace();
+      }
+
+      void*
+      _M_get_deleter(const std::type_info&) noexcept override
+      { return nullptr; }
+    };
+#endif // __cpp_lib_smart_ptr_for_overwrite
+
+#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+  struct _Sp_overwrite_tag;
+
+  // For make_shared<T[]>, make_shared<T[N]>, allocate_shared<T[]> etc.
+  template<typename _Alloc>
+    struct _Sp_counted_array_base
+    {
+      [[no_unique_address]] _Alloc _M_alloc{};
+      size_t _M_n = 0;
+      bool _M_overwrite = false;
+
+      typename allocator_traits<_Alloc>::pointer
+      _M_alloc_array(size_t __tail)
+      {
+	return allocator_traits<_Alloc>::allocate(_M_alloc, _M_n + __tail);
+      }
+
+      void
+      _M_dealloc_array(typename allocator_traits<_Alloc>::pointer __p,
+		       size_t __tail)
+      {
+	allocator_traits<_Alloc>::deallocate(_M_alloc, __p, _M_n + __tail);
+      }
+
+      // Init the array elements
+      template<typename _Init>
+	void
+	_M_init(typename allocator_traits<_Alloc>::value_type* __p,
+		_Init __init)
+	{
+	  using _Tp = remove_pointer_t<_Init>;
+	  using _Up = typename allocator_traits<_Alloc>::value_type;
+
+	  if constexpr (is_same_v<_Init, _Sp_overwrite_tag>)
+	    {
+	      std::uninitialized_default_construct_n(__p, _M_n);
+	      _M_overwrite = true;
+	    }
+	  else if (__init == nullptr)
+	    std::__uninitialized_default_n_a(__p, _M_n, _M_alloc);
+	  else if constexpr (!is_array_v<_Tp>)
+	    std::__uninitialized_fill_n_a(__p, _M_n, *__init, _M_alloc);
+	  else
+	    {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-local-typedefs"
+	      struct _Iter
+	      {
+		using value_type = _Up;
+		using difference_type = ptrdiff_t;
+		using pointer = const _Up*;
+		using reference = const _Up&;
+		using iterator_category = forward_iterator_tag;
+
+		const _Up* _M_p;
+		size_t _M_len;
+		size_t _M_pos;
+
+		_Iter& operator++() { ++_M_pos; return *this; }
+		_Iter operator++(int) { auto __i(*this); ++_M_pos; return __i; }
+
+		reference operator*() const { return _M_p[_M_pos % _M_len]; }
+		pointer operator->() const { return _M_p + (_M_pos % _M_len); }
+
+		bool operator==(const _Iter& __i) const
+		{ return _M_pos == __i._M_pos; }
+	      };
+#pragma GCC diagnostic pop
+
+	      _Iter __first{_S_first_elem(__init), sizeof(_Tp) / sizeof(_Up)};
+	      _Iter __last = __first;
+	      __last._M_pos = _M_n;
+	      std::__uninitialized_copy_a(__first, __last, __p, _M_alloc);
+	    }
+	}
+
+    protected:
+      // Destroy the array elements
+      void
+      _M_dispose_array(typename allocator_traits<_Alloc>::value_type* __p)
+      {
+	if (_M_overwrite)
+	  std::destroy_n(__p, _M_n);
+	else
+	  {
+	    size_t __n = _M_n;
+	    while (__n--)
+	      allocator_traits<_Alloc>::destroy(_M_alloc, __p + __n);
+	  }
+      }
+
+    private:
+      template<typename _Tp>
+	static _Tp*
+	_S_first_elem(_Tp* __p) { return __p; }
+
+      template<typename _Tp, size_t _Nm>
+	static auto
+	_S_first_elem(_Tp (*__p)[_Nm]) { return _S_first_elem(*__p); }
+    };
+
+  // Control block for make_shared<T[]>, make_shared<T[N]> etc. that will be
+  // placed into unused memory at the end of the array.
+  template<typename _Alloc, _Lock_policy _Lp>
+    class _Sp_counted_array final
+    : public _Sp_counted_base<_Lp>, _Sp_counted_array_base<_Alloc>
+    {
+      using pointer = typename allocator_traits<_Alloc>::pointer;
+
+      pointer _M_alloc_ptr;
+
+      auto _M_ptr() const noexcept { return std::to_address(_M_alloc_ptr); }
+
+      friend class __shared_count<_Lp>; // To be able to call _M_ptr().
+
+    public:
+      _Sp_counted_array(const _Sp_counted_array_base<_Alloc>& __a,
+			pointer __p) noexcept
+      : _Sp_counted_array_base<_Alloc>(__a), _M_alloc_ptr(__p)
+      { }
+
+      ~_Sp_counted_array() = default;
+
+      virtual void
+      _M_dispose() noexcept
+      {
+	if (this->_M_n)
+	  this->_M_dispose_array(_M_ptr());
+      }
+
+      // Override because the allocator needs to know the dynamic type
+      virtual void
+      _M_destroy() noexcept
+      {
+	_Sp_counted_array_base<_Alloc> __a = *this;
+	pointer __p = _M_alloc_ptr;
+	this->~_Sp_counted_array();
+	__a._M_dealloc_array(__p, _S_tail());
+      }
+
+      // Returns the number of additional array elements that must be
+      // allocated in order to store a _Sp_counted_array at the end.
+      static constexpr size_t
+      _S_tail()
+      {
+	// The array elemenent type.
+	using _Tp = typename allocator_traits<_Alloc>::value_type;
+
+	// The space needed to store a _Sp_counted_array object.
+	size_t __bytes = sizeof(_Sp_counted_array);
+
+	// Add any padding needed for manual alignment within the buffer.
+	if constexpr (alignof(_Tp) < alignof(_Sp_counted_array))
+	  __bytes += alignof(_Sp_counted_array) - alignof(_Tp);
+
+	return (__bytes + sizeof(_Tp) - 1) / sizeof(_Tp);
+      }
+
+      void*
+      _M_get_deleter(const std::type_info&) noexcept override
+      { return nullptr; }
+    };
+#endif // __cpp_lib_shared_ptr_arrays >= 201707L
+
   // The default deleter for shared_ptr<T[]> and shared_ptr<T[N]>.
   struct __sp_array_delete
   {
@@ -582,6 +811,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Tp>
 	struct __not_alloc_shared_tag<_Sp_alloc_shared_tag<_Tp>> { };
+
+#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+      template<typename _Alloc>
+	struct __not_alloc_shared_tag<_Sp_counted_array_base<_Alloc>> { };
+#endif
 
     public:
       constexpr __shared_count() noexcept : _M_pi(0)
@@ -653,6 +887,51 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  _M_pi = __pi;
 	  __p = __pi->_M_ptr();
 	}
+
+#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+      template<typename _Tp, typename _Alloc, typename _Init>
+	__shared_count(_Tp*& __p, const _Sp_counted_array_base<_Alloc>& __a,
+		       _Init __init)
+	{
+	  using _Up = remove_all_extents_t<_Tp>;
+	  static_assert(is_same_v<_Up, typename _Alloc::value_type>);
+
+	  using _Sp_ca_type = _Sp_counted_array<_Alloc, _Lp>;
+	  const size_t __tail = _Sp_ca_type::_S_tail();
+
+	  struct _Guarded_ptr : _Sp_counted_array_base<_Alloc>
+	  {
+	    typename allocator_traits<_Alloc>::pointer _M_ptr;
+
+	    _Guarded_ptr(_Sp_counted_array_base<_Alloc> __a)
+	    : _Sp_counted_array_base<_Alloc>(__a),
+	      _M_ptr(this->_M_alloc_array(_Sp_ca_type::_S_tail()))
+	    { }
+
+	    ~_Guarded_ptr()
+	    {
+	      if (_M_ptr)
+		this->_M_dealloc_array(_M_ptr, _Sp_ca_type::_S_tail());
+	    }
+	  };
+
+	  _Guarded_ptr __guard{__a};
+	  _Up* const __raw = std::to_address(__guard._M_ptr);
+	  __guard._M_init(__raw, __init); // might throw
+
+	  void* __c = __raw + __a._M_n;
+	  if constexpr (alignof(_Up) < alignof(_Sp_ca_type))
+	    {
+	      size_t __space = sizeof(_Up) * __tail;
+	      __c = std::align(alignof(_Sp_ca_type), sizeof(_Sp_ca_type),
+			       __c, __space);
+	    }
+	  auto __pi = ::new(__c) _Sp_ca_type(__guard, __guard._M_ptr);
+	  __guard._M_ptr = nullptr;
+	  _M_pi = __pi;
+	  __p = reinterpret_cast<_Tp*>(__raw);
+	}
+#endif
 
 #if _GLIBCXX_USE_DEPRECATED
 #pragma GCC diagnostic push
@@ -1346,6 +1625,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	       typename... _Args>
 	friend __shared_ptr<_Tp1, _Lp1>
 	__allocate_shared(const _Alloc& __a, _Args&&... __args);
+
+#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+      // This constructor is non-standard, it is used by allocate_shared<T[]>.
+      template<typename _Alloc, typename _Init = const remove_extent_t<_Tp>*>
+	__shared_ptr(const _Sp_counted_array_base<_Alloc>& __a,
+		     _Init __init = nullptr)
+	: _M_ptr(), _M_refcount(_M_ptr, __a, __init)
+	{ }
+#endif
 
       // This constructor is used by __weak_ptr::lock() and
       // shared_ptr::shared_ptr(const weak_ptr&, std::nothrow_t).

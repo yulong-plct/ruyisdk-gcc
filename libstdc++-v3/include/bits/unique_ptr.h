@@ -1,3 +1,4 @@
+
 // unique_ptr implementation -*- C++ -*-
 
 // Copyright (C) 2008-2021 Free Software Foundation, Inc.
@@ -38,8 +39,14 @@
 #include <bits/functional_hash.h>
 #if __cplusplus > 201703L
 # include <compare>
-# include <ostream>
+# if _GLIBCXX_HOSTED
+#  include <ostream>
+# endif
 #endif
+
+#define __glibcxx_want_constexpr_memory
+#define __glibcxx_want_make_unique
+#include <bits/version.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -934,10 +941,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       public __uniq_ptr_hash<unique_ptr<_Tp, _Dp>>
     { };
 
-#if __cplusplus >= 201402L
-  /// @relates unique_ptr @{
-#define __cpp_lib_make_unique 201304
-
+#ifdef __cpp_lib_make_unique // C++ >= 14 && HOSTED
   /// @cond undocumented
 
   template<typename _Tp>

@@ -32,17 +32,16 @@
 
 #pragma GCC system_header
 
+#define __glibcxx_want_three_way_comparison
+#include <bits/version.h>
+
 #if __cplusplus > 201703L && __cpp_impl_three_way_comparison >= 201907L
 
 #pragma GCC visibility push(default)
 
 #include <concepts>
 
-#if __cpp_lib_concepts
-# define __cpp_lib_three_way_comparison 201907L
-#endif
-
-namespace std
+namespace std _GLIBCXX_VISIBILITY(default)
 {
   // [cmp.categories], comparison category types
 
@@ -405,7 +404,8 @@ namespace std
     using common_comparison_category_t
       = typename common_comparison_category<_Ts...>::type;
 
-#if __cpp_lib_concepts
+#if __cpp_lib_three_way_comparison >= 201907L
+  // C++ >= 20 && impl_3way_comparison >= 201907 && lib_concepts
   namespace __detail
   {
     template<typename _Tp, typename _Cat>
@@ -915,7 +915,7 @@ namespace std
 	= decltype(__detail::__synth3way(std::declval<_Tp&>(),
 					 std::declval<_Up&>()));
   } // namespace __detail
-#endif // concepts
+#endif // __cpp_lib_three_way_comparison >= 201907L
 } // namespace std
 
 #pragma GCC visibility pop
