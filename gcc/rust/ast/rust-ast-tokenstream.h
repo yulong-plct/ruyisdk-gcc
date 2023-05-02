@@ -21,9 +21,6 @@
 #include "rust-ast.h"
 #include "rust-ast-full.h"
 
-#ifndef RUST_AST_TOKENSTREAM_H
-#define RUST_AST_TOKENSTREAM_H
-
 namespace Rust {
 namespace AST {
 
