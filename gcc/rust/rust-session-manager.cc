@@ -922,8 +922,13 @@ Session::dump_ast_expanded (Parser<Lexer> &parser, AST::Crate &crate) const
   if (out.fail ())
     {
       rust_error_at (Linemap::unknown_location (), "cannot open %s:%m; ignored",
-		     kASTExpandedDumpFile);
-      return;
+		     kASTDumpTokenStream);
+    }
+  std::vector<TokenPtr> tokens;
+  AST::TokenCollector (tokens).visit (crate);
+  for (auto &token : tokens)
+    {
+      out << token->as_string () << " ";
     }
 
   parser.debug_dump_ast_output (crate, out);
