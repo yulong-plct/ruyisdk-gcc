@@ -310,4 +310,116 @@ to_tokenstream (std::vector<TokenPtr> tokens)
   return trees.back ();
 }
 
+static void
+from_tokenstream (const ProcMacro::TokenStream &ts,
+		  std::vector<const_TokenPtr> &result);
+
+static void
+from_ident (ProcMacro::Ident ident, std::vector<const_TokenPtr> &result)
+{}
+
+static void
+from_literal (ProcMacro::Literal literal, std::vector<const_TokenPtr> &result)
+{}
+
+/**
+ *
+ * @param acc Reference to an accumulator for joined Punct.
+ */
+static void
+from_punct (const ProcMacro::Punct &punct, std::vector<std::uint32_t> &acc,
+	    std::vector<const_TokenPtr> &result)
+{}
+
+/**
+ * Iterate over a Group and append all inner tokens to a vector enclosed by its
+ * delimiters.
+ *
+ * @param g Reference to the Group to convert.
+ * @param result Reference to the vector tokens should be appended to.
+ */
+static void
+from_group (const ProcMacro::Group &g, std::vector<const_TokenPtr> &result)
+{
+  switch (g.delimiter)
+    {
+    case ProcMacro::PARENTHESIS:
+      result.push_back (Token::make (LEFT_PAREN, Location ()));
+      from_tokenstream (g.stream, result);
+      result.push_back (Token::make (RIGHT_PAREN, Location ()));
+      break;
+    case ProcMacro::BRACE:
+      result.push_back (Token::make (LEFT_CURLY, Location ()));
+      from_tokenstream (g.stream, result);
+      result.push_back (Token::make (RIGHT_CURLY, Location ()));
+      break;
+    case ProcMacro::BRACKET:
+      result.push_back (Token::make (LEFT_SQUARE, Location ()));
+      from_tokenstream (g.stream, result);
+      result.push_back (Token::make (RIGHT_SQUARE, Location ()));
+      break;
+    case ProcMacro::NONE:
+      from_tokenstream (g.stream, result);
+      break;
+    default:
+      gcc_unreachable ();
+    }
+}
+
+/**
+ * Dispatch TokenTree's conversion to its inner type depending on its tag.
+ *
+ * @param tt Reference to the TokenTree.
+ * @param punct_accumulator Reference to an accumulator for joined Punct.
+ * @param result Reference to the vector tokens should be appended to.
+ */
+static void
+from_tokentree (const ProcMacro::TokenTree &tt,
+		std::vector<std::uint32_t> &punct_accumulator,
+		std::vector<const_TokenPtr> &result)
+{
+  switch (tt.tag)
+    {
+    case ProcMacro::GROUP:
+      from_group (tt.payload.group, result);
+      break;
+    case ProcMacro::IDENT:
+      from_ident (tt.payload.ident, result);
+      break;
+    case ProcMacro::PUNCT:
+      from_punct (tt.payload.punct, punct_accumulator, result);
+      break;
+    case ProcMacro::LITERAL:
+      from_literal (tt.payload.literal, result);
+      break;
+    default:
+      gcc_unreachable ();
+    }
+}
+
+/**
+ * Iterate over a TokenStream and append all inner tokens to a vector.
+ *
+ * @param ts Reference to the TokenStream.
+ * @param result Reference to the vector tokens should be appended to.
+ */
+static void
+from_tokenstream (const ProcMacro::TokenStream &ts,
+		  std::vector<const_TokenPtr> &result)
+{
+  std::vector<std::uint32_t> punct_accumulator;
+  for (std::uint64_t i = 0; i < ts.size; i++)
+    {
+      from_tokentree (ts.data[i], punct_accumulator, result);
+    }
+}
+
+std::vector<const_TokenPtr>
+convert (ProcMacro::TokenStream ts)
+{
+  std::vector<const_TokenPtr> result;
+  from_tokenstream (ts, result);
+  return result;
+}
+
 } // namespace Rust
