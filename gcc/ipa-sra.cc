@@ -1594,10 +1594,10 @@ type_prevails_p (tree old_type, tree new_type)
   if (TREE_CODE (old_type) != COMPLEX_TYPE
       && TREE_CODE (old_type) != VECTOR_TYPE
       && (TREE_CODE (new_type) == COMPLEX_TYPE
-	  || TREE_CODE (new_type) == VECTOR_TYPE))
+	  || VECTOR_TYPE_P (new_type)))
     return true;
   if ((TREE_CODE (old_type) == COMPLEX_TYPE
-       || TREE_CODE (old_type) == VECTOR_TYPE)
+       || VECTOR_TYPE_P (old_type))
       && TREE_CODE (new_type) != COMPLEX_TYPE
       && TREE_CODE (new_type) != VECTOR_TYPE)
     return false;
@@ -1679,6 +1679,19 @@ scan_expr_access (tree expr, gimple *stmt, isra_scan_context ctx,
   bool deref = false;
   bool reverse;
 
+  if (TREE_CODE (expr) == ADDR_EXPR)
+    {
+      if (ctx == ISRA_CTX_ARG)
+	return;
+      tree t = get_base_address (TREE_OPERAND (expr, 0));
+      if (VAR_P (t) && !TREE_STATIC (t))
+	loaded_decls->add (t);
+      return;
+    }
+  if (TREE_CODE (expr) == SSA_NAME
+      || CONSTANT_CLASS_P (expr))
+    return;
+
   if (TREE_CODE (expr) == BIT_FIELD_REF
       || TREE_CODE (expr) == IMAGPART_EXPR
       || TREE_CODE (expr) == REALPART_EXPR)
@@ -1697,6 +1710,12 @@ scan_expr_access (tree expr, gimple *stmt, isra_scan_context ctx,
 	return;
       deref = true;
     }
+  else if (VAR_P (base)
+	   && !TREE_STATIC (base)
+	   && (ctx == ISRA_CTX_ARG
+	       || ctx == ISRA_CTX_LOAD))
+    loaded_decls->add (base);
+
   if (TREE_CODE (base) != PARM_DECL)
     return;
 

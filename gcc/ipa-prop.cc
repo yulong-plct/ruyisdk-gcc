@@ -548,7 +548,9 @@ ipa_set_jf_constant (struct ipa_jump_func *jfunc, tree constant,
   jfunc->value.constant.value = unshare_expr_without_location (constant);
 
   if (TREE_CODE (constant) == ADDR_EXPR
-      && TREE_CODE (TREE_OPERAND (constant, 0)) == FUNCTION_DECL)
+      && (TREE_CODE (TREE_OPERAND (constant, 0)) == FUNCTION_DECL
+	  || (VAR_P (TREE_OPERAND (constant, 0))
+	      && TREE_STATIC (TREE_OPERAND (constant, 0)))))
     {
       struct ipa_cst_ref_desc *rdesc;
 
@@ -4099,14 +4101,28 @@ propagate_controlled_uses (struct cgraph_edge *cs)
 	  int d = ipa_get_controlled_uses (old_root_info, i);
 	  int c = rdesc->refcount;
 	  rdesc->refcount = combine_controlled_uses_counters (c, d);
+	  if (rdesc->refcount != IPA_UNDESCRIBED_USE
+	      && ipa_get_param_load_dereferenced (old_root_info, i)
+	      && TREE_CODE (cst) == ADDR_EXPR
+	      && VAR_P (TREE_OPERAND (cst, 0)))
+	    {
+	      symtab_node *n = symtab_node::get (TREE_OPERAND (cst, 0));
+	      new_root->create_reference (n, IPA_REF_LOAD, NULL);
+	      if (dump_file)
+		fprintf (dump_file, "ipa-prop: Address IPA constant will reach "
+			 "a load so adding LOAD reference from %s to %s.\n",
+			 new_root->dump_name (), n->dump_name ());
+	    }
 	  if (rdesc->refcount == 0)
 	    {
 	      tree cst = ipa_get_jf_constant (jf);
 	      struct cgraph_node *n;
 	      gcc_checking_assert (TREE_CODE (cst) == ADDR_EXPR
-				   && TREE_CODE (TREE_OPERAND (cst, 0))
-				   == FUNCTION_DECL);
-	      n = cgraph_node::get (TREE_OPERAND (cst, 0));
+				   && ((TREE_CODE (TREE_OPERAND (cst, 0))
+					== FUNCTION_DECL)
+				       || VAR_P (TREE_OPERAND (cst, 0))));
+
+	      symtab_node *n = symtab_node::get (TREE_OPERAND (cst, 0));
 	      if (n)
 		{
 		  struct cgraph_node *clone;

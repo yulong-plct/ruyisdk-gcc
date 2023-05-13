@@ -11582,7 +11582,7 @@ static tree
 fold_builtin_carg (location_t loc, tree arg, tree type)
 {
   if (validate_arg (arg, COMPLEX_TYPE)
-      && TREE_CODE (TREE_TYPE (TREE_TYPE (arg))) == REAL_TYPE)
+      && SCALAR_FLOAT_TYPE_P (TREE_TYPE (TREE_TYPE (arg))))
     {
       tree atan2_fn = mathfn_built_in (type, BUILT_IN_ATAN2);
 
@@ -13064,7 +13064,7 @@ fold_builtin_next_arg (tree exp, bool va_start_p)
 	 We must also strip off INDIRECT_EXPR for C++ reference
 	 parameters.  */
       while (CONVERT_EXPR_P (arg)
-	     || TREE_CODE (arg) == INDIRECT_REF)
+	     || INDIRECT_REF_P (arg))
 	arg = TREE_OPERAND (arg, 0);
       if (arg != last_parm)
 	{
@@ -14456,9 +14456,9 @@ do_mpc_arg2 (tree arg0, tree arg1, tree type, int do_nonfinite,
   /* To proceed, MPFR must exactly represent the target floating point
      format, which only happens when the target base equals two.  */
   if (TREE_CODE (arg0) == COMPLEX_CST && !TREE_OVERFLOW (arg0)
-      && TREE_CODE (TREE_TYPE (TREE_TYPE (arg0))) == REAL_TYPE
+      && SCALAR_FLOAT_TYPE_P (TREE_TYPE (TREE_TYPE (arg0)))
       && TREE_CODE (arg1) == COMPLEX_CST && !TREE_OVERFLOW (arg1)
-      && TREE_CODE (TREE_TYPE (TREE_TYPE (arg1))) == REAL_TYPE
+      && SCALAR_FLOAT_TYPE_P (TREE_TYPE (TREE_TYPE (arg1)))
       && REAL_MODE_FORMAT (TYPE_MODE (TREE_TYPE (TREE_TYPE (arg0))))->b == 2)
     {
       const REAL_VALUE_TYPE *const re0 = TREE_REAL_CST_PTR (TREE_REALPART (arg0));

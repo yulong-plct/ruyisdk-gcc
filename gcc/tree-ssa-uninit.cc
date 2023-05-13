@@ -154,8 +154,53 @@ warn_uninit (enum opt_code wc, tree t, tree expr, tree var,
 	  && has_undefined_value_p (v)
 	  && zerop (gimple_assign_rhs2 (SSA_NAME_DEF_STMT (t))))
 	{
-	  expr = SSA_NAME_VAR (v);
-	  var = expr;
+	  tree v = gimple_assign_rhs1 (var_def_stmt);
+	  if (TREE_CODE (v) == SSA_NAME
+	      && has_undefined_value_p (v)
+	      && zerop (gimple_assign_rhs2 (var_def_stmt)))
+	    var = SSA_NAME_VAR (v);
+	}
+
+      if (gimple_call_internal_p (var_def_stmt, IFN_DEFERRED_INIT))
+	{
+	  /* Ignore the call to .DEFERRED_INIT that define the original
+	     var itself as the following case:
+		temp = .DEFERRED_INIT (4, 2, “alt_reloc");
+		alt_reloc = temp;
+	     In order to avoid generating warning for the fake usage
+	     at alt_reloc = temp.
+	  */
+	  tree lhs_var = NULL_TREE;
+
+	  /* Get the variable name from the 3rd argument of call.  */
+	  tree var_name = gimple_call_arg (var_def_stmt, 2);
+	  var_name = TREE_OPERAND (TREE_OPERAND (var_name, 0), 0);
+	  var_name_str = TREE_STRING_POINTER (var_name);
+
+	  if (is_gimple_assign (context))
+	    {
+	      if (VAR_P (gimple_assign_lhs (context)))
+		lhs_var = gimple_assign_lhs (context);
+	      else if (TREE_CODE (gimple_assign_lhs (context)) == SSA_NAME)
+		lhs_var = SSA_NAME_VAR (gimple_assign_lhs (context));
+	    }
+	  if (lhs_var)
+	    {
+	      /* Get the name string for the LHS_VAR.
+		 Refer to routine gimple_add_init_for_auto_var.  */
+	      if (DECL_NAME (lhs_var)
+		  && (strcmp (IDENTIFIER_POINTER (DECL_NAME (lhs_var)),
+		      var_name_str) == 0))
+		return;
+	      else if (!DECL_NAME (lhs_var))
+		{
+		  char lhs_var_name_str_buf[3 + (HOST_BITS_PER_INT + 2) / 3];
+		  sprintf (lhs_var_name_str_buf, "D.%u", DECL_UID (lhs_var));
+		  if (strcmp (lhs_var_name_str_buf, var_name_str) == 0)
+		    return;
+		}
+	    }
+	  gcc_assert (var_name_str && var_def_stmt);
 	}
     }
 
