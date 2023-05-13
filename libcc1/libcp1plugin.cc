@@ -869,7 +869,7 @@ plugin_reactivate_decl (cc1_plugin::connection *,
 {
   tree decl = convert_in (decl_in);
   tree scope = convert_in (scope_in);
-  gcc_assert (TREE_CODE (decl) == VAR_DECL
+  gcc_assert (VAR_P (decl)
 	      || TREE_CODE (decl) == FUNCTION_DECL
 	      || TREE_CODE (decl) == TYPE_DECL);
   cp_binding_level *b;
@@ -3452,7 +3452,7 @@ plugin_get_float_type (cc1_plugin::connection *,
       if (!result)
 	return convert_out (error_mark_node);
 
-      gcc_assert (TREE_CODE (result) == REAL_TYPE);
+      gcc_assert (SCALAR_FLOAT_TYPE_P (result));
       gcc_assert (BITS_PER_UNIT * size_in_bytes == TYPE_PRECISION (result));
 
       return convert_out (result);

@@ -1051,7 +1051,7 @@ has_static_fields (const_tree type)
     return false;
 
   for (tree fld = TYPE_FIELDS (type); fld; fld = TREE_CHAIN (fld))
-    if (TREE_CODE (fld) == VAR_DECL && DECL_NAME (fld))
+    if (VAR_P (fld) && DECL_NAME (fld))
       return true;
 
   return false;
@@ -3133,8 +3133,9 @@ dump_ada_declaration (pretty_printer *buffer, tree t, tree type, int spc)
       if (need_indent)
 	INDENT (spc);
 
-      if (TREE_CODE (t) == FIELD_DECL && DECL_NAME (t))
-	check_name (buffer, t);
+      if ((TREE_CODE (t) == FIELD_DECL || VAR_P (t))
+	  && DECL_NAME (t))
+	check_type_name_conflict (buffer, t);
 
       /* Print variable/type's name.  */
       dump_ada_node (buffer, t, t, spc, false, true);
@@ -3348,7 +3349,7 @@ dump_ada_structure (pretty_printer *buffer, tree node, tree type, bool nested,
   /* Print the static fields of the structure, if any.  */
   for (tree tmp = TYPE_FIELDS (node); tmp; tmp = TREE_CHAIN (tmp))
     {
-      if (TREE_CODE (tmp) == VAR_DECL && DECL_NAME (tmp))
+      if (VAR_P (tmp) && DECL_NAME (tmp))
 	{
 	  if (need_semicolon)
 	    {

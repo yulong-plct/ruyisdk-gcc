@@ -2583,11 +2583,23 @@ build_component_ref (location_t loc, tree datum, tree component,
       /* Special-case the error message for "ptr.field" for the case
 	 where the user has confused "." vs "->".  */
       rich_location richloc (line_table, loc);
-      /* "loc" should be the "." token.  */
-      richloc.add_fixit_replace ("->");
-      error_at (&richloc,
-		"%qE is a pointer; did you mean to use %<->%>?",
-		datum);
+      if (INDIRECT_REF_P (datum) && arrow_loc != UNKNOWN_LOCATION)
+	{
+	  richloc.add_fixit_insert_before (arrow_loc, "(*");
+	  richloc.add_fixit_insert_after (arrow_loc, ")");
+	  error_at (&richloc,
+		    "%qE is a pointer to pointer; did you mean to dereference "
+		    "it before applying %<->%> to it?",
+		    TREE_OPERAND (datum, 0));
+	}
+      else
+	{
+	  /* "loc" should be the "." token.  */
+	  richloc.add_fixit_replace ("->");
+	  error_at (&richloc,
+		    "%qE is a pointer; did you mean to use %<->%>?",
+		    datum);
+	}
       return error_mark_node;
     }
   else if (code != ERROR_MARK)
@@ -3307,7 +3319,7 @@ convert_argument (location_t ploc, tree function, tree fundecl,
       unsigned int formal_prec = TYPE_PRECISION (type);
 
       if (INTEGRAL_TYPE_P (type)
-	  && TREE_CODE (valtype) == REAL_TYPE)
+	  && SCALAR_FLOAT_TYPE_P (valtype))
 	warning_at (ploc, OPT_Wtraditional_conversion,
 		    "passing argument %d of %qE as integer rather "
 		    "than floating due to prototype",
@@ -3319,12 +3331,12 @@ convert_argument (location_t ploc, tree function, tree fundecl,
 		    "than complex due to prototype",
 		    argnum, rname);
       else if (TREE_CODE (type) == COMPLEX_TYPE
-	       && TREE_CODE (valtype) == REAL_TYPE)
+	       && SCALAR_FLOAT_TYPE_P (valtype))
 	warning_at (ploc, OPT_Wtraditional_conversion,
 		    "passing argument %d of %qE as complex rather "
 		    "than floating due to prototype",
 		    argnum, rname);
-      else if (TREE_CODE (type) == REAL_TYPE
+      else if (SCALAR_FLOAT_TYPE_P (type)
 	       && INTEGRAL_TYPE_P (valtype))
 	warning_at (ploc, OPT_Wtraditional_conversion,
 		    "passing argument %d of %qE as floating rather "
@@ -3336,7 +3348,7 @@ convert_argument (location_t ploc, tree function, tree fundecl,
 		    "passing argument %d of %qE as complex rather "
 		    "than integer due to prototype",
 		    argnum, rname);
-      else if (TREE_CODE (type) == REAL_TYPE
+      else if (SCALAR_FLOAT_TYPE_P (type)
 	       && TREE_CODE (valtype) == COMPLEX_TYPE)
 	warning_at (ploc, OPT_Wtraditional_conversion,
 		    "passing argument %d of %qE as floating rather "
@@ -3345,8 +3357,8 @@ convert_argument (location_t ploc, tree function, tree fundecl,
       /* ??? At some point, messages should be written about
 	 conversions between complex types, but that's too messy
 	 to do now.  */
-      else if (TREE_CODE (type) == REAL_TYPE
-	       && TREE_CODE (valtype) == REAL_TYPE)
+      else if (SCALAR_FLOAT_TYPE_P (type)
+	       && SCALAR_FLOAT_TYPE_P (valtype))
 	{
 	  /* Warn if any argument is passed as `float',
 	     since without a prototype it would be `double'.  */
@@ -4005,7 +4017,7 @@ pointer_diff (location_t loc, tree op0, tree op1, tree *instrument_expr)
   else
     inttype = restype;
 
-  if (TREE_CODE (target_type) == VOID_TYPE)
+  if (VOID_TYPE_P (target_type))
     pedwarn (loc, OPT_Wpointer_arith,
 	     "pointer of type %<void *%> used in subtraction");
   if (TREE_CODE (target_type) == FUNCTION_TYPE)
@@ -4702,7 +4714,7 @@ build_unary_op (location_t location, enum tree_code code, tree xarg,
 			    TREE_TYPE (argtype));
 	      }
 	    else if (TREE_CODE (TREE_TYPE (argtype)) == FUNCTION_TYPE
-		     || TREE_CODE (TREE_TYPE (argtype)) == VOID_TYPE)
+		     || VOID_TYPE_P (TREE_TYPE (argtype)))
 	      {
 		if (code == PREINCREMENT_EXPR || code == POSTINCREMENT_EXPR)
 		  pedwarn (location, OPT_Wpointer_arith,
@@ -6102,7 +6114,7 @@ build_c_cast (location_t loc, tree type, tree expr)
       /* Ignore any integer overflow caused by the cast.  */
       if (TREE_CODE (value) == INTEGER_CST && !FLOAT_TYPE_P (otype))
 	{
-	  if (CONSTANT_CLASS_P (ovalue) && TREE_OVERFLOW (ovalue))
+	  if (TREE_OVERFLOW_P (ovalue))
 	    {
 	      if (!TREE_OVERFLOW (value))
 		{
@@ -6328,7 +6340,7 @@ build_modify_expr (location_t location, tree lhs, tree lhs_origtype,
   if (TREE_CODE (lhs) == COMPONENT_REF
       && (TREE_CODE (lhstype) == INTEGER_TYPE
 	  || TREE_CODE (lhstype) == BOOLEAN_TYPE
-	  || TREE_CODE (lhstype) == REAL_TYPE
+	  || SCALAR_FLOAT_TYPE_P (lhstype)
 	  || TREE_CODE (lhstype) == ENUMERAL_TYPE))
     lhstype = TREE_TYPE (get_unwidened (lhs, 0));
 
@@ -7754,9 +7766,19 @@ store_init_value (location_t init_loc, tree decl, tree init, tree origtype)
   /* Digest the specified initializer into an expression.  */
 
   if (init)
-    npc = null_pointer_constant_p (init);
-  value = digest_init (init_loc, type, init, origtype, npc,
-      		       true, TREE_STATIC (decl));
+    {
+      npc = null_pointer_constant_p (init);
+      int_const_expr = (TREE_CODE (init) == INTEGER_CST
+			&& !TREE_OVERFLOW (init)
+			&& INTEGRAL_TYPE_P (TREE_TYPE (init)));
+      /* Not fully determined before folding.  */
+      arith_const_expr = true;
+    }
+  bool constexpr_p = (VAR_P (decl)
+		      && C_DECL_DECLARED_CONSTEXPR (decl));
+  value = digest_init (init_loc, type, init, origtype, npc, int_const_expr,
+		       arith_const_expr, true,
+		       TREE_STATIC (decl) || constexpr_p, constexpr_p);
 
   /* Store the expression if valid; else report error.  */
 
@@ -7924,6 +7946,161 @@ print_spelling (char *buffer)
       }
   *d++ = '\0';
   return buffer;
+}
+
+/* Check whether INIT, a floating or integer constant, is
+   representable in TYPE, a real floating type with the same radix or
+   a decimal floating type initialized with a binary floating
+   constant.  Return true if OK, false if not.  */
+static bool
+constexpr_init_fits_real_type (tree type, tree init)
+{
+  gcc_assert (SCALAR_FLOAT_TYPE_P (type));
+  gcc_assert (TREE_CODE (init) == INTEGER_CST || TREE_CODE (init) == REAL_CST);
+  if (TREE_CODE (init) == REAL_CST
+      && TYPE_MODE (TREE_TYPE (init)) == TYPE_MODE (type))
+    {
+      /* Same mode, no conversion required except for the case of
+	 signaling NaNs if the types are incompatible (e.g. double and
+	 long double with the same mode).  */
+      if (REAL_VALUE_ISSIGNALING_NAN (TREE_REAL_CST (init))
+	  && !comptypes (TYPE_MAIN_VARIANT (type),
+			 TYPE_MAIN_VARIANT (TREE_TYPE (init))))
+	return false;
+      return true;
+    }
+  if (TREE_CODE (init) == INTEGER_CST)
+    {
+      tree converted = build_real_from_int_cst (type, init);
+      bool fail = false;
+      wide_int w = real_to_integer (&TREE_REAL_CST (converted), &fail,
+				    TYPE_PRECISION (TREE_TYPE (init)));
+      return !fail && wi::eq_p (w, wi::to_wide (init));
+    }
+  if (REAL_VALUE_ISSIGNALING_NAN (TREE_REAL_CST (init)))
+    return false;
+  if ((REAL_VALUE_ISINF (TREE_REAL_CST (init))
+       && MODE_HAS_INFINITIES (TYPE_MODE (type)))
+      || (REAL_VALUE_ISNAN (TREE_REAL_CST (init))
+	  && MODE_HAS_NANS (TYPE_MODE (type))))
+    return true;
+  if (DECIMAL_FLOAT_TYPE_P (type)
+      && !DECIMAL_FLOAT_TYPE_P (TREE_TYPE (init)))
+    {
+      /* This is valid if the real number represented by the
+	 initializer can be exactly represented in the decimal
+	 type.  Compare the values using MPFR.  */
+      REAL_VALUE_TYPE t;
+      real_convert (&t, TYPE_MODE (type), &TREE_REAL_CST (init));
+      mpfr_t bin_val, dec_val;
+      mpfr_init2 (bin_val, REAL_MODE_FORMAT (TYPE_MODE (TREE_TYPE (init)))->p);
+      mpfr_init2 (dec_val, REAL_MODE_FORMAT (TYPE_MODE (TREE_TYPE (init)))->p);
+      mpfr_from_real (bin_val, &TREE_REAL_CST (init), MPFR_RNDN);
+      char string[256];
+      real_to_decimal (string, &t, sizeof string, 0, 1);
+      bool res = (mpfr_strtofr (dec_val, string, NULL, 10, MPFR_RNDN) == 0
+		  && mpfr_equal_p (bin_val, dec_val));
+      mpfr_clear (bin_val);
+      mpfr_clear (dec_val);
+      return res;
+    }
+  /* exact_real_truncate is not quite right here, since it doesn't
+     allow even an exact conversion to subnormal values.  */
+  REAL_VALUE_TYPE t;
+  real_convert (&t, TYPE_MODE (type), &TREE_REAL_CST (init));
+  return real_identical (&t, &TREE_REAL_CST (init));
+}
+
+/* Check whether INIT (location LOC) is valid as a 'constexpr'
+   initializer for type TYPE, and give an error if not.  INIT has
+   already been folded and verified to be constant.  INT_CONST_EXPR
+   and ARITH_CONST_EXPR say whether it is an integer constant
+   expression or arithmetic constant expression, respectively.  If
+   TYPE is not a scalar type, this function does nothing.  */
+
+static void
+check_constexpr_init (location_t loc, tree type, tree init,
+		      bool int_const_expr, bool arith_const_expr)
+{
+  if (POINTER_TYPE_P (type))
+    {
+      /* The initializer must be null.  */
+      if (TREE_CODE (init) != INTEGER_CST || !integer_zerop (init))
+	error_at (loc, "%<constexpr%> pointer initializer is not null");
+      return;
+    }
+  if (INTEGRAL_TYPE_P (type))
+    {
+      /* The initializer must be an integer constant expression,
+	 representable in the target type.  */
+      if (!int_const_expr)
+	error_at (loc, "%<constexpr%> integer initializer is not an "
+		  "integer constant expression");
+      if (!int_fits_type_p (init, type))
+	error_at (loc, "%<constexpr%> initializer not representable in "
+		  "type of object");
+      return;
+    }
+  /* We don't apply any extra checks to extension types such as vector
+     or fixed-point types.  */
+  if (TREE_CODE (type) != REAL_TYPE && TREE_CODE (type) != COMPLEX_TYPE)
+    return;
+  if (!arith_const_expr)
+    {
+      error_at (loc, "%<constexpr%> initializer is not an arithmetic "
+		"constant expression");
+      return;
+    }
+  /* We don't apply any extra checks to complex integers.  */
+  if (TREE_CODE (type) == COMPLEX_TYPE
+      && TREE_CODE (TREE_TYPE (type)) != REAL_TYPE)
+    return;
+  /* Following N3082, a real type cannot be initialized from a complex
+     type and a binary type cannot be initialized from a decimal type
+     (but initializing a decimal type from a binary type is OK).
+     Signaling NaN initializers are OK only if the types are
+     compatible (not just the same mode); all quiet NaN and infinity
+     initializations are considered to preserve the value.  */
+  if (TREE_CODE (TREE_TYPE (init)) == COMPLEX_TYPE
+      && SCALAR_FLOAT_TYPE_P (type))
+    {
+      error_at (loc, "%<constexpr%> initializer for a real type is of "
+		"complex type");
+      return;
+    }
+  if (SCALAR_FLOAT_TYPE_P (type)
+      && SCALAR_FLOAT_TYPE_P (TREE_TYPE (init))
+      && DECIMAL_FLOAT_TYPE_P (TREE_TYPE (init))
+      && !DECIMAL_FLOAT_TYPE_P (type))
+    {
+      error_at (loc, "%<constexpr%> initializer for a binary "
+		"floating-point type is of decimal type");
+      return;
+    }
+  bool fits;
+  if (TREE_CODE (type) == COMPLEX_TYPE)
+    {
+      switch (TREE_CODE (init))
+	{
+	case INTEGER_CST:
+	case REAL_CST:
+	  fits = constexpr_init_fits_real_type (TREE_TYPE (type), init);
+	  break;
+	case COMPLEX_CST:
+	  fits = (constexpr_init_fits_real_type (TREE_TYPE (type),
+						 TREE_REALPART (init))
+		  && constexpr_init_fits_real_type (TREE_TYPE (type),
+						    TREE_IMAGPART (init)));
+	  break;
+	default:
+	  gcc_unreachable ();
+	}
+    }
+  else
+    fits = constexpr_init_fits_real_type (type, init);
+  if (!fits)
+    error_at (loc, "%<constexpr%> initializer not representable in "
+	      "type of object");
 }
 
 /* Digest the parser output INIT as an initializer for type TYPE.
@@ -10861,7 +11038,7 @@ c_finish_return (location_t loc, tree retval, tree origtype)
 		    "declared here");
 	}
     }
-  else if (valtype == NULL_TREE || TREE_CODE (valtype) == VOID_TYPE)
+  else if (valtype == NULL_TREE || VOID_TYPE_P (valtype))
     {
       current_function_returns_null = 1;
       bool warned_here;
@@ -10893,7 +11070,7 @@ c_finish_return (location_t loc, tree retval, tree origtype)
       save = in_late_binary_op;
       if (TREE_CODE (TREE_TYPE (res)) == BOOLEAN_TYPE
 	  || TREE_CODE (TREE_TYPE (res)) == COMPLEX_TYPE
-	  || (TREE_CODE (TREE_TYPE (t)) == REAL_TYPE
+	  || (SCALAR_FLOAT_TYPE_P (TREE_TYPE (t))
 	      && (TREE_CODE (TREE_TYPE (res)) == INTEGER_TYPE
 		  || TREE_CODE (TREE_TYPE (res)) == ENUMERAL_TYPE)
 	      && sanitize_flags_p (SANITIZE_FLOAT_CAST)))
@@ -13106,6 +13283,18 @@ handle_omp_array_sections_1 (tree c, tree t, vec<tree> &types,
 		    t, omp_clause_code_name[OMP_CLAUSE_CODE (c)]);
 	  return error_mark_node;
 	}
+      while (INDIRECT_REF_P (t))
+	{
+	  t = TREE_OPERAND (t, 0);
+	  STRIP_NOPS (t);
+	  if (TREE_CODE (t) == POINTER_PLUS_EXPR)
+	    t = TREE_OPERAND (t, 0);
+	}
+      while (TREE_CODE (t) == COMPOUND_EXPR)
+	{
+	  t = TREE_OPERAND (t, 1);
+	  STRIP_NOPS (t);
+	}
       if (TREE_CODE (t) == COMPONENT_REF
 	  && (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_MAP
 	      || OMP_CLAUSE_CODE (c) == OMP_CLAUSE_TO
@@ -13127,6 +13316,15 @@ handle_omp_array_sections_1 (tree c, tree t, vec<tree> &types,
 		  return error_mark_node;
 		}
 	      t = TREE_OPERAND (t, 0);
+	      while (TREE_CODE (t) == MEM_REF
+		     || INDIRECT_REF_P (t)
+		     || TREE_CODE (t) == ARRAY_REF)
+		{
+		  t = TREE_OPERAND (t, 0);
+		  STRIP_NOPS (t);
+		  if (TREE_CODE (t) == POINTER_PLUS_EXPR)
+		    t = TREE_OPERAND (t, 0);
+		}
 	      if (ort == C_ORT_ACC && TREE_CODE (t) == MEM_REF)
 		{
 		  if (maybe_ne (mem_ref_offset (t), 0))
@@ -14692,8 +14890,31 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 		  if (TREE_CODE (t) == COMPONENT_REF
 		      && TREE_CODE (TREE_TYPE (t)) == ARRAY_TYPE)
 		    {
-		      while (TREE_CODE (t) == COMPONENT_REF)
-			t = TREE_OPERAND (t, 0);
+		      do
+			{
+			  t = TREE_OPERAND (t, 0);
+			  if (TREE_CODE (t) == MEM_REF
+			      || INDIRECT_REF_P (t))
+			    {
+			      t = TREE_OPERAND (t, 0);
+			      STRIP_NOPS (t);
+			      if (TREE_CODE (t) == POINTER_PLUS_EXPR)
+				t = TREE_OPERAND (t, 0);
+			    }
+			}
+		      while (TREE_CODE (t) == COMPONENT_REF
+			     || TREE_CODE (t) == ARRAY_REF);
+
+		      if (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_MAP
+			  && OMP_CLAUSE_MAP_IMPLICIT (c)
+			  && (bitmap_bit_p (&map_head, DECL_UID (t))
+			      || bitmap_bit_p (&map_field_head, DECL_UID (t))
+			      || bitmap_bit_p (&map_firstprivate_head,
+					       DECL_UID (t))))
+			{
+			  remove = true;
+			  break;
+			}
 		      if (bitmap_bit_p (&map_field_head, DECL_UID (t)))
 			break;
 		      if (bitmap_bit_p (&map_head, DECL_UID (t)))
@@ -14750,6 +14971,32 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	       bias) to zero here, so it is not set erroneously to the pointer
 	       size later on in gimplify.cc.  */
 	    OMP_CLAUSE_SIZE (c) = size_zero_node;
+	  while (INDIRECT_REF_P (t)
+		 || TREE_CODE (t) == ARRAY_REF)
+	    {
+	      t = TREE_OPERAND (t, 0);
+	      STRIP_NOPS (t);
+	      if (TREE_CODE (t) == POINTER_PLUS_EXPR)
+		t = TREE_OPERAND (t, 0);
+	    }
+	  while (TREE_CODE (t) == COMPOUND_EXPR)
+	    {
+	      t = TREE_OPERAND (t, 1);
+	      STRIP_NOPS (t);
+	    }
+	  indir_component_ref_p = false;
+	  if (TREE_CODE (t) == COMPONENT_REF
+	      && (TREE_CODE (TREE_OPERAND (t, 0)) == MEM_REF
+		  || INDIRECT_REF_P (TREE_OPERAND (t, 0))
+		  || TREE_CODE (TREE_OPERAND (t, 0)) == ARRAY_REF))
+	    {
+	      t = TREE_OPERAND (TREE_OPERAND (t, 0), 0);
+	      indir_component_ref_p = true;
+	      STRIP_NOPS (t);
+	      if (TREE_CODE (t) == POINTER_PLUS_EXPR)
+		t = TREE_OPERAND (t, 0);
+	    }
+
 	  if (TREE_CODE (t) == COMPONENT_REF
 	      && OMP_CLAUSE_CODE (c) != OMP_CLAUSE__CACHE_)
 	    {
@@ -14792,6 +15039,15 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 				  "cannot dereference %qE in %qs clause", t,
 				  omp_clause_code_name[OMP_CLAUSE_CODE (c)]);
 		      else
+			t = TREE_OPERAND (t, 0);
+		    }
+		  while (TREE_CODE (t) == MEM_REF
+			 || INDIRECT_REF_P (t)
+			 || TREE_CODE (t) == ARRAY_REF)
+		    {
+		      t = TREE_OPERAND (t, 0);
+		      STRIP_NOPS (t);
+		      if (TREE_CODE (t) == POINTER_PLUS_EXPR)
 			t = TREE_OPERAND (t, 0);
 		    }
 		}
@@ -15282,7 +15538,7 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 		  if (TREE_CODE (t) == POINTER_PLUS_EXPR)
 		    t = TREE_OPERAND (t, 0);
 		  if (TREE_CODE (t) == ADDR_EXPR
-		      || TREE_CODE (t) == INDIRECT_REF)
+		      || INDIRECT_REF_P (t))
 		    t = TREE_OPERAND (t, 0);
 		  if (DECL_P (t))
 		    bitmap_clear_bit (&aligned_head, DECL_UID (t));
@@ -15314,6 +15570,20 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	else if (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_REDUCTION
 		 && reduction_seen == -2)
 	  OMP_CLAUSE_REDUCTION_INSCAN (c) = 0;
+	if (target_in_reduction_seen
+	    && OMP_CLAUSE_CODE (c) == OMP_CLAUSE_MAP)
+	  {
+	    tree t = OMP_CLAUSE_DECL (c);
+	    while (handled_component_p (t)
+		   || INDIRECT_REF_P (t)
+		   || TREE_CODE (t) == ADDR_EXPR
+		   || TREE_CODE (t) == MEM_REF
+		   || TREE_CODE (t) == NON_LVALUE_EXPR)
+	      t = TREE_OPERAND (t, 0);
+	    if (DECL_P (t)
+		&& bitmap_bit_p (&oacc_reduction_head, DECL_UID (t)))
+	      OMP_CLAUSE_MAP_IN_REDUCTION (c) = 1;
+	  }
 
 	if (remove)
 	  *pc = OMP_CLAUSE_CHAIN (c);
