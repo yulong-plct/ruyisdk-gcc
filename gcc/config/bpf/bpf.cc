@@ -925,6 +925,503 @@ bpf_debug_unwind_info ()
 #undef TARGET_ASM_ALIGNED_DI_OP
 #define TARGET_ASM_ALIGNED_DI_OP "\t.dword\t"
 
+
+/* BPF Compile Once - Run Everywhere (CO-RE) support routines.
+
+   BPF CO-RE is supported in two forms:
+   - A target builtin, __builtin_preserve_access_index
+
+     This builtin accepts a single argument. Any access to an aggregate data
+     structure (struct, union or array) within the argument will be recorded by
+     the CO-RE machinery, resulting in a relocation record being placed in the
+     .BTF.ext section of the output.
+
+     It is implemented in bpf_resolve_overloaded_builtin () and
+     bpf_expand_builtin (), using the supporting routines below.
+
+   - An attribute, __attribute__((preserve_access_index))
+
+     This attribute can be applied to struct and union types. Any access to a
+     type with this attribute will be recorded by the CO-RE machinery.
+
+     The pass pass_bpf_core_attr, below, implements support for
+     this attribute.  */
+
+/* Traverse the subtree under NODE, which is expected to be some form of
+   aggregate access the CO-RE machinery cares about (like a read of a member of
+   a struct or union), collecting access indices for the components and storing
+   them in the vector referenced by ACCESSORS.
+
+   Return the ultimate (top-level) container of the aggregate access. In general,
+   this will be a VAR_DECL or some kind of REF.
+
+   Note that the accessors are computed *in reverse order* of how the BPF
+   CO-RE machinery defines them. The vector needs to be reversed (or simply
+   output in reverse order) for the .BTF.ext relocation information.  */
+
+static tree
+bpf_core_compute (tree node, vec<unsigned int> *accessors)
+{
+
+  if (TREE_CODE (node) == ADDR_EXPR)
+    node = TREE_OPERAND (node, 0);
+
+  else if (INDIRECT_REF_P (node)
+	   || TREE_CODE (node) == POINTER_PLUS_EXPR)
+    {
+      accessors->safe_push (0);
+      return TREE_OPERAND (node, 0);
+    }
+
+  while (1)
+    {
+      switch (TREE_CODE (node))
+	{
+	case COMPONENT_REF:
+	  accessors->safe_push (bpf_core_get_index (TREE_OPERAND (node, 1)));
+	  break;
+
+	case ARRAY_REF:
+	case ARRAY_RANGE_REF:
+	  accessors->safe_push (bpf_core_get_index (node));
+	  break;
+
+	case MEM_REF:
+	  accessors->safe_push (bpf_core_get_index (node));
+	  if (TREE_CODE (TREE_OPERAND (node, 0)) == ADDR_EXPR)
+	    node = TREE_OPERAND (TREE_OPERAND (node, 0), 0);
+	  goto done;
+
+	default:
+	  goto done;
+	}
+      node = TREE_OPERAND (node, 0);
+    }
+ done:
+  return node;
+
+}
+
+/* Compute the index of the NODE in its immediate container.
+   NODE should be a FIELD_DECL (i.e. of struct or union), or an ARRAY_REF. */
+static int
+bpf_core_get_index (const tree node)
+{
+  enum tree_code code = TREE_CODE (node);
+
+  if (code == FIELD_DECL)
+    {
+      /* Lookup the index from the BTF information.  Some struct/union members
+	 may not be emitted in BTF; only the BTF container has enough
+	 information to compute the correct index.  */
+      int idx = bpf_core_get_sou_member_index (ctf_get_tu_ctfc (), node);
+      if (idx >= 0)
+	return idx;
+    }
+
+  else if (code == ARRAY_REF || code == ARRAY_RANGE_REF || code == MEM_REF)
+    {
+      /* For array accesses, the index is operand 1.  */
+      tree index = TREE_OPERAND (node, 1);
+
+      /* If the indexing operand is a constant, extracting is trivial.  */
+      if (TREE_CODE (index) == INTEGER_CST && tree_fits_shwi_p (index))
+	return tree_to_shwi (index);
+    }
+
+  return -1;
+}
+
+/* Synthesize a new builtin function declaration with signature TYPE.
+   Used by bpf_resolve_overloaded_builtin to resolve calls to
+   __builtin_preserve_access_index.  */
+
+static tree
+bpf_core_newdecl (tree type, enum bpf_builtins which)
+{
+  tree rettype;
+  char name[80];
+  static unsigned long pai_count = 0;
+  static unsigned long pfi_count = 0;
+
+  switch (which)
+    {
+    case BPF_BUILTIN_PRESERVE_ACCESS_INDEX:
+      {
+	rettype = build_function_type_list (type, type, NULL);
+	int len = snprintf (name, sizeof (name), "%s", "__builtin_pai_");
+	len = snprintf (name + len, sizeof (name) - len, "%lu", pai_count++);
+      }
+      break;
+
+    case BPF_BUILTIN_PRESERVE_FIELD_INFO:
+      {
+	rettype = build_function_type_list (unsigned_type_node, type,
+					    unsigned_type_node, NULL);
+	int len = snprintf (name, sizeof (name), "%s", "__builtin_pfi_");
+	len = snprintf (name + len, sizeof (name) - len, "%lu", pfi_count++);
+      }
+      break;
+
+    default:
+      gcc_unreachable ();
+    }
+
+  return add_builtin_function_ext_scope (name, rettype, -which,
+					 BUILT_IN_MD, NULL, NULL_TREE);
+}
+
+/* Return whether EXPR could access some aggregate data structure that
+   BPF CO-RE support needs to know about.  */
+
+static bool
+bpf_core_is_maybe_aggregate_access (tree expr)
+{
+  switch (TREE_CODE (expr))
+    {
+    case COMPONENT_REF:
+    case BIT_FIELD_REF:
+    case ARRAY_REF:
+    case ARRAY_RANGE_REF:
+      return true;
+    case ADDR_EXPR:
+    case NOP_EXPR:
+      return bpf_core_is_maybe_aggregate_access (TREE_OPERAND (expr, 0));
+    default:
+      return false;
+    }
+}
+
+struct core_walk_data {
+  location_t loc;
+  enum bpf_builtins which;
+  tree arg;
+};
+
+/* Callback function used with walk_tree from bpf_resolve_overloaded_builtin.  */
+
+static tree
+bpf_core_walk (tree *tp, int *walk_subtrees, void *data)
+{
+  struct core_walk_data *dat = (struct core_walk_data *) data;
+
+  /* If this is a type, don't do anything. */
+  if (TYPE_P (*tp))
+    {
+      *walk_subtrees = 0;
+      return NULL_TREE;
+    }
+
+  /* Build a new function call to a type-resolved temporary builtin for the
+     desired operation, and pass along args as necessary.  */
+  tree newdecl = bpf_core_newdecl (TREE_TYPE (*tp), dat->which);
+
+  if (dat->which == BPF_BUILTIN_PRESERVE_ACCESS_INDEX)
+    {
+      if (bpf_core_is_maybe_aggregate_access (*tp))
+	{
+	  *tp = build_call_expr_loc (dat->loc, newdecl, 1, *tp);
+	  *walk_subtrees = 0;
+	}
+    }
+  else
+    {
+      *tp = build_call_expr_loc (dat->loc, newdecl, 2, *tp, dat->arg);
+      *walk_subtrees = 0;
+    }
+
+  return NULL_TREE;
+}
+
+/* Implement target hook small_register_classes_for_mode_p.  */
+
+static bool
+bpf_small_register_classes_for_mode_p (machine_mode mode)
+{
+  if (TARGET_XBPF)
+    return 1;
+  else
+    /* Avoid putting function addresses in registers, as calling these
+       is not supported in eBPF.  */
+    return (mode != FUNCTION_MODE);
+}
+
+#undef TARGET_SMALL_REGISTER_CLASSES_FOR_MODE_P
+#define TARGET_SMALL_REGISTER_CLASSES_FOR_MODE_P \
+  bpf_small_register_classes_for_mode_p
+
+/* Return whether EXPR is a valid first argument for a call to
+   __builtin_preserve_field_info.  */
+
+static bool
+bpf_is_valid_preserve_field_info_arg (tree expr)
+{
+  switch (TREE_CODE (expr))
+    {
+    case COMPONENT_REF:
+    case BIT_FIELD_REF:
+    case ARRAY_REF:
+    case ARRAY_RANGE_REF:
+      return true;
+    case NOP_EXPR:
+      return bpf_is_valid_preserve_field_info_arg (TREE_OPERAND (expr, 0));
+    case ADDR_EXPR:
+      /* Do not accept ADDR_EXPRs like &foo.bar, but do accept accesses like
+	 foo.baz where baz is an array.  */
+      return (TREE_CODE (TREE_TYPE (TREE_OPERAND (expr, 0))) == ARRAY_TYPE);
+    default:
+      return false;
+    }
+}
+
+/* Implement TARGET_RESOLVE_OVERLOADED_BUILTIN (see gccint manual section
+   Target Macros::Misc.).
+   Used for CO-RE support builtins such as __builtin_preserve_access_index
+   and __builtin_preserve_field_info.
+
+   FNDECL is the declaration of the builtin, and ARGLIST is the list of
+   arguments passed to it, and is really a vec<tree,_> *.  */
+
+static tree
+bpf_resolve_overloaded_builtin (location_t loc, tree fndecl, void *arglist)
+{
+  enum bpf_builtins which = (enum bpf_builtins) DECL_MD_FUNCTION_CODE (fndecl);
+
+  if (which < BPF_BUILTIN_PRESERVE_ACCESS_INDEX
+      || which >= BPF_BUILTIN_MAX)
+    return NULL_TREE;
+
+  vec<tree, va_gc> *params = static_cast<vec<tree, va_gc> *> (arglist);
+  unsigned n_params = params ? params->length() : 0;
+
+  if (!(which == BPF_BUILTIN_PRESERVE_ACCESS_INDEX && n_params == 1)
+      && n_params != 2)
+    {
+      error_at (loc, "wrong number of arguments");
+      return error_mark_node;
+    }
+
+  tree param = (*params)[0];
+
+  /* If not generating BPF_CORE information, preserve_access_index does
+     nothing, and simply "resolves to" the argument.  */
+  if (which == BPF_BUILTIN_PRESERVE_ACCESS_INDEX && !TARGET_BPF_CORE)
+    return param;
+
+  /* For __builtin_preserve_field_info, enforce that the parameter is exactly a
+     field access and not a more complex expression.  */
+  else if (which == BPF_BUILTIN_PRESERVE_FIELD_INFO
+	   && !bpf_is_valid_preserve_field_info_arg (param))
+    {
+      error_at (EXPR_LOC_OR_LOC (param, loc),
+		"argument is not a field access");
+      return error_mark_node;
+    }
+
+  /* Do remove_c_maybe_const_expr for the arg.
+     TODO: WHY do we have to do this here? Why doesn't c-typeck take care
+     of it before or after this hook? */
+  if (TREE_CODE (param) == C_MAYBE_CONST_EXPR)
+    param = C_MAYBE_CONST_EXPR_EXPR (param);
+
+  /* Construct a new function declaration with the correct type, and return
+     a call to it.
+
+     Calls with statement-expressions, for example:
+     _(({ foo->a = 1; foo->u[2].b = 2; }))
+     require special handling.
+
+     We rearrange this into a new block scope in which each statement
+     becomes a unique builtin call:
+     {
+       _ ({ foo->a = 1;});
+       _ ({ foo->u[2].b = 2;});
+     }
+
+     This ensures that all the relevant information remains within the
+     expression trees the builtin finally gets.  */
+
+  struct core_walk_data data;
+  data.loc = loc;
+  data.which = which;
+  if (which == BPF_BUILTIN_PRESERVE_ACCESS_INDEX)
+    data.arg = NULL_TREE;
+  else
+    data.arg = (*params)[1];
+
+  walk_tree (&param, bpf_core_walk, (void *) &data, NULL);
+
+  return param;
+}
+
+#undef TARGET_RESOLVE_OVERLOADED_BUILTIN
+#define TARGET_RESOLVE_OVERLOADED_BUILTIN bpf_resolve_overloaded_builtin
+
+
+/* Handling for __attribute__((preserve_access_index)) for BPF CO-RE support.
+
+   This attribute marks a structure/union/array type as "preseve", so that
+   every access to that type should be recorded and replayed by the BPF loader;
+   this is just the same functionality as __builtin_preserve_access_index,
+   but in the form of an attribute for an entire aggregate type.
+
+   Note also that nested structs behave as though they all have the attribute.
+   For example:
+     struct X { int a; };
+     struct Y { struct X bar} __attribute__((preserve_access_index));
+     struct Y foo;
+     foo.bar.a;
+   will record access all the way to 'a', even though struct X does not have
+   the preserve_access_index attribute.
+
+   This is to follow LLVM behavior.
+
+   This pass finds all accesses to objects of types marked with the attribute,
+   and wraps them in the same "low-level" builtins used by the builtin version.
+   All logic afterwards is therefore identical to the builtin version of
+   preserve_access_index.  */
+
+/* True iff tree T accesses any member of a struct/union/class which is marked
+   with the PRESERVE_ACCESS_INDEX attribute.  */
+
+static bool
+is_attr_preserve_access (tree t)
+{
+  if (t == NULL_TREE)
+    return false;
+
+  poly_int64 bitsize, bitpos;
+  tree var_off;
+  machine_mode mode;
+  int sign, reverse, vol;
+
+  tree base = get_inner_reference (t, &bitsize, &bitpos, &var_off, &mode,
+				   &sign, &reverse, &vol);
+
+  if (TREE_CODE (base) == MEM_REF)
+    {
+      return lookup_attribute ("preserve_access_index",
+			       TYPE_ATTRIBUTES (TREE_TYPE (base)));
+    }
+
+  if (TREE_CODE (t) == COMPONENT_REF)
+    {
+      /* preserve_access_index propegates into nested structures,
+	 so check whether this is a component of another component
+	 which in turn is part of such a struct.  */
+
+      const tree op = TREE_OPERAND (t, 0);
+
+      if (TREE_CODE (op) == COMPONENT_REF)
+	return is_attr_preserve_access (op);
+
+      const tree container = DECL_CONTEXT (TREE_OPERAND (t, 1));
+
+      return lookup_attribute ("preserve_access_index",
+			       TYPE_ATTRIBUTES (container));
+    }
+
+  else if (TREE_CODE (t) == ADDR_EXPR)
+    return is_attr_preserve_access (TREE_OPERAND (t, 0));
+
+  return false;
+}
+
+/* The body of pass_bpf_core_attr. Scan RTL for accesses to structs/unions
+   marked with __attribute__((preserve_access_index)) and generate a CO-RE
+   relocation for any such access.  */
+
+static void
+handle_attr_preserve (function *fn)
+{
+  basic_block bb;
+  rtx_insn *insn;
+  FOR_EACH_BB_FN (bb, fn)
+    {
+      FOR_BB_INSNS (bb, insn)
+	{
+	  if (!NONJUMP_INSN_P (insn))
+	    continue;
+	  rtx pat = PATTERN (insn);
+	  if (GET_CODE (pat) != SET)
+	    continue;
+
+	  start_sequence();
+
+	  for (int i = 0; i < 2; i++)
+	    {
+	      rtx mem = XEXP (pat, i);
+	      if (MEM_P (mem))
+		{
+		  tree expr = MEM_EXPR (mem);
+		  if (!expr)
+		    continue;
+
+		  if (TREE_CODE (expr) == MEM_REF
+		      && TREE_CODE (TREE_OPERAND (expr, 0)) == SSA_NAME)
+		    {
+		      gimple *def_stmt = SSA_NAME_DEF_STMT (TREE_OPERAND (expr, 0));
+		      if (def_stmt && is_gimple_assign (def_stmt))
+			expr = gimple_assign_rhs1 (def_stmt);
+		    }
+
+		  if (is_attr_preserve_access (expr))
+		    maybe_make_core_relo (expr, BPF_RELO_FIELD_BYTE_OFFSET);
+		}
+	    }
+	  rtx_insn *seq = get_insns ();
+	  end_sequence ();
+	  emit_insn_before (seq, insn);
+	}
+    }
+}
+
+
+/* This pass finds accesses to structures marked with the BPF target attribute
+   __attribute__((preserve_access_index)). For every such access, a CO-RE
+   relocation record is generated, to be output in the .BTF.ext section.  */
+
+namespace {
+
+const pass_data pass_data_bpf_core_attr =
+{
+  RTL_PASS, /* type */
+  "bpf_core_attr", /* name */
+  OPTGROUP_NONE, /* optinfo_flags */
+  TV_NONE, /* tv_id */
+  0, /* properties_required */
+  0, /* properties_provided */
+  0, /* properties_destroyed */
+  0, /* todo_flags_start */
+  0, /* todo_flags_finish */
+};
+
+class pass_bpf_core_attr : public rtl_opt_pass
+{
+public:
+  pass_bpf_core_attr (gcc::context *ctxt)
+    : rtl_opt_pass (pass_data_bpf_core_attr, ctxt)
+  {}
+
+  virtual bool gate (function *) { return TARGET_BPF_CORE; }
+  virtual unsigned int execute (function *);
+};
+
+unsigned int
+pass_bpf_core_attr::execute (function *fn)
+{
+  handle_attr_preserve (fn);
+  return 0;
+}
+
+} /* Anonymous namespace.  */
+
+rtl_opt_pass *
+make_pass_bpf_core_attr (gcc::context *ctxt)
+{
+  return new pass_bpf_core_attr (ctxt);
+}
+
 /* Finally, build the GCC target.  */
 
 struct gcc_target targetm = TARGET_INITIALIZER;

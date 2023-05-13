@@ -6102,8 +6102,7 @@ csky_handle_isr_attribute (tree *node, tree name, tree args, int flags,
     }
   else
     {
-      if (TREE_CODE (*node) == FUNCTION_TYPE
-	  || TREE_CODE (*node) == METHOD_TYPE)
+      if (FUNC_OR_METHOD_TYPE_P (*node))
 	{
 	  if (csky_isr_value (args) == CSKY_FT_UNKNOWN)
 	    {
@@ -6112,8 +6111,7 @@ csky_handle_isr_attribute (tree *node, tree name, tree args, int flags,
 	    }
 	}
       else if (TREE_CODE (*node) == POINTER_TYPE
-	       && (TREE_CODE (TREE_TYPE (*node)) == FUNCTION_TYPE
-		   || TREE_CODE (TREE_TYPE (*node)) == METHOD_TYPE)
+	       && FUNC_OR_METHOD_TYPE_P (TREE_TYPE (*node))
 	       && csky_isr_value (args) != CSKY_FT_UNKNOWN)
 	{
 	  *node = build_variant_type_copy (*node);
@@ -6847,6 +6845,34 @@ csky_init_cumulative_args (CUMULATIVE_ARGS *pcum, tree fntype,
   memset(pcum, 0, sizeof(*pcum));
   if (stdarg_p (fntype))
     pcum->is_stdarg = true;
+}
+
+
+/* Implement the TARGET_INIT_BUILTINS target macro.  */
+
+void
+csky_init_builtins (void)
+{
+  /* Init fp16.  */
+  static tree csky_floatHF_type_node = make_node (REAL_TYPE);
+  TYPE_PRECISION (csky_floatHF_type_node) = GET_MODE_PRECISION (HFmode);
+  layout_type (csky_floatHF_type_node);
+  (*lang_hooks.types.register_builtin_type) (csky_floatHF_type_node, "__fp16");
+}
+
+
+/* Implement TARGET_MANGLE_TYPE.  */
+
+static const char *
+csky_mangle_type (const_tree type)
+{
+  if (SCALAR_FLOAT_TYPE_P (type)
+      && TYPE_PRECISION (type) == 16
+      && TYPE_MAIN_VARIANT (type) != float16_type_node)
+    return "Dh";
+
+  /* Use the default mangling.  */
+  return NULL;
 }
 
 struct gcc_target targetm = TARGET_INITIALIZER;
