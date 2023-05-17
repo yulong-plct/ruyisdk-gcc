@@ -2889,7 +2889,7 @@ vect_reanalyze_as_main_loop (loop_vec_info loop_vinfo, unsigned int *n_stmts)
 		     "***** Reanalyzing as a main loop with vector mode %s\n",
 		     GET_MODE_NAME (loop_vinfo->vector_mode));
 
-  if (!main_loop_vinfo && suggested_unroll_factor > 1)
+  if (res && !main_loop_vinfo && suggested_unroll_factor > 1)
     {
       if (dump_enabled_p ())
 	dump_printf_loc (MSG_NOTE, vect_location,
