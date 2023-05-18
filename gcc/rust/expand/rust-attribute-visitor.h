@@ -19,13 +19,21 @@
 #include "rust-ast-visitor.h"
 #include "rust-ast.h"
 #include "rust-macro-expand.h"
+#include "rust-proc-macro.h"
 
 namespace Rust {
 // Visitor used to expand attributes.
 class AttrVisitor : public AST::ASTVisitor
 {
-private:
-  MacroExpander &expander;
+public:
+  ExpandVisitor (MacroExpander &expander, ProcMacroExpander &proc_expander)
+    : expander (expander), proc_expander (proc_expander)
+  {}
+
+  /* Expand all of the macro invocations currently contained in a crate */
+  void go (AST::Crate &crate);
+
+  /* Maybe expand a macro invocation in lieu of an expression */
   void maybe_expand_expr (std::unique_ptr<AST::Expr> &expr);
   void maybe_expand_type (std::unique_ptr<AST::Type> &expr);
 
@@ -299,5 +307,6 @@ public:
 
 private:
   MacroExpander &expander;
+  ProcMacroExpander &proc_expander;
 };
 } // namespace Rust

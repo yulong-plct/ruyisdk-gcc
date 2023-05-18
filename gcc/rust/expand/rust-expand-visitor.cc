@@ -17,6 +17,11 @@
 // <http://www.gnu.org/licenses/>.
 
 #include "rust-expand-visitor.h"
+#include "rust-proc-macro.h"
+#include "rust-attributes.h"
+#include "rust-ast.h"
+#include "rust-type.h"
+#include "rust-derive.h"
 
 namespace Rust {
 
@@ -1351,10 +1356,45 @@ ExpandVisitor::visit (AST::BareFunctionType &type)
 
 template <typename T>
 void
+ExpandVisitor::expand_outer_attribute (T &item, AST::SimplePath &path)
+{
+  // FIXME: Retrieve path from segments + local use statements instead of string
+  proc_expander.expand_attribute_proc_macro (item, path);
+}
+
+template <typename T>
+void
+ExpandVisitor::visit_outer_attrs (T &item, std::vector<AST::Attribute> &attrs)
+{
+  for (auto it = attrs.begin (); it != attrs.end (); /* erase => No increment*/)
+    {
+      auto &current = *it;
+
+      if (!is_builtin (current) && !is_derive (current))
+	{
+	  it = attrs.erase (it);
+	  expand_outer_attribute (item, current.get_path ());
+	}
+      else
+	{
+	  it++;
+	}
+    }
+}
+
+template <typename T>
+void
+ExpandVisitor::visit_outer_attrs (T &item)
+{
+  visit_outer_attrs (item, item.get_outer_attrs ());
+}
+
+template <typename T>
+void
 ExpandVisitor::expand_inner_attribute (T &item, AST::SimplePath &path)
 {
-  // TODO: Warn about instability ?
-  // FIXME: Implement expansion for that particular path
+  // FIXME: Retrieve path from segments + local use statements instead of string
+  proc_expander.expand_attribute_proc_macro (item, path);
 }
 
 template <typename T>
