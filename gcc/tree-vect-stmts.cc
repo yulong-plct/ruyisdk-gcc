@@ -4990,7 +4990,7 @@ vectorizable_conversion (vec_info *vinfo,
   tree scalar_dest;
   tree op0, op1 = NULL_TREE;
   loop_vec_info loop_vinfo = dyn_cast <loop_vec_info> (vinfo);
-  tree_code tc1;
+  tree_code tc1, tc2;
   code_helper code, code1, code2;
   code_helper codecvt1 = ERROR_MARK, codecvt2 = ERROR_MARK;
   tree new_temp;
@@ -5206,66 +5206,30 @@ vectorizable_conversion (vec_info *vinfo,
 	break;
       }
 
-      /* For conversions between float and integer types try whether
-	 we can use intermediate signed integer types to support the
+      /* For conversions between float and smaller integer types try whether we
+	 can use intermediate signed integer types to support the
 	 conversion.  */
-      if (GET_MODE_SIZE (lhs_mode) != GET_MODE_SIZE (rhs_mode)
-	  && (code == FLOAT_EXPR ||
-	      (code == FIX_TRUNC_EXPR && !flag_trapping_math)))
+      if ((code == FLOAT_EXPR
+	   && GET_MODE_SIZE (lhs_mode) > GET_MODE_SIZE (rhs_mode))
+	  || (code == FIX_TRUNC_EXPR
+	      && GET_MODE_SIZE (rhs_mode) > GET_MODE_SIZE (lhs_mode)))
 	{
-	  bool demotion = GET_MODE_SIZE (rhs_mode) > GET_MODE_SIZE (lhs_mode);
 	  bool float_expr_p = code == FLOAT_EXPR;
-	  unsigned short target_size;
-	  scalar_mode intermediate_mode;
-	  if (demotion)
-	    {
-	      intermediate_mode = lhs_mode;
-	      target_size = GET_MODE_SIZE (rhs_mode);
-	    }
-	  else
-	    {
-	      target_size = GET_MODE_SIZE (lhs_mode);
-	      if (!int_mode_for_size
-		  (GET_MODE_BITSIZE (rhs_mode), 0).exists (&intermediate_mode))
-		goto unsupported;
-	    }
+	  scalar_mode imode = float_expr_p ? rhs_mode : lhs_mode;
+	  fltsz = GET_MODE_SIZE (float_expr_p ? lhs_mode : rhs_mode);
 	  code1 = float_expr_p ? code : NOP_EXPR;
 	  codecvt1 = float_expr_p ? NOP_EXPR : code;
-	  opt_scalar_mode mode_iter;
-	  FOR_EACH_2XWIDER_MODE (mode_iter, intermediate_mode)
+	  FOR_EACH_2XWIDER_MODE (rhs_mode_iter, imode)
 	    {
-	      intermediate_mode = mode_iter.require ();
-
-	      if (GET_MODE_SIZE (intermediate_mode) > target_size)
+	      imode = rhs_mode_iter.require ();
+	      if (GET_MODE_SIZE (imode) > fltsz)
 		break;
 
-	      scalar_mode cvt_mode;
-	      if (!int_mode_for_size
-		  (GET_MODE_BITSIZE (intermediate_mode), 0).exists (&cvt_mode))
-		break;
-
-	      cvt_type = build_nonstandard_integer_type
-		(GET_MODE_BITSIZE (cvt_mode), 0);
-
-	      /* Check if the intermediate type can hold OP0's range.
-		 When converting from float to integer this is not necessary
-		 because values that do not fit the (smaller) target type are
-		 unspecified anyway.  */
-	      if (demotion && float_expr_p)
-		{
-		  wide_int op_min_value, op_max_value;
-		  if (!vect_get_range_info (op0, &op_min_value, &op_max_value))
-		    break;
-
-		  if (cvt_type == NULL_TREE
-		      || (wi::min_precision (op_max_value, SIGNED)
-			  > TYPE_PRECISION (cvt_type))
-		      || (wi::min_precision (op_min_value, SIGNED)
-			  > TYPE_PRECISION (cvt_type)))
-		    continue;
-		}
-
-	      cvt_type = get_vectype_for_scalar_type (vinfo, cvt_type, slp_node);
+	      cvt_type
+		= build_nonstandard_integer_type (GET_MODE_BITSIZE (imode),
+						  0);
+	      cvt_type = get_vectype_for_scalar_type (vinfo, cvt_type,
+						      slp_node);
 	      /* This should only happened for SLP as long as loop vectorizer
 		 only supports same-sized vector.  */
 	      if (cvt_type == NULL_TREE
@@ -5555,7 +5519,18 @@ vectorizable_conversion (vec_info *vinfo,
       FOR_EACH_VEC_ELT (vec_oprnds0, i, vop0)
 	{
 	  /* Arguments are ready, create the new vector stmt.  */
-	  gimple *new_stmt = vect_gimple_build (vec_dest, code1, vop0);
+	  gimple* new_stmt;
+	  if (multi_step_cvt)
+	    {
+	      gcc_assert (multi_step_cvt == 1);
+	      new_stmt = vect_gimple_build (vec_dest, codecvt1, vop0);
+	      new_temp = make_ssa_name (vec_dest, new_stmt);
+	      gimple_assign_set_lhs (new_stmt, new_temp);
+	      vect_finish_stmt_generation (vinfo, stmt_info, new_stmt, gsi);
+	      vop0 = new_temp;
+	      vec_dest = vec_dsts[0];
+	    }
+	  new_stmt = vect_gimple_build (vec_dest, code1, vop0);
 	  new_temp = make_ssa_name (vec_dest, new_stmt);
 	  gimple_set_lhs (new_stmt, new_temp);
 	  vect_finish_stmt_generation (vinfo, stmt_info, new_stmt, gsi);
