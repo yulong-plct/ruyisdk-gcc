@@ -1,5 +1,5 @@
 /* Code for GIMPLE range op related routines.
-   Copyright (C) 2019-2022 Free Software Foundation, Inc.
+   Copyright (C) 2019-2024 Free Software Foundation, Inc.
    Contributed by Andrew MacLeod <amacleod@redhat.com>
    and Aldy Hernandez <aldyh@redhat.com>.
 
@@ -43,6 +43,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "range.h"
 #include "value-query.h"
 #include "gimple-range.h"
+#include "attr-fnspec.h"
+#include "realmpfr.h"
 
 // Given stmt S, fill VEC, up to VEC_SIZE elements, with relevant ssa-names
 // on the statement.  For efficiency, it is an error to not pass in enough
@@ -92,28 +94,14 @@ gimple_range_base_of_assignment (const gimple *stmt)
 
 // If statement is supported by range-ops, set the CODE and return the TYPE.
 
-static tree
-get_code_and_type (gimple *s, enum tree_code &code)
+static inline enum tree_code
+get_code (gimple *s)
 {
-  tree type = NULL_TREE;
-  code = NOP_EXPR;
-
   if (const gassign *ass = dyn_cast<const gassign *> (s))
-    {
-      code = gimple_assign_rhs_code (ass);
-      // The LHS of a comparison is always an int, so we must look at
-      // the operands.
-      if (TREE_CODE_CLASS (code) == tcc_comparison)
-	type = TREE_TYPE (gimple_assign_rhs1 (ass));
-      else
-	type = TREE_TYPE (gimple_assign_lhs (ass));
-    }
-  else if (const gcond *cond = dyn_cast<const gcond *> (s))
-    {
-      code = gimple_cond_code (cond);
-      type = TREE_TYPE (gimple_cond_lhs (cond));
-    }
-  return type;
+    return gimple_assign_rhs_code (ass);
+  if (const gcond *cond = dyn_cast<const gcond *> (s))
+    return gimple_cond_code (cond);
+  return ERROR_MARK;
 }
 
 // If statement S has a supported range_op handler return TRUE.
@@ -121,28 +109,34 @@ get_code_and_type (gimple *s, enum tree_code &code)
 bool
 gimple_range_op_handler::supported_p (gimple *s)
 {
-  enum tree_code code;
-  tree type = get_code_and_type (s, code);
-  return (type && range_op_handler (code, type));
+  enum tree_code code = get_code (s);
+  if (range_op_handler (code))
+    return true;
+  if (is_a <gcall *> (s) && gimple_range_op_handler (s))
+    return true;
+  return false;
 }
 
 // Construct a handler object for statement S.
 
 gimple_range_op_handler::gimple_range_op_handler (gimple *s)
 {
-  enum tree_code code;
-  tree type = get_code_and_type (s, code);
+  range_op_handler oper (get_code (s));
   m_stmt = s;
-  if (type)
-    set_op_handler (code, type);
+  m_op1 = NULL_TREE;
+  m_op2 = NULL_TREE;
 
-  if (m_valid)
+  if (oper)
     switch (gimple_code (m_stmt))
       {
 	case GIMPLE_COND:
 	  m_op1 = gimple_cond_lhs (m_stmt);
 	  m_op2 = gimple_cond_rhs (m_stmt);
-	  break;
+	  // Check that operands are supported types.  One check is enough.
+	  if (Value_Range::supports_type_p (TREE_TYPE (m_op1)))
+	    m_operator = oper.range_op ();
+	  gcc_checking_assert (m_operator);
+	  return;
 	case GIMPLE_ASSIGN:
 	  m_op1 = gimple_range_base_of_assignment (m_stmt);
 	  if (m_op1 && TREE_CODE (m_op1) == MEM_REF)
@@ -158,14 +152,23 @@ gimple_range_op_handler::gimple_range_op_handler (gimple *s)
 	    }
 	  if (gimple_num_ops (m_stmt) >= 3)
 	    m_op2 = gimple_assign_rhs2 (m_stmt);
-	  else
-	    m_op2 = NULL_TREE;
-	  break;
+	  // Check that operands are supported types.  One check is enough.
+	  if ((m_op1 && !Value_Range::supports_type_p (TREE_TYPE (m_op1))))
+	    return;
+	  m_operator = oper.range_op ();
+	  gcc_checking_assert (m_operator);
+	  return;
 	default:
-	  m_op1 = NULL_TREE;
-	  m_op2 = NULL_TREE;
-	  break;
+	  gcc_unreachable ();
+	  return;
       }
+  // If no range-op table entry handled this stmt, check for other supported
+  // statements.
+  if (is_a <gcall *> (m_stmt))
+    maybe_builtin_call ();
+  else
+    maybe_non_standard ();
+  gcc_checking_assert (m_operator);
 }
 
 // Calculate what we can determine of the range of this unary
@@ -208,15 +211,19 @@ gimple_range_op_handler::calc_op1 (vrange &r, const vrange &lhs_range,
   // If op2 is undefined, solve as if it is varying.
   if (op2_range.undefined_p ())
     {
-      // This is sometimes invoked on single operand stmts.
       if (gimple_num_ops (m_stmt) < 3)
 	return false;
-      tree op2_type = TREE_TYPE (operand2 ());
+      tree op2_type;
+      // This is sometimes invoked on single operand stmts.
+      if (operand2 ())
+	op2_type = TREE_TYPE (operand2 ());
+      else
+	op2_type = TREE_TYPE (operand1 ());
       Value_Range trange (op2_type);
       trange.set_varying (op2_type);
-      return op1_range (r, type, lhs_range, trange);
+      return op1_range (r, type, lhs_range, trange, k);
     }
-  return op1_range (r, type, lhs_range, op2_range);
+  return op1_range (r, type, lhs_range, op2_range, k);
 }
 
 // Calculate what we can determine of the range of this statement's
@@ -256,7 +263,8 @@ public:
   {
     if (lh.singleton_p ())
       {
-	r.set (build_one_cst (type), build_one_cst (type));
+	wide_int one = wi::one (TYPE_PRECISION (type));
+	r.set (type, one, one);
 	return true;
       }
     if (cfun->after_inlining)
@@ -278,7 +286,8 @@ public:
   {
     if (lh.singleton_p ())
       {
-	r.set (build_one_cst (type), build_one_cst (type));
+	wide_int one = wi::one (TYPE_PRECISION (type));
+	r.set (type, one, one);
 	return true;
       }
     if (cfun->after_inlining)
@@ -340,10 +349,8 @@ public:
 	r.update_nan (false);
 	return true;
       }
-    if (!lhs.contains_p (build_zero_cst (lhs.type ())))
+    if (!lhs.contains_p (wi::zero (TYPE_PRECISION (lhs.type ()))))
       {
-	REAL_VALUE_TYPE dconstm0 = dconst0;
-	dconstm0.sign = 1;
 	r.set (type, frange_val_min (type), dconstm0);
 	r.update_nan (true);
 	return true;
@@ -361,11 +368,10 @@ public:
 			   const frange &rh, relation_trio) const override
   {
     frange neg;
-    range_op_handler abs_op (ABS_EXPR, type);
-    range_op_handler neg_op (NEGATE_EXPR, type);
-    if (!abs_op || !abs_op.fold_range (r, type, lh, frange (type)))
+    if (!range_op_handler (ABS_EXPR).fold_range (r, type, lh, frange (type)))
       return false;
-    if (!neg_op || !neg_op.fold_range (neg, type, r, frange (type)))
+    if (!range_op_handler (NEGATE_EXPR).fold_range (neg, type, r,
+						    frange (type)))
       return false;
 
     bool signbit;
@@ -793,8 +799,12 @@ cfn_toupper_tolower::get_letter_range (tree type, irange &lowers,
 
   if ((z - a == 25) && (Z - A == 25))
     {
-      lowers = int_range<2> (build_int_cst (type, a), build_int_cst (type, z));
-      uppers = int_range<2> (build_int_cst (type, A), build_int_cst (type, Z));
+      lowers = int_range<2> (type,
+			     wi::shwi (a, TYPE_PRECISION (type)),
+			     wi::shwi (z, TYPE_PRECISION (type)));
+      uppers = int_range<2> (type,
+			     wi::shwi (A, TYPE_PRECISION (type)),
+			     wi::shwi (Z, TYPE_PRECISION (type)));
       return true;
     }
   // Unknown character set.
@@ -852,7 +862,9 @@ public:
       range_cast (tmp, unsigned_type_for (tmp.type ()));
     wide_int max = tmp.upper_bound ();
     maxi = wi::floor_log2 (max) + 1;
-    r.set (build_int_cst (type, mini), build_int_cst (type, maxi));
+    r.set (type,
+	   wi::shwi (mini, TYPE_PRECISION (type)),
+	   wi::shwi (maxi, TYPE_PRECISION (type)));
     return true;
   }
 } op_cfn_ffs;
@@ -868,17 +880,20 @@ public:
     if (lh.undefined_p ())
       return false;
     unsigned prec = TYPE_PRECISION (type);
-    wide_int nz = lh.get_nonzero_bits ();
-    wide_int pop = wi::shwi (wi::popcount (nz), prec);
+    irange_bitmask bm = lh.get_bitmask ();
+    wide_int nz = bm.get_nonzero_bits ();
+    wide_int high = wi::shwi (wi::popcount (nz), prec);
     // Calculating the popcount of a singleton is trivial.
     if (lh.singleton_p ())
       {
-	r.set (type, pop, pop);
+	r.set (type, high, high);
 	return true;
       }
     if (cfn_ffs::fold_range (r, type, lh, rh, rel))
       {
-	int_range<2> tmp (type, wi::zero (prec), pop);
+	wide_int known_ones = ~bm.mask () & bm.value ();
+	wide_int low = wi::shwi (wi::popcount (known_ones), prec);
+	int_range<2> tmp (type, low, high);
 	r.intersect (tmp);
 	return true;
       }
@@ -893,39 +908,34 @@ public:
   cfn_clz (bool internal) { m_gimple_call_internal_p = internal; }
   using range_operator::fold_range;
   virtual bool fold_range (irange &r, tree type, const irange &lh,
-			   const irange &, relation_trio) const;
+			   const irange &rh, relation_trio) const;
 private:
   bool m_gimple_call_internal_p;
 } op_cfn_clz (false), op_cfn_clz_internal (true);
 
 bool
 cfn_clz::fold_range (irange &r, tree type, const irange &lh,
-		     const irange &, relation_trio) const
+		     const irange &rh, relation_trio) const
 {
   // __builtin_c[lt]z* return [0, prec-1], except when the
   // argument is 0, but that is undefined behavior.
   //
   // For __builtin_c[lt]z* consider argument of 0 always undefined
-  // behavior, for internal fns depending on C?Z_DEFINED_ALUE_AT_ZERO.
+  // behavior, for internal fns likewise, unless it has 2 arguments,
+  // then the second argument is the value at zero.
   if (lh.undefined_p ())
     return false;
   int prec = TYPE_PRECISION (lh.type ());
   int mini = 0;
   int maxi = prec - 1;
-  int zerov = 0;
-  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (lh.type ());
   if (m_gimple_call_internal_p)
     {
-      if (optab_handler (clz_optab, mode) != CODE_FOR_nothing
-	  && CLZ_DEFINED_VALUE_AT_ZERO (mode, zerov) == 2)
-	{
-	  // Only handle the single common value.
-	  if (zerov == prec)
-	    maxi = prec;
-	  else
-	    // Magic value to give up, unless we can prove arg is non-zero.
-	    mini = -2;
-	}
+      // Only handle the single common value.
+      if (rh.lower_bound () == prec)
+	maxi = prec;
+      else
+	// Magic value to give up, unless we can prove arg is non-zero.
+	mini = -2;
     }
 
   // From clz of minimum we can compute result maximum.
@@ -957,7 +967,9 @@ cfn_clz::fold_range (irange &r, tree type, const irange &lh,
 
   if (mini == -2)
     return false;
-  r.set (build_int_cst (type, mini), build_int_cst (type, maxi));
+  r.set (type,
+	 wi::shwi (mini, TYPE_PRECISION (type)),
+	 wi::shwi (maxi, TYPE_PRECISION (type)));
   return true;
 }
 
@@ -968,37 +980,31 @@ public:
   cfn_ctz (bool internal) { m_gimple_call_internal_p = internal; }
   using range_operator::fold_range;
   virtual bool fold_range (irange &r, tree type, const irange &lh,
-			   const irange &, relation_trio) const;
+			   const irange &rh, relation_trio) const;
 private:
   bool m_gimple_call_internal_p;
 } op_cfn_ctz (false), op_cfn_ctz_internal (true);
 
 bool
 cfn_ctz::fold_range (irange &r, tree type, const irange &lh,
-		     const irange &, relation_trio) const
+		     const irange &rh, relation_trio) const
 {
   if (lh.undefined_p ())
     return false;
   int prec = TYPE_PRECISION (lh.type ());
   int mini = 0;
   int maxi = prec - 1;
-  int zerov = 0;
-  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (lh.type ());
 
   if (m_gimple_call_internal_p)
     {
-      if (optab_handler (ctz_optab, mode) != CODE_FOR_nothing
-	  && CTZ_DEFINED_VALUE_AT_ZERO (mode, zerov) == 2)
-	{
-	  // Handle only the two common values.
-	  if (zerov == -1)
-	    mini = -1;
-	  else if (zerov == prec)
-	    maxi = prec;
-	  else
-	    // Magic value to give up, unless we can prove arg is non-zero.
-	    mini = -2;
-	}
+      // Handle only the two common values.
+      if (rh.lower_bound () == -1)
+	mini = -1;
+      else if (rh.lower_bound () == prec)
+	maxi = prec;
+      else
+	// Magic value to give up, unless we can prove arg is non-zero.
+	mini = -2;
     }
   // If arg is non-zero, then use [0, prec - 1].
   if (!range_includes_zero_p (&lh))
@@ -1027,7 +1033,9 @@ cfn_ctz::fold_range (irange &r, tree type, const irange &lh,
 
   if (mini == -2)
     return false;
-  r.set (build_int_cst (type, mini), build_int_cst (type, maxi));
+  r.set (type,
+	 wi::shwi (mini, TYPE_PRECISION (type)),
+	 wi::shwi (maxi, TYPE_PRECISION (type)));
   return true;
 }
 
@@ -1043,7 +1051,9 @@ public:
     if (lh.undefined_p ())
       return false;
     int prec = TYPE_PRECISION (lh.type ());
-    r.set (build_int_cst (type, 0), build_int_cst (type, prec - 1));
+    r.set (type,
+	   wi::zero (TYPE_PRECISION (type)),
+	   wi::shwi (prec - 1, TYPE_PRECISION (type)));
     return true;
   }
 } op_cfn_clrsb;
@@ -1058,14 +1068,11 @@ public:
   virtual bool fold_range (irange &r, tree type, const irange &lh,
 			   const irange &rh, relation_trio rel) const
   {
-    range_op_handler handler (m_code, type);
-    gcc_checking_assert (handler);
-
     bool saved_flag_wrapv = flag_wrapv;
     // Pretend the arithmetic is wrapping.  If there is any overflow,
     // we'll complain, but will actually do wrapping operation.
     flag_wrapv = 1;
-    bool result = handler.fold_range (r, type, lh, rh, rel);
+    bool result = range_op_handler (m_code).fold_range (r, type, lh, rh, rel);
     flag_wrapv = saved_flag_wrapv;
 
     // If for both arguments vrp_valueize returned non-NULL, this should
@@ -1092,17 +1099,13 @@ public:
   virtual bool fold_range (irange &r, tree type, const irange &,
 			   const irange &, relation_trio) const
   {
-    tree max = vrp_val_max (ptrdiff_type_node);
-    wide_int wmax
-      = wi::to_wide (max, TYPE_PRECISION (TREE_TYPE (max)));
-    tree range_min = build_zero_cst (type);
+    wide_int max = irange_val_max (ptrdiff_type_node);
     // To account for the terminating NULL, the maximum length
     // is one less than the maximum array size, which in turn
     // is one less than PTRDIFF_MAX (or SIZE_MAX where it's
     // smaller than the former type).
     // FIXME: Use max_object_size() - 1 here.
-    tree range_max = wide_int_to_tree (type, wmax - 2);
-    r.set (range_min, range_max);
+    r.set (type, wi::zero (TYPE_PRECISION (type)), max - 2);
     return true;
   }
 } op_cfn_strlen;
@@ -1126,9 +1129,11 @@ public:
       // If it's dynamic, the backend might know a hardware limitation.
       size = targetm.goacc.dim_limit (axis);
 
-    r.set (build_int_cst (type, m_is_pos ? 0 : 1),
+    r.set (type,
+	   wi::shwi (m_is_pos ? 0 : 1, TYPE_PRECISION (type)),
 	   size
-	   ? build_int_cst (type, size - m_is_pos) : vrp_val_max (type));
+	   ? wi::shwi (size - m_is_pos, TYPE_PRECISION (type))
+	   : irange_val_max (type));
     return true;
   }
 private:
@@ -1144,10 +1149,56 @@ public:
   virtual bool fold_range (irange &r, tree type, const irange &,
 			   const irange &, relation_trio) const
   {
-    r.set (build_zero_cst (type), build_one_cst (type));
+    r = range_true_and_false (type);
     return true;
   }
 } op_cfn_parity;
+
+// Set up a gimple_range_op_handler for any nonstandard function which can be
+// supported via range-ops.
+
+void
+gimple_range_op_handler::maybe_non_standard ()
+{
+  range_op_handler signed_op (OP_WIDEN_MULT_SIGNED);
+  gcc_checking_assert (signed_op);
+  range_op_handler unsigned_op (OP_WIDEN_MULT_UNSIGNED);
+  gcc_checking_assert (unsigned_op);
+
+  if (gimple_code (m_stmt) == GIMPLE_ASSIGN)
+    switch (gimple_assign_rhs_code (m_stmt))
+      {
+	case WIDEN_MULT_EXPR:
+	{
+	  m_op1 = gimple_assign_rhs1 (m_stmt);
+	  m_op2 = gimple_assign_rhs2 (m_stmt);
+	  tree ret = gimple_assign_lhs (m_stmt);
+	  bool signed1 = TYPE_SIGN (TREE_TYPE (m_op1)) == SIGNED;
+	  bool signed2 = TYPE_SIGN (TREE_TYPE (m_op2)) == SIGNED;
+	  bool signed_ret = TYPE_SIGN (TREE_TYPE (ret)) == SIGNED;
+
+	  /* Normally these operands should all have the same sign, but
+	     some passes and violate this by taking mismatched sign args.  At
+	     the moment the only one that's possible is mismatch inputs and
+	     unsigned output.  Once ranger supports signs for the operands we
+	     can properly fix it,  for now only accept the case we can do
+	     correctly.  */
+	  if ((signed1 ^ signed2) && signed_ret)
+	    return;
+
+	  if (signed2 && !signed1)
+	    std::swap (m_op1, m_op2);
+
+	  if (signed1 || signed2)
+	    m_operator = signed_op.range_op ();
+	  else
+	    m_operator = unsigned_op.range_op ();
+	  break;
+	}
+	default:
+	  break;
+      }
+}
 
 // Set up a gimple_range_op_handler for any built in function which can be
 // supported via range-ops.
@@ -1170,26 +1221,39 @@ gimple_range_op_handler::maybe_builtin_call ()
     {
     case CFN_BUILT_IN_CONSTANT_P:
       m_op1 = gimple_call_arg (call, 0);
-      m_valid = true;
       if (irange::supports_p (TREE_TYPE (m_op1)))
-	m_int = &op_cfn_constant_p;
+	m_operator = &op_cfn_constant_p;
       else if (frange::supports_p (TREE_TYPE (m_op1)))
-	m_float = &op_cfn_constant_float_p;
-      else
-	m_valid = false;
+	m_operator = &op_cfn_constant_float_p;
       break;
 
     CASE_FLT_FN (CFN_BUILT_IN_SIGNBIT):
       m_op1 = gimple_call_arg (call, 0);
-      m_float = &op_cfn_signbit;
-      m_valid = true;
+      m_operator = &op_cfn_signbit;
       break;
 
     CASE_CFN_COPYSIGN_ALL:
       m_op1 = gimple_call_arg (call, 0);
       m_op2 = gimple_call_arg (call, 1);
-      m_float = &op_cfn_copysign;
-      m_valid = true;
+      m_operator = &op_cfn_copysign;
+      break;
+
+    CASE_CFN_SQRT:
+    CASE_CFN_SQRT_FN:
+      m_op1 = gimple_call_arg (call, 0);
+      m_operator = &op_cfn_sqrt;
+      break;
+
+    CASE_CFN_SIN:
+    CASE_CFN_SIN_FN:
+      m_op1 = gimple_call_arg (call, 0);
+      m_operator = &op_cfn_sin;
+      break;
+
+    CASE_CFN_COS:
+    CASE_CFN_COS_FN:
+      m_op1 = gimple_call_arg (call, 0);
+      m_operator = &op_cfn_cos;
       break;
 
     case CFN_BUILT_IN_TOUPPER:
@@ -1197,68 +1261,65 @@ gimple_range_op_handler::maybe_builtin_call ()
       // Only proceed If the argument is compatible with the LHS.
       m_op1 = gimple_call_arg (call, 0);
       if (range_compatible_p (type, TREE_TYPE (m_op1)))
-	{
-	  m_valid = true;
-	  m_int = (func == CFN_BUILT_IN_TOLOWER) ? &op_cfn_tolower
-						 : &op_cfn_toupper;
-	}
+	m_operator = (func == CFN_BUILT_IN_TOLOWER) ? &op_cfn_tolower
+						    : &op_cfn_toupper;
       break;
 
     CASE_CFN_FFS:
       m_op1 = gimple_call_arg (call, 0);
-      m_int = &op_cfn_ffs;
-      m_valid = true;
+      m_operator = &op_cfn_ffs;
       break;
 
     CASE_CFN_POPCOUNT:
       m_op1 = gimple_call_arg (call, 0);
-      m_int = &op_cfn_popcount;
-      m_valid = true;
+      m_operator = &op_cfn_popcount;
       break;
 
     CASE_CFN_CLZ:
       m_op1 = gimple_call_arg (call, 0);
-      m_valid = true;
-      if (gimple_call_internal_p (call))
-	m_int = &op_cfn_clz_internal;
+      if (gimple_call_internal_p (call)
+	  && gimple_call_num_args (call) == 2)
+	{
+	  m_op2 = gimple_call_arg (call, 1);
+	  m_operator = &op_cfn_clz_internal;
+	}
       else
-	m_int = &op_cfn_clz;
+	m_operator = &op_cfn_clz;
       break;
 
     CASE_CFN_CTZ:
       m_op1 = gimple_call_arg (call, 0);
-      m_valid = true;
-      if (gimple_call_internal_p (call))
-	m_int = &op_cfn_ctz_internal;
+      if (gimple_call_internal_p (call)
+	  && gimple_call_num_args (call) == 2)
+	{
+	  m_op2 = gimple_call_arg (call, 1);
+	  m_operator = &op_cfn_ctz_internal;
+	}
       else
-	m_int = &op_cfn_ctz;
+	m_operator = &op_cfn_ctz;
       break;
 
     CASE_CFN_CLRSB:
       m_op1 = gimple_call_arg (call, 0);
-      m_valid = true;
-      m_int = &op_cfn_clrsb;
+      m_operator = &op_cfn_clrsb;
       break;
 
     case CFN_UBSAN_CHECK_ADD:
       m_op1 = gimple_call_arg (call, 0);
       m_op2 = gimple_call_arg (call, 1);
-      m_valid = true;
-      m_int = &op_cfn_ubsan_add;
+      m_operator = &op_cfn_ubsan_add;
       break;
 
     case CFN_UBSAN_CHECK_SUB:
       m_op1 = gimple_call_arg (call, 0);
       m_op2 = gimple_call_arg (call, 1);
-      m_valid = true;
-      m_int = &op_cfn_ubsan_sub;
+      m_operator = &op_cfn_ubsan_sub;
       break;
 
     case CFN_UBSAN_CHECK_MUL:
       m_op1 = gimple_call_arg (call, 0);
       m_op2 = gimple_call_arg (call, 1);
-      m_valid = true;
-      m_int = &op_cfn_ubsan_mul;
+      m_operator = &op_cfn_ubsan_mul;
       break;
 
     case CFN_BUILT_IN_STRLEN:
@@ -1268,8 +1329,7 @@ gimple_range_op_handler::maybe_builtin_call ()
 					 == TYPE_PRECISION (TREE_TYPE (lhs))))
 	  {
 	    m_op1 = gimple_call_arg (call, 0);
-	    m_valid = true;
-	    m_int = &op_cfn_strlen;
+	    m_operator = &op_cfn_strlen;
 	  }
 	break;
       }
@@ -1281,25 +1341,29 @@ gimple_range_op_handler::maybe_builtin_call ()
       // This call will ensure all the asserts are triggered.
       oacc_get_ifn_dim_arg (call);
       m_op1 = gimple_call_arg (call, 0);
-      m_valid = true;
-      m_int = &op_cfn_goacc_dim_size;
+      m_operator = &op_cfn_goacc_dim_size;
       break;
 
     case CFN_GOACC_DIM_POS:
       // This call will ensure all the asserts are triggered.
       oacc_get_ifn_dim_arg (call);
       m_op1 = gimple_call_arg (call, 0);
-      m_valid = true;
-      m_int = &op_cfn_goacc_dim_pos;
+      m_operator = &op_cfn_goacc_dim_pos;
       break;
 
     CASE_CFN_PARITY:
-      m_valid = true;
-      m_int = &op_cfn_parity;
+      m_operator = &op_cfn_parity;
       break;
 
     default:
-      break;
+      {
+	unsigned arg;
+	if (gimple_call_fnspec (call).returns_arg (&arg) && arg == 0)
+	  {
+	    m_op1 = gimple_call_arg (call, 0);
+	    m_operator = &op_cfn_pass_through_arg1;
+	  }
+	break;
+      }
     }
-  return op2_range (r, type, lhs_range, op1_range);
 }
