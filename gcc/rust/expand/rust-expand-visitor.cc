@@ -29,6 +29,87 @@ namespace Rust {
 void
 ExpandVisitor::go (AST::Crate &crate)
 {
+  expand_inner_items (crate.items);
+}
+
+/**
+ * Returns a list of traits to derive from within a given attribute.
+ *
+ * @param attrs The attributes on the item to derive
+ */
+static std::vector<std::string>
+get_traits_to_derive (AST::Attribute &attr)
+{
+  std::vector<std::string> to_derive;
+
+  auto &input = attr.get_attr_input ();
+  switch (input.get_attr_input_type ())
+    {
+      // isn't there a better way to do this?? like parse it or
+      // something idk. some function I'm not thinking of?
+      case AST::AttrInput::TOKEN_TREE: {
+	auto &tokens
+	  = static_cast<AST::DelimTokenTree &> (input).get_token_trees ();
+
+	// erase the delimiters
+	rust_assert (tokens.size () >= 3);
+	tokens.erase (tokens.begin ());
+	tokens.pop_back ();
+
+	for (auto &token : tokens)
+	  {
+	    // skip commas, as they are part of the token stream
+	    if (token->as_string () == ",")
+	      continue;
+
+	    to_derive.emplace_back (token->as_string ());
+	  }
+	break;
+      }
+    case AST::AttrInput::LITERAL:
+    case AST::AttrInput::META_ITEM:
+    case AST::AttrInput::MACRO:
+      gcc_unreachable ();
+      break;
+    }
+
+  return to_derive;
+}
+
+static std::unique_ptr<AST::Item>
+builtin_derive_item (std::unique_ptr<AST::Item> &item,
+		     const AST::Attribute &derive, BuiltinMacro to_derive)
+{
+  return AST::DeriveVisitor::derive (*item, derive, to_derive);
+}
+
+static std::vector<std::unique_ptr<AST::Item>>
+derive_item (std::unique_ptr<AST::Item> &item, std::string &to_derive,
+	     MacroExpander &expander)
+{
+  std::vector<std::unique_ptr<AST::Item>> result;
+  auto frag = expander.expand_derive_proc_macro (item, to_derive);
+  if (!frag.is_error ())
+    {
+      for (auto &node : frag.get_nodes ())
+	{
+	  switch (node.get_kind ())
+	    {
+	    case AST::SingleASTNode::ITEM:
+	      result.push_back (node.take_item ());
+	      break;
+	    default:
+	      gcc_unreachable ();
+	    }
+	}
+    }
+  return result;
+}
+
+void
+ExpandVisitor::expand_inner_items (
+  std::vector<std::unique_ptr<AST::Item>> &items)
+{
   expander.push_context (MacroExpander::ContextType::ITEM);
 
   // expand attributes recursively and strip items if required
@@ -42,12 +123,45 @@ ExpandVisitor::go (AST::Crate &crate)
       auto fragment = expander.take_expanded_fragment ();
       if (fragment.should_expand ())
 	{
-	  // Remove the current expanded invocation
-	  it = items.erase (it);
-	  for (auto &node : fragment.get_nodes ())
+	  auto &attrs = item->get_outer_attrs ();
+
+	  for (auto attr_it = attrs.begin (); attr_it != attrs.end ();
+	       /* erase => No increment*/)
 	    {
-	      it = items.insert (it, node.take_item ());
-	      it++;
+	      auto current = *attr_it;
+
+	      if (is_derive (current))
+		{
+		  attr_it = attrs.erase (attr_it);
+		  // Get traits to derive in the current attribute
+		  auto traits_to_derive = get_traits_to_derive (current);
+		  for (auto &to_derive : traits_to_derive)
+		    {
+		      auto maybe_builtin
+			= MacroBuiltin::builtins.lookup (to_derive);
+		      if (MacroBuiltin::builtins.is_iter_ok (maybe_builtin))
+			{
+			  auto new_item
+			    = builtin_derive_item (item, current,
+						   maybe_builtin->second);
+			  // this inserts the derive *before* the item - is it a
+			  // problem?
+			  it = items.insert (it, std::move (new_item));
+			}
+		      else
+			{
+			  auto new_items
+			    = derive_item (item, to_derive, expander);
+			  std::move (new_items.begin (), new_items.end (),
+				     std::inserter (items, it));
+			}
+		    }
+		}
+	      else /* Attribute */
+		{
+		  // Ignore for now
+		  attr_it++;
+		}
 	    }
 	}
       else
@@ -90,7 +204,9 @@ void
 ExpandVisitor::expand_struct_fields (std::vector<AST::StructField> &fields)
 {
   for (auto &field : fields)
-    maybe_expand_type (field.get_field_type ());
+    {
+      maybe_expand_type (field.get_field_type ());
+    }
 }
 
 void
@@ -105,7 +221,9 @@ void
 ExpandVisitor::expand_function_params (std::vector<AST::FunctionParam> &params)
 {
   for (auto &param : params)
-    maybe_expand_type (param.get_type ());
+    {
+      maybe_expand_type (param.get_type ());
+    }
 }
 
 void
@@ -152,8 +270,10 @@ void
 ExpandVisitor::expand_closure_params (std::vector<AST::ClosureParam> &params)
 {
   for (auto &param : params)
-    if (param.has_type_given ())
-      maybe_expand_type (param.get_type ());
+    {
+      if (param.has_type_given ())
+	maybe_expand_type (param.get_type ());
+    }
 }
 
 void
@@ -822,7 +942,6 @@ ExpandVisitor::visit (AST::TypeAlias &type_alias)
 void
 ExpandVisitor::visit (AST::StructStruct &struct_item)
 {
-  visit_attrs_with_derive (struct_item);
   for (auto &generic : struct_item.get_generic_params ())
     visit (generic);
 
@@ -835,7 +954,6 @@ ExpandVisitor::visit (AST::StructStruct &struct_item)
 void
 ExpandVisitor::visit (AST::TupleStruct &tuple_struct)
 {
-  visit_attrs_with_derive (tuple_struct);
   for (auto &generic : tuple_struct.get_generic_params ())
     visit (generic);
 
@@ -870,7 +988,6 @@ ExpandVisitor::visit (AST::EnumItemDiscriminant &item)
 void
 ExpandVisitor::visit (AST::Enum &enum_item)
 {
-  visit_attrs_with_derive (enum_item);
   for (auto &generic : enum_item.get_generic_params ())
     visit (generic);
 
@@ -881,7 +998,6 @@ ExpandVisitor::visit (AST::Enum &enum_item)
 void
 ExpandVisitor::visit (AST::Union &union_item)
 {
-  visit_attrs_with_derive (union_item);
   for (auto &generic : union_item.get_generic_params ())
     visit (generic);
 
@@ -1348,45 +1464,12 @@ void
 ExpandVisitor::visit (AST::BareFunctionType &type)
 {
   for (auto &param : type.get_function_params ())
-    maybe_expand_type (param.get_type ());
+    {
+      maybe_expand_type (param.get_type ());
+    }
 
   if (type.has_return_type ())
     visit (type.get_return_type ());
-}
-
-template <typename T>
-void
-ExpandVisitor::expand_outer_attribute (T &item, AST::SimplePath &path)
-{
-  // FIXME: Retrieve path from segments + local use statements instead of string
-  proc_expander.expand_attribute_proc_macro (item, path);
-}
-
-template <typename T>
-void
-ExpandVisitor::visit_outer_attrs (T &item, std::vector<AST::Attribute> &attrs)
-{
-  for (auto it = attrs.begin (); it != attrs.end (); /* erase => No increment*/)
-    {
-      auto &current = *it;
-
-      if (!is_builtin (current) && !is_derive (current))
-	{
-	  it = attrs.erase (it);
-	  expand_outer_attribute (item, current.get_path ());
-	}
-      else
-	{
-	  it++;
-	}
-    }
-}
-
-template <typename T>
-void
-ExpandVisitor::visit_outer_attrs (T &item)
-{
-  visit_outer_attrs (item, item.get_outer_attrs ());
 }
 
 template <typename T>
