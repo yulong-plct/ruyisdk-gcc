@@ -2715,8 +2715,6 @@ dump_generic_node (pretty_printer *pp, tree node, int spc, dump_flags_t flags,
       break;
 
       /* Binary arithmetic and logic expressions.  */
-    case WIDEN_PLUS_EXPR:
-    case WIDEN_MINUS_EXPR:
     case WIDEN_SUM_EXPR:
     case WIDEN_MULT_EXPR:
     case MULT_EXPR:
@@ -3652,10 +3650,6 @@ dump_generic_node (pretty_printer *pp, tree node, int spc, dump_flags_t flags,
     case VEC_SERIES_EXPR:
     case VEC_WIDEN_MULT_HI_EXPR:
     case VEC_WIDEN_MULT_LO_EXPR:
-    case VEC_WIDEN_PLUS_HI_EXPR:
-    case VEC_WIDEN_PLUS_LO_EXPR:
-    case VEC_WIDEN_MINUS_HI_EXPR:
-    case VEC_WIDEN_MINUS_LO_EXPR:
     case VEC_WIDEN_MULT_EVEN_EXPR:
     case VEC_WIDEN_MULT_ODD_EXPR:
     case VEC_WIDEN_LSHIFT_HI_EXPR:
@@ -4172,12 +4166,6 @@ op_symbol_code (enum tree_code code)
 
     case WIDEN_LSHIFT_EXPR:
       return "w<<";
-
-    case WIDEN_PLUS_EXPR:
-      return "w+";
-
-    case WIDEN_MINUS_EXPR:
-      return "w-";
 
     case POINTER_PLUS_EXPR:
       return "+";
