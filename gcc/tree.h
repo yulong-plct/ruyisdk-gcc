@@ -74,6 +74,76 @@ as_internal_fn (combined_fn code)
   return internal_fn (int (code) - int (END_BUILTINS));
 }
 
+/* Helper to transparently allow tree codes and builtin function codes
+   exist in one storage entity.  */
+class code_helper
+{
+public:
+  code_helper () {}
+  code_helper (tree_code code) : rep ((int) code) {}
+  code_helper (combined_fn fn) : rep (-(int) fn) {}
+  code_helper (internal_fn fn) : rep (-(int) as_combined_fn (fn)) {}
+  explicit operator tree_code () const { return (tree_code) rep; }
+  explicit operator combined_fn () const { return (combined_fn) -rep; }
+  explicit operator internal_fn () const;
+  explicit operator built_in_function () const;
+  bool is_tree_code () const { return rep > 0; }
+  bool is_fn_code () const { return rep < 0; }
+  bool is_internal_fn () const;
+  bool is_builtin_fn () const;
+  int get_rep () const { return rep; }
+  tree_code safe_as_tree_code () const;
+  combined_fn safe_as_fn_code () const;
+  bool operator== (const code_helper &other) { return rep == other.rep; }
+  bool operator!= (const code_helper &other) { return rep != other.rep; }
+  bool operator== (tree_code c) { return rep == code_helper (c).rep; }
+  bool operator!= (tree_code c) { return rep != code_helper (c).rep; }
+
+private:
+  int rep;
+};
+
+/* Helper function that returns the tree_code representation of THIS
+   code_helper if it is a tree_code and MAX_TREE_CODES otherwise.  This is
+   useful when passing a code_helper to a tree_code only check.  */
+
+inline tree_code
+code_helper::safe_as_tree_code () const
+{
+  return is_tree_code () ? (tree_code) *this : MAX_TREE_CODES;
+}
+
+/* Helper function that returns the combined_fn representation of THIS
+   code_helper if it is a fn_code and CFN_LAST otherwise.  This is useful when
+   passing a code_helper to a combined_fn only check.  */
+
+inline combined_fn
+code_helper::safe_as_fn_code () const {
+  return is_fn_code () ? (combined_fn) *this : CFN_LAST;
+}
+
+inline code_helper::operator internal_fn () const
+{
+  return as_internal_fn (combined_fn (*this));
+}
+
+inline code_helper::operator built_in_function () const
+{
+  return as_builtin_fn (combined_fn (*this));
+}
+
+inline bool
+code_helper::is_internal_fn () const
+{
+  return is_fn_code () && internal_fn_p (combined_fn (*this));
+}
+
+inline bool
+code_helper::is_builtin_fn () const
+{
+  return is_fn_code () && builtin_fn_p (combined_fn (*this));
+}
+
 /* Macros for initializing `tree_contains_struct'.  */
 #define MARK_TS_BASE(C)					\
   (tree_contains_struct[C][TS_BASE] = true)
