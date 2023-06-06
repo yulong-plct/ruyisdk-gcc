@@ -50,6 +50,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "insn-config.h"
 #include "rtl.h"
 #include "recog.h"
+#include "langhooks.h"
+#include "tree-vector-builder.h"
+#include "optabs-tree.h"
 
 /*************************************************************************
   Simple Loop Peeling Utilities
@@ -819,8 +822,7 @@ vect_set_loop_condition_partial_vectors (class loop *loop, edge exit_edge,
   tree ni_actual_type = TREE_TYPE (niters);
   unsigned int ni_actual_precision = TYPE_PRECISION (ni_actual_type);
   tree niters_skip = LOOP_VINFO_MASK_SKIP_NITERS (loop_vinfo);
-  if (niters_skip)
-    niters_skip = gimple_convert (&preheader_seq, compare_type, niters_skip);
+  niters_skip = gimple_convert (&preheader_seq, compare_type, niters_skip);
 
   /* Convert NITERS to the same size as the compare.  */
   if (compare_precision > ni_actual_precision
@@ -849,7 +851,7 @@ vect_set_loop_condition_partial_vectors (class loop *loop, edge exit_edge,
   rgroup_controls *iv_rgc = nullptr;
   unsigned int i;
   auto_vec<rgroup_controls> *controls = use_masks_p
-					  ? &LOOP_VINFO_MASKS (loop_vinfo)
+					  ? &LOOP_VINFO_MASKS (loop_vinfo).rgc_vec
 					  : &LOOP_VINFO_LENS (loop_vinfo);
   FOR_EACH_VEC_ELT (*controls, i, rgc)
     if (!rgc->controls.is_empty ())
@@ -2288,7 +2290,7 @@ void
 vect_prepare_for_masked_peels (loop_vec_info loop_vinfo)
 {
   tree misalign_in_elems;
-  tree type = LOOP_VINFO_RGROUP_COMPARE_TYPE (loop_vinfo);
+  tree type = TREE_TYPE (LOOP_VINFO_NITERS (loop_vinfo));
 
   gcc_assert (vect_use_loop_mask_for_alignment_p (loop_vinfo));
 
