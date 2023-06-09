@@ -45,6 +45,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "wide-int.h"
 #include "value-relation.h"
 #include "range-op.h"
+#include "range-op-mixed.h"
 
 // Default definitions for floating point operators.
 
@@ -2479,22 +2480,20 @@ private:
   }
 } fop_div;
 
-// Instantiate a range_op_table for floating point operations.
-class float_table : public range_op_table
-{
-  public:
-    float_table ();
-} global_floating_table;
+// Initialize any pointer operators to the primary table
 
-// Pointer to the float table so the dispatch code can access it.
-range_op_table *floating_tree_table = &global_floating_table;
-
-float_table::float_table ()
+void
+range_op_table::initialize_float_ops ()
 {
-  set (SSA_NAME, fop_identity);
-  set (PAREN_EXPR, fop_identity);
-  set (OBJ_TYPE_REF, fop_identity);
-  set (REAL_CST, fop_identity);
+  set (UNLE_EXPR, fop_unordered_le);
+  set (UNLT_EXPR, fop_unordered_lt);
+  set (UNGE_EXPR, fop_unordered_ge);
+  set (UNGT_EXPR, fop_unordered_gt);
+  set (UNEQ_EXPR, fop_unordered_equal);
+  set (ORDERED_EXPR, fop_ordered);
+  set (UNORDERED_EXPR, fop_unordered);
+  set (LTGT_EXPR, fop_ltgt);
+  set (RDIV_EXPR, fop_div);
 }
 
 #if CHECKING_P
