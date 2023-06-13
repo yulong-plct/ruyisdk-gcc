@@ -42,6 +42,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "insn-config.h"
 #include "tree-ssa-dce.h"
 #include "recog.h"		/* FIXME: for insn_data */
+#include "optabs-libfuncs.h"
 
 
 static void expand_vector_operations_1 (gimple_stmt_iterator *, bitmap);
@@ -1661,7 +1662,9 @@ get_compute_type (enum tree_code code, optab op, tree type)
       machine_mode compute_mode = TYPE_MODE (compute_type);
       if (VECTOR_MODE_P (compute_mode))
 	{
-	  if (op && optab_handler (op, compute_mode) != CODE_FOR_nothing)
+	  if (op
+	      && (optab_handler (op, compute_mode) != CODE_FOR_nothing
+		  || optab_libfunc (op, compute_mode)))
 	    return compute_type;
 	  if (code == MULT_HIGHPART_EXPR
 	      && can_mult_highpart_p (compute_mode,
