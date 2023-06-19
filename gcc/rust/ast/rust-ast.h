@@ -25,6 +25,7 @@
 #include "rust-token.h"
 #include "rust-location.h"
 #include "rust-diagnostics.h"
+#include "rust-proc-macro-invocation.h"
 
 namespace Rust {
 // TODO: remove typedefs and make actual types for these
@@ -32,6 +33,46 @@ typedef std::string Identifier;
 typedef int TupleIndex;
 struct Session;
 struct MacroExpander;
+
+class Identifier : public ProcMacroInvocable
+{
+public:
+  // Create dummy identifier
+  Identifier ()
+    : ident (""), node_id (Analysis::Mappings::get ()->get_next_node_id ()),
+      loc (UNDEF_LOCATION)
+  {}
+  // Create identifier with dummy location
+  Identifier (std::string ident, Location loc = UNDEF_LOCATION)
+    : ident (ident), node_id (Analysis::Mappings::get ()->get_next_node_id ()),
+      loc (loc)
+  {}
+  // Create identifier from token
+  Identifier (const_TokenPtr token)
+    : ident (token->get_str ()),
+      node_id (Analysis::Mappings::get ()->get_next_node_id ()),
+      loc (token->get_locus ())
+  {}
+
+  Identifier (const Identifier &) = default;
+  Identifier (Identifier &&) = default;
+  Identifier &operator= (const Identifier &) = default;
+  Identifier &operator= (Identifier &&) = default;
+
+  NodeId get_node_id () const { return node_id; }
+  location_t get_locus () const { return loc; }
+  const std::string as_string () const { return ident; }
+
+  bool empty () const { return ident.empty (); }
+
+private:
+  std::string ident;
+  NodeId node_id;
+  Location loc;
+};
+
+std::ostream &
+operator<< (std::ostream &os, Identifier const &i);
 
 namespace AST {
 // foward decl: ast visitor
@@ -365,7 +406,7 @@ public:
 };
 
 // A simple path without generic or type arguments
-class SimplePath
+class SimplePath : public ProcMacroInvocable
 {
   bool has_opening_scope_resolution;
   std::vector<SimplePathSegment> segments;
@@ -391,10 +432,15 @@ public:
   // Returns whether the SimplePath is empty, i.e. has path segments.
   bool is_empty () const { return segments.empty (); }
 
-  std::string as_string () const;
+  const std::string as_string () const override;
 
-  Location get_locus () const { return locus; }
-  NodeId get_node_id () const { return node_id; }
+  bool has_opening_scope_resolution () const
+  {
+    return opening_scope_resolution;
+  }
+
+  location_t get_locus () const override { return locus; }
+  NodeId get_node_id () const override { return node_id; }
 
   // does this need visitor if not polymorphic? probably not
 

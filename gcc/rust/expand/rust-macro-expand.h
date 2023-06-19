@@ -335,6 +335,71 @@ struct MacroExpander
     return fragment;
   }
 
+  void import_proc_macros (std::string extern_crate);
+
+  template <typename T>
+  AST::Fragment expand_derive_proc_macro (T &item, ProcMacroInvocable &path)
+  {
+    ProcMacro::CustomDerive macro;
+    if (!mappings->lookup_derive_proc_macro_invocation (path, macro))
+      {
+	rust_error_at (path.get_locus (), "Macro not found");
+	return AST::Fragment::create_error ();
+      }
+
+    AST::TokenCollector collector;
+
+    collector.visit (item);
+
+    auto c = collector.collect_tokens ();
+    std::vector<const_TokenPtr> vec (c.cbegin (), c.cend ());
+
+    return parse_proc_macro_output (macro.macro (convert (vec)));
+  }
+
+  template <typename T>
+  AST::Fragment expand_bang_proc_macro (T &item,
+					AST::MacroInvocation &invocation)
+  {
+    ProcMacro::Bang macro;
+    if (!mappings->lookup_bang_proc_macro_invocation (invocation, macro))
+      {
+	rust_error_at (invocation.get_locus (), "Macro not found");
+	return AST::Fragment::create_error ();
+      }
+
+    AST::TokenCollector collector;
+
+    collector.visit (item);
+
+    auto c = collector.collect_tokens ();
+    std::vector<const_TokenPtr> vec (c.cbegin (), c.cend ());
+
+    return parse_proc_macro_output (macro.macro (convert (vec)));
+  }
+
+  template <typename T>
+  AST::Fragment expand_attribute_proc_macro (T &item, ProcMacroInvocable &path)
+  {
+    ProcMacro::Attribute macro;
+    if (!mappings->lookup_attribute_proc_macro_invocation (path, macro))
+      {
+	rust_error_at (path.get_locus (), "Macro not found");
+	return AST::Fragment::create_error ();
+      }
+
+    AST::TokenCollector collector;
+
+    collector.visit (item);
+
+    auto c = collector.collect_tokens ();
+    std::vector<const_TokenPtr> vec (c.cbegin (), c.cend ());
+
+    // FIXME: Handle attributes
+    return parse_proc_macro_output (
+      macro.macro (ProcMacro::TokenStream::make_tokenstream (), convert (vec)));
+  }
+
   /**
    * Has the MacroExpander expanded a macro since its state was last reset?
    */
