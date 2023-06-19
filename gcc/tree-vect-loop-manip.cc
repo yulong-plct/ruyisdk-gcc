@@ -819,6 +819,8 @@ vect_set_loop_condition_partial_vectors (class loop *loop,
   tree ni_actual_type = TREE_TYPE (niters);
   unsigned int ni_actual_precision = TYPE_PRECISION (ni_actual_type);
   tree niters_skip = LOOP_VINFO_MASK_SKIP_NITERS (loop_vinfo);
+  if (niters_skip)
+    niters_skip = gimple_convert (&preheader_seq, compare_type, niters_skip);
 
   /* Convert NITERS to the same size as the compare.  */
   if (compare_precision > ni_actual_precision
