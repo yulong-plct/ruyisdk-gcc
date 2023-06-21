@@ -1176,6 +1176,9 @@ contain_complex_addr_expr (tree expr)
   return res;
 }
 
+static tree
+strip_offset (tree expr, poly_uint64_pod *offset);
+
 /* Allocates an induction variable with given initial value BASE and step STEP
    for loop LOOP.  NO_OVERFLOW implies the iv doesn't overflow.  */
 
@@ -2955,7 +2958,7 @@ strip_offset_1 (tree expr, bool inside_addr, bool top_compref,
 
 /* Strips constant offsets from EXPR and stores them to OFFSET.  */
 
-tree
+static tree
 strip_offset (tree expr, poly_uint64 *offset)
 {
   poly_int64 off;
