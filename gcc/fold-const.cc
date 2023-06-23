@@ -14466,7 +14466,8 @@ tree_expr_maybe_nan_p (const_tree x)
 static bool
 tree_simple_nonnegative_warnv_p (enum tree_code code, tree type)
 {
-  if ((TYPE_PRECISION (type) != 1 || TYPE_UNSIGNED (type))
+  if (!VECTOR_TYPE_P (type)
+      && (TYPE_PRECISION (type) != 1 || TYPE_UNSIGNED (type))
       && truth_value_p (code))
     /* Truth values evaluate to 0 or 1, which is nonnegative unless we
        have a signed:1 type (where the value is -1 and 0).  */
