@@ -39,6 +39,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "builtins.h"
 #include "gimple-fold.h"
 #include "gimplify.h"
+#include "internal-fn.h"
 
 /* This file implements dead store elimination.
 
@@ -1198,11 +1199,7 @@ dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
 	    if (store_status == DSE_STORE_DEAD)
 	      delete_dead_or_redundant_call (gsi, "dead");
 	    return;
-
 	  if (store_status == DSE_STORE_MAYBE_PARTIAL_DEAD)
-	    {
-	      maybe_trim_partially_dead_store (&ref, m_live_bytes, stmt);
-	      return;
 	    }
 	}
 
