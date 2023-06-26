@@ -5339,12 +5339,11 @@ gimple_fold_partial_load_store_mem_ref (gcall *call, tree vectype, bool mask_p)
 	return NULL_TREE;
       unsigned int nargs = gimple_call_num_args (call);
       tree bias = gimple_call_arg (call, nargs - 1);
-      gcc_assert (tree_fits_shwi_p (bias));
-      tree biased_len = int_const_binop (MINUS_EXPR, basic_len, bias);
-      unsigned int len = tree_to_uhwi (biased_len);
-      unsigned int vect_len
-	= GET_MODE_SIZE (TYPE_MODE (vectype)).to_constant ();
-      if (vect_len != len)
+      gcc_assert (TREE_CODE (bias) == INTEGER_CST);
+      /* For LEN_LOAD/LEN_STORE/LEN_MASK_LOAD/LEN_MASK_STORE,
+	 we don't fold when (bias + len) != VF.  */
+      if (maybe_ne (wi::to_poly_widest (basic_len) + wi::to_widest (bias),
+		    GET_MODE_NUNITS (TYPE_MODE (vectype))))
 	return NULL_TREE;
     }
 
