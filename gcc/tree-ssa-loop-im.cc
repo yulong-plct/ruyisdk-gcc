@@ -530,7 +530,8 @@ stmt_cost (gimple *stmt)
   if (gimple_code (stmt) != GIMPLE_ASSIGN)
     return 1;
 
-  switch (gimple_assign_rhs_code (stmt))
+  enum tree_code code = gimple_assign_rhs_code (stmt);
+  switch (code)
     {
     case MULT_EXPR:
     case WIDEN_MULT_EXPR:
@@ -558,6 +559,11 @@ stmt_cost (gimple *stmt)
       /* Shifts and rotates are usually expensive.  */
       return LIM_EXPENSIVE;
 
+    case COND_EXPR:
+    case VEC_COND_EXPR:
+      /* Conditionals are expensive.  */
+      return LIM_EXPENSIVE;
+
     case CONSTRUCTOR:
       /* Make vector construction cost proportional to the number
          of elements.  */
@@ -571,6 +577,9 @@ stmt_cost (gimple *stmt)
       return 0;
 
     default:
+      /* Comparisons are usually expensive.  */
+      if (TREE_CODE_CLASS (code) == tcc_comparison)
+	return LIM_EXPENSIVE;
       return 1;
     }
 }
