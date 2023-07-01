@@ -45,18 +45,32 @@ along with GCC; see the file COPYING3.  If not see
    increases effectiveness of code motion optimizations, and reduces the need
    for loop preconditioning.  */
 
-/* Return true if the condition on the first iteration of the loop can
-   be statically determined.  */
+/* Given a path through edge E, whose last statement is COND, return
+   the range of the solved conditional in R.  */
 
-static bool
-entry_loop_condition_is_static (class loop *l, path_range_query *query)
+static void
+edge_range_query (irange &r, edge e, gcond *cond, gimple_ranger &ranger)
+{
+  auto_vec<basic_block> path (2);
+  path.safe_push (e->dest);
+  path.safe_push (e->src);
+  path_range_query query (ranger, path);
+  if (!query.range_of_stmt (r, cond))
+    r.set_varying (boolean_type_node);
+}
+
+/* Return edge that is true in the first iteration of the loop
+   and NULL otherwise.  */
+
+static edge
+static_loop_exit (class loop *l, gimple_ranger *ranger)
 {
   edge e = loop_preheader_edge (l);
-  gcond *last = safe_dyn_cast <gcond *> (last_stmt (e->dest));
+  gcond *last = safe_dyn_cast <gcond *> (*gsi_last_bb (e->dest));
+  edge ret_e;
 
-  if (!last
-      || !irange::supports_type_p (TREE_TYPE (gimple_cond_lhs (last))))
-    return false;
+  if (!last)
+    return NULL;
 
   edge true_e, false_e;
   extract_true_false_edges_from_block (e->dest, &true_e, &false_e);
@@ -64,18 +78,23 @@ entry_loop_condition_is_static (class loop *l, path_range_query *query)
   /* If neither edge is the exit edge, this is not a case we'd like to
      special-case.  */
   if (!loop_exit_edge_p (l, true_e) && !loop_exit_edge_p (l, false_e))
-    return false;
+    return NULL;
 
   tree desired_static_value;
   if (loop_exit_edge_p (l, true_e))
-    desired_static_value = boolean_false_node;
+   {
+      desired_static_range = range_false ();
+      ret_e = true_e;
+   }
   else
-    desired_static_value = boolean_true_node;
+  {
+    desired_static_range = range_true ();
+    ret_e = false_e;
+  }
 
   int_range<2> r;
-  query->compute_ranges (e);
-  query->range_of_stmt (r, last);
-  return r == int_range<2> (desired_static_value, desired_static_value);
+  edge_range_query (r, e, last, *ranger);
+  return r == desired_static_range ? ret_e : NULL;
 }
 
 /* Check whether we should duplicate HEADER of LOOP.  At most *LIMIT
@@ -382,7 +401,8 @@ ch_base::copy_headers (function *fun)
   copied_bbs = XNEWVEC (basic_block, n_basic_blocks_for_fn (fun));
   bbs_size = n_basic_blocks_for_fn (fun);
 
-  auto_vec<loop_p> candidates;
+  struct candidate {class loop *loop; edge static_exit;};
+  auto_vec<struct candidate> candidates;
   auto_vec<std::pair<edge, loop_p> > copied;
   auto_vec<class loop *> loops_to_unloop;
   auto_vec<int> loops_to_unloop_nunroll;
@@ -415,12 +435,14 @@ ch_base::copy_headers (function *fun)
 	  || !process_loop_p (loop))
 	continue;
 
+      edge static_exit = static_loop_exit (loop, ranger);
+
       /* Avoid loop header copying when optimizing for size unless we can
 	 determine that the loop condition is static in the first
 	 iteration.  */
       if (optimize_loop_for_size_p (loop)
 	  && !loop->force_vectorize
-	  && !entry_loop_condition_is_static (loop, query))
+	  && !static_exit)
 	{
 	  if (dump_file && (dump_flags & TDF_DETAILS))
 	    fprintf (dump_file,
@@ -430,14 +452,15 @@ ch_base::copy_headers (function *fun)
 	}
 
       if (should_duplicate_loop_header_p (header, loop, &remaining_limit))
-	candidates.safe_push (loop);
+	candidates.safe_push ({loop, static_exit});
     }
   /* Do not use ranger after we change the IL and not have updated SSA.  */
   delete query;
   delete ranger;
 
-  for (auto loop : candidates)
+  for (auto candidate : candidates)
     {
+      class loop *loop = candidate.loop;
       int initial_limit = param_max_loop_header_insns;
       int remaining_limit = initial_limit;
       if (dump_file && (dump_flags & TDF_DETAILS))
@@ -474,11 +497,17 @@ ch_base::copy_headers (function *fun)
 	continue;
 
       if (dump_file && (dump_flags & TDF_DETAILS))
-	fprintf (dump_file,
-		 "Duplicating header of the loop %d up to edge %d->%d,"
-		 " %i insns.\n",
-		 loop->num, exit->src->index, exit->dest->index,
-		 initial_limit - remaining_limit);
+	{
+	  fprintf (dump_file,
+		   "Duplicating header of the loop %d up to edge %d->%d,"
+		   " %i insns.\n",
+		   loop->num, exit->src->index, exit->dest->index,
+		   initial_limit - remaining_limit);
+	  if (candidate.static_exit)
+	    fprintf (dump_file,
+		     "  Will eliminate peeled conditional in bb %d.\n",
+		     candidate.static_exit->src->index);
+	}
 
       /* Ensure that the header will have just the latch as a predecessor
 	 inside the loop.  */
@@ -489,7 +518,7 @@ ch_base::copy_headers (function *fun)
 
       propagate_threaded_block_debug_into (exit->dest, entry->dest);
       if (!gimple_duplicate_sese_region (entry, exit, bbs, n_bbs, copied_bbs,
-					 true))
+					 true, candidate.static_exit))
 	{
 	  if (dump_file && (dump_flags & TDF_DETAILS))
 	    fprintf (dump_file, "Duplication failed.\n");
