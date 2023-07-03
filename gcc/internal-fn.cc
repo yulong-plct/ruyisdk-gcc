@@ -3416,7 +3416,6 @@ expand_scatter_store_optab_fn (internal_fn, gcall *stmt, direct_optab optab)
 {
   internal_fn ifn = gimple_call_internal_fn (stmt);
   int rhs_index = internal_fn_stored_value_index (ifn);
-  int mask_index = internal_fn_mask_index (ifn);
   tree base = gimple_call_arg (stmt, 0);
   tree offset = gimple_call_arg (stmt, 1);
   tree scale = gimple_call_arg (stmt, 2);
@@ -3427,7 +3426,7 @@ expand_scatter_store_optab_fn (internal_fn, gcall *stmt, direct_optab optab)
   HOST_WIDE_INT scale_int = tree_to_shwi (scale);
   rtx rhs_rtx = expand_normal (rhs);
 
-  class expand_operand ops[6];
+  class expand_operand ops[8];
   int i = 0;
   create_address_operand (&ops[i++], base_rtx);
   create_input_operand (&ops[i++], offset_rtx, TYPE_MODE (TREE_TYPE (offset)));
@@ -3457,7 +3456,7 @@ expand_gather_load_optab_fn (internal_fn, gcall *stmt, direct_optab optab)
   HOST_WIDE_INT scale_int = tree_to_shwi (scale);
 
   int i = 0;
-  class expand_operand ops[6];
+  class expand_operand ops[8];
   create_output_operand (&ops[i++], lhs_rtx, TYPE_MODE (TREE_TYPE (lhs)));
   create_address_operand (&ops[i++], base_rtx);
   create_input_operand (&ops[i++], offset_rtx, TYPE_MODE (TREE_TYPE (offset)));
