@@ -5213,9 +5213,13 @@ gimple_fold_partial_load_store_mem_ref (gcall *call, tree vectype, bool mask_p)
       tree mask = gimple_call_arg (call, 2);
       if (!integer_all_onesp (mask))
 	return NULL_TREE;
-    } else {
-      tree basic_len = gimple_call_arg (call, 2);
-      if (!tree_fits_uhwi_p (basic_len))
+    }
+  else
+    {
+      internal_fn ifn = gimple_call_internal_fn (call);
+      int len_index = internal_fn_len_index (ifn);
+      tree basic_len = gimple_call_arg (call, len_index);
+      if (!poly_int_tree_p (basic_len))
 	return NULL_TREE;
       tree bias = gimple_call_arg (call, len_index + 1);
       gcc_assert (TREE_CODE (bias) == INTEGER_CST);

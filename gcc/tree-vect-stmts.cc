@@ -9352,8 +9352,8 @@ vectorizable_store (vec_info *vinfo,
 		  if (partial_ifn == IFN_MASK_LEN_STORE)
 		    call = gimple_build_call_internal (IFN_MASK_LEN_STORE, 6,
 						       dataref_ptr, ptr,
-						       final_mask, final_len,
-						       bias, vec_oprnd);
+						       final_len, bias,
+						       final_mask, vec_oprnd);
 		  else
 		    call
 		      = gimple_build_call_internal (IFN_LEN_STORE, 5,
@@ -11480,7 +11480,11 @@ vectorizable_load (vec_info *vinfo,
 			if (partial_ifn == IFN_MASK_LEN_LOAD)
 			  call = gimple_build_call_internal (IFN_MASK_LEN_LOAD,
 							     5, dataref_ptr,
-							     ptr, final_mask,
+							     ptr, final_len,
+							     bias, final_mask);
+			else
+			  call = gimple_build_call_internal (IFN_LEN_LOAD, 4,
+							     dataref_ptr, ptr,
 							     final_len, bias);
 			else
 			  {

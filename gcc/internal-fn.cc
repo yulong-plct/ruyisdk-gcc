@@ -171,10 +171,6 @@ init_internal_fns ()
 #define scatter_store_direct { 3, 1, false }
 #define len_store_direct { 3, 3, false }
 #define mask_len_store_direct { 4, 5, false }
-#define vec_set_direct { 3, 3, false }
-#define vec_extract_direct { 0, -1, false }
-#define unary_direct { 0, 0, true }
-#define binary_direct { 0, 0, true }
 #define ternary_direct { 0, 0, true }
 #define cond_unary_direct { 1, 1, true }
 #define cond_binary_direct { 1, 1, true }
@@ -2869,14 +2865,15 @@ expand_call_mem_ref (tree type, gcall *stmt, int index)
  * OPTAB.  */
 
 static void
-expand_partial_load_optab_fn (internal_fn, gcall *stmt, convert_optab optab)
+expand_partial_load_optab_fn (internal_fn ifn, gcall *stmt, convert_optab optab)
 {
+  int i = 0;
   class expand_operand ops[5];
-  tree type, lhs, rhs, maskt, biast;
-  rtx mem, target, mask, bias;
+  tree type, lhs, rhs, maskt;
+  rtx mem, target;
   insn_code icode;
 
-  maskt = gimple_call_arg (stmt, 2);
+  maskt = gimple_call_arg (stmt, internal_fn_mask_index (ifn));
   lhs = gimple_call_lhs (stmt);
   if (lhs == NULL_TREE)
     return;
@@ -2894,7 +2891,6 @@ expand_partial_load_optab_fn (internal_fn, gcall *stmt, convert_optab optab)
 
   mem = expand_expr (rhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
   gcc_assert (MEM_P (mem));
-  mask = expand_normal (maskt);
   target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
   create_output_operand (&ops[i++], target, TYPE_MODE (type));
   create_fixed_operand (&ops[i++], mem);
@@ -2916,12 +2912,13 @@ expand_partial_load_optab_fn (internal_fn, gcall *stmt, convert_optab optab)
 static void
 expand_partial_store_optab_fn (internal_fn ifn, gcall *stmt, convert_optab optab)
 {
+  int i = 0;
   class expand_operand ops[5];
-  tree type, lhs, rhs, maskt, biast;
-  rtx mem, reg, mask, bias;
+  tree type, lhs, rhs, maskt;
+  rtx mem, reg;
   insn_code icode;
 
-  maskt = gimple_call_arg (stmt, 2);
+  maskt = gimple_call_arg (stmt, internal_fn_mask_index (ifn));
   rhs = gimple_call_arg (stmt, internal_fn_stored_value_index (ifn));
   type = TREE_TYPE (rhs);
   lhs = expand_call_mem_ref (type, stmt, 0);
@@ -2937,7 +2934,6 @@ expand_partial_store_optab_fn (internal_fn ifn, gcall *stmt, convert_optab optab
 
   mem = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
   gcc_assert (MEM_P (mem));
-  mask = expand_normal (maskt);
   reg = expand_normal (rhs);
   create_fixed_operand (&ops[i++], mem);
   create_input_operand (&ops[i++], reg, TYPE_MODE (type));
@@ -4554,10 +4550,11 @@ internal_fn_stored_value_index (internal_fn fn)
     case IFN_MASK_LEN_SCATTER_STORE:
       return 3;
 
-    case IFN_LEN_MASK_STORE:
+    case IFN_LEN_STORE:
       return 4;
 
     case IFN_MASK_LEN_STORE:
+    case IFN_MASK_LEN_STORE_LANES:
       return 5;
 
     default:
