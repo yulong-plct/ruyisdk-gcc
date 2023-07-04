@@ -4304,7 +4304,7 @@ internal_fn_len_index (internal_fn fn)
 
     case IFN_LEN_MASK_GATHER_LOAD:
     case IFN_LEN_MASK_SCATTER_STORE:
-      return 4;
+      return 5;
 
     default:
       return -1;
@@ -4329,11 +4329,9 @@ internal_fn_mask_index (internal_fn fn)
     case IFN_MASK_SCATTER_STORE:
     case IFN_LEN_MASK_LOAD:
     case IFN_LEN_MASK_STORE:
-      return 4;
-
     case IFN_LEN_MASK_GATHER_LOAD:
     case IFN_LEN_MASK_SCATTER_STORE:
-      return 6;
+      return 4;
 
     default:
       return (conditional_internal_fn_code (fn) != ERROR_MARK
