@@ -4204,6 +4204,29 @@ internal_gather_scatter_fn_p (internal_fn fn)
     }
 }
 
+/* If FN takes a vector len argument, return the index of that argument,
+   otherwise return -1.  */
+
+int
+internal_fn_len_index (internal_fn fn)
+{
+  switch (fn)
+    {
+    case IFN_LEN_LOAD:
+    case IFN_LEN_STORE:
+    case IFN_LEN_MASK_LOAD:
+    case IFN_LEN_MASK_STORE:
+      return 2;
+
+    case IFN_LEN_MASK_GATHER_LOAD:
+    case IFN_LEN_MASK_SCATTER_STORE:
+      return 5;
+
+    default:
+      return -1;
+    }
+}
+
 /* If FN takes a vector mask argument, return the index of that argument,
    otherwise return -1.  */
 
@@ -4220,11 +4243,11 @@ internal_fn_mask_index (internal_fn fn)
 
     case IFN_MASK_GATHER_LOAD:
     case IFN_MASK_SCATTER_STORE:
-      return 4;
-
     case IFN_LEN_MASK_LOAD:
     case IFN_LEN_MASK_STORE:
-      return 3;
+    case IFN_LEN_MASK_GATHER_LOAD:
+    case IFN_LEN_MASK_SCATTER_STORE:
+      return 4;
 
     default:
       return (conditional_internal_fn_code (fn) != ERROR_MARK
