@@ -1831,7 +1831,7 @@ public:
 	return type == nullptr;
       }
 
-    gcc_unreachable ();
+    rust_unreachable ();
     return true;
   }
 
@@ -1857,7 +1857,7 @@ public:
 	return "Type: " + type->as_string ();
       }
 
-    gcc_unreachable ();
+    rust_unreachable ();
     return "";
   }
 };

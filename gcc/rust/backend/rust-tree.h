@@ -1953,7 +1953,7 @@ struct named_decl_hash : ggc_remove<tree>
 
   /* Nothing is deletable.  Everything is insertable.  */
   static bool is_deleted (value_type) { return false; }
-  static void mark_deleted (value_type) { gcc_unreachable (); }
+  static void mark_deleted (value_type) { rust_unreachable (); }
 };
 
 // forked from gcc/cp/cp-tree.h lang_decl_selector
@@ -2163,7 +2163,7 @@ struct named_label_hash : ggc_remove<named_label_entry *>
 
   /* Nothing is deletable.  Everything is insertable.  */
   inline static bool is_deleted (value_type) { return false; }
-  inline static void mark_deleted (value_type) { gcc_unreachable (); }
+  inline static void mark_deleted (value_type) { rust_unreachable (); }
 };
 
 // forked from gcc/cp/cp-tree.h

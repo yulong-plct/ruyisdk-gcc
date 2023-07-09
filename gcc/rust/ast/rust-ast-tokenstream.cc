@@ -185,7 +185,7 @@ TokenCollector::visit (Attribute &attrib)
 	    break;
 	  }
 	default:
-	  gcc_unreachable ();
+	  rust_unreachable ();
 	}
     }
   tokens.push_back (Rust::Token::make (RIGHT_SQUARE, Location ()));
@@ -621,7 +621,7 @@ TokenCollector::visit (GenericArg &arg)
 	Rust::Token::make_identifier (Location (), std::move (path)));
       break;
     case GenericArg::Kind::Error:
-      gcc_unreachable ();
+      rust_unreachable ();
     }
 }
 
@@ -770,11 +770,11 @@ TokenCollector::visit (Literal &lit, Location locus)
 	else if (value == "true")
 	  tokens.push_back (Rust::Token::make (TRUE_LITERAL, locus));
 	else
-	  gcc_unreachable (); // Not a boolean
+	  rust_unreachable (); // Not a boolean
 	break;
       }
     case Literal::LitType::ERROR:
-      gcc_unreachable ();
+      rust_unreachable ();
       break;
     }
 }
@@ -1132,7 +1132,7 @@ void
 TokenCollector::visit (StructExprStructBase &)
 {
   // FIXME: Implement this node
-  gcc_unreachable ();
+  rust_unreachable ();
 }
 
 void
@@ -2174,7 +2174,7 @@ get_delimiters (DelimType delim)
     case CURLY:
       return {LEFT_CURLY, RIGHT_CURLY};
     default:
-      gcc_unreachable ();
+      rust_unreachable ();
     }
 }
 

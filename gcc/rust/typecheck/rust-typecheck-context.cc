@@ -565,6 +565,10 @@ TypeCheckContextItem::get_context_type ()
     case TRAIT_ITEM:
       reference = get_trait_item ()->get_mappings ().get_hirid ();
       break;
+
+    case ERROR:
+      rust_unreachable ();
+      return nullptr;
     }
 
   rust_assert (reference != UNKNOWN_HIRID);

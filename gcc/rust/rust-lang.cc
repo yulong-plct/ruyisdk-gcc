@@ -246,7 +246,7 @@ grs_langhook_type_for_mode (machine_mode mode, int unsignedp)
       return (unsignedp ? int_n_trees[i].unsigned_type
 	      : int_n_trees[i].signed_type);
 
-  /* gcc_unreachable */
+  /* rust_unreachable */
   return NULL;
 }
 
@@ -263,7 +263,7 @@ static bool
 grs_langhook_global_bindings_p (void)
 {
   // return current_function_decl == NULL_TREE;
-  // gcc_unreachable();
+  // rust_unreachable();
   // return true;
   return false;
 }
@@ -277,7 +277,7 @@ grs_langhook_global_bindings_p (void)
 static tree
 grs_langhook_pushdecl (tree decl ATTRIBUTE_UNUSED)
 {
-  gcc_unreachable ();
+  rust_unreachable ();
   return NULL;
 }
 
@@ -287,7 +287,7 @@ grs_langhook_pushdecl (tree decl ATTRIBUTE_UNUSED)
 static tree
 grs_langhook_getdecls (void)
 {
-  // gcc_unreachable();
+  // rust_unreachable();
   return NULL;
 }
 
@@ -376,7 +376,7 @@ convert (tree type, tree expr)
       break;
     }
 
-  gcc_unreachable ();
+  rust_unreachable ();
 }
 
 /* FIXME: This is a hack to preserve trees that we create from the

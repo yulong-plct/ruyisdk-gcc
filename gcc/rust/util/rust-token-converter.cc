@@ -304,7 +304,7 @@ convert (std::vector<const_TokenPtr> tokens)
 	  trees.push_back (ProcMacro::TokenStream::make_tokenstream ());
 	  break;
 	default:
-	  gcc_unreachable ();
+	  rust_unreachable ();
 	}
     }
   return trees.back ();
@@ -319,8 +319,45 @@ from_ident (ProcMacro::Ident ident, std::vector<const_TokenPtr> &result)
 {}
 
 static void
-from_literal (ProcMacro::Literal literal, std::vector<const_TokenPtr> &result)
-{}
+from_literal (const ProcMacro::Literal &literal,
+	      std::vector<const_TokenPtr> &result)
+{
+  auto lookup = suffixes.lookup (literal.suffix.to_string ());
+  auto loc = convert (literal.span);
+  auto suffix
+    = suffixes.is_iter_ok (lookup) ? lookup->second : CORETYPE_UNKNOWN;
+  // FIXME: Add spans instead of empty locations
+  switch (literal.kind.tag)
+    {
+    case ProcMacro::BYTE:
+      result.push_back (
+	Token::make_byte_char (loc, literal.text.to_string ()[0]));
+      break;
+    case ProcMacro::CHAR:
+      result.push_back (Token::make_char (loc, literal.text.to_string ()[0]));
+      break;
+    case ProcMacro::INTEGER:
+      result.push_back (
+	Token::make_int (loc, literal.text.to_string (), suffix));
+      break;
+    case ProcMacro::FLOAT:
+      result.push_back (
+	Token::make_float (loc, literal.text.to_string (), suffix));
+      break;
+    case ProcMacro::STR:
+      result.push_back (Token::make_string (loc, literal.text.to_string ()));
+      break;
+    case ProcMacro::BYTE_STR:
+      result.push_back (
+	Token::make_byte_string (loc, literal.text.to_string ()));
+      break;
+    // FIXME: Handle raw string
+    case ProcMacro::STR_RAW:
+    case ProcMacro::BYTE_STR_RAW:
+    default:
+      rust_unreachable ();
+    }
+}
 
 /**
  *
@@ -362,7 +399,7 @@ from_group (const ProcMacro::Group &g, std::vector<const_TokenPtr> &result)
       from_tokenstream (g.stream, result);
       break;
     default:
-      gcc_unreachable ();
+      rust_unreachable ();
     }
 }
 
@@ -393,7 +430,7 @@ from_tokentree (const ProcMacro::TokenTree &tt,
       from_literal (tt.payload.literal, result);
       break;
     default:
-      gcc_unreachable ();
+      rust_unreachable ();
     }
 }
 

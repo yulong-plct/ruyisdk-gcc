@@ -647,7 +647,7 @@ MacroExpander::match_matcher (Parser<MacroInvocLexer> &parser,
       }
       break;
     default:
-      gcc_unreachable ();
+      rust_unreachable ();
     }
 
   return true;
@@ -784,7 +784,7 @@ MacroExpander::match_repetition (Parser<MacroInvocLexer> &parser,
       res = match_n_matches (parser, rep, match_amount, 0, 1);
       break;
     default:
-      gcc_unreachable ();
+      rust_unreachable ();
     }
 
   if (!res)
@@ -1042,8 +1042,7 @@ transcribe_context (MacroExpander::ContextType ctx,
       return transcribe_type (parser);
       break;
     default:
-      return transcribe_on_delimiter (parser, semicolon, delimiter,
-				      last_token_id);
+      rust_unreachable ();
     }
 }
 
@@ -1142,4 +1141,142 @@ MacroExpander::transcribe_rule (
 
   return fragment;
 }
+
+// TODO: Move to early name resolver ?
+void
+MacroExpander::import_proc_macros (std::string extern_crate)
+{
+  auto path = session.extern_crates.find (extern_crate);
+  if (path == session.extern_crates.end ())
+    {
+      // Extern crate path is not available.
+      // FIXME: Emit error
+      rust_error_at (UNDEF_LOCATION, "Cannot find requested proc macro crate");
+      rust_unreachable ();
+    }
+  auto macros = load_macros (path->second);
+
+  std::string prefix = extern_crate + "::";
+  for (auto &macro : macros)
+    {
+      switch (macro.tag)
+	{
+	case ProcMacro::CUSTOM_DERIVE:
+	  rust_debug ("Found one derive proc macro.");
+	  mappings->insert_derive_proc_macro (
+	    std::make_pair (extern_crate,
+			    macro.payload.custom_derive.trait_name),
+	    macro.payload.custom_derive);
+	  break;
+	case ProcMacro::ATTR:
+	  rust_debug ("Found one attribute proc macro.");
+	  mappings->insert_attribute_proc_macro (
+	    std::make_pair (extern_crate, macro.payload.attribute.name),
+	    macro.payload.attribute);
+	  break;
+	case ProcMacro::BANG:
+	  rust_debug ("Found one bang proc macro.");
+	  mappings->insert_bang_proc_macro (
+	    std::make_pair (extern_crate, macro.payload.bang.name),
+	    macro.payload.bang);
+	  break;
+	default:
+	  rust_unreachable ();
+	}
+    }
+}
+
+AST::Fragment
+MacroExpander::parse_proc_macro_output (ProcMacro::TokenStream ts)
+{
+  ProcMacroInvocLexer lex (convert (ts));
+  Parser<ProcMacroInvocLexer> parser (lex);
+
+  std::vector<AST::SingleASTNode> nodes;
+  switch (peek_context ())
+    {
+    case ContextType::ITEM:
+      while (lex.peek_token ()->get_id () != END_OF_FILE)
+	{
+	  auto result = parser.parse_item (false);
+	  if (result == nullptr)
+	    break;
+	  nodes.push_back ({std::move (result)});
+	}
+      break;
+    case ContextType::STMT:
+      while (lex.peek_token ()->get_id () != END_OF_FILE)
+	{
+	  auto result = parser.parse_stmt ();
+	  if (result == nullptr)
+	    break;
+	  nodes.push_back ({std::move (result)});
+	}
+      break;
+    case ContextType::TRAIT:
+    case ContextType::IMPL:
+    case ContextType::TRAIT_IMPL:
+    case ContextType::EXTERN:
+    case ContextType::TYPE:
+    case ContextType::EXPR:
+    default:
+      rust_unreachable ();
+    }
+
+  if (parser.has_errors ())
+    return AST::Fragment::create_error ();
+  else
+    return {nodes, std::vector<std::unique_ptr<AST::Token>> ()};
+}
+
+MatchedFragment &
+MatchedFragmentContainer::get_single_fragment ()
+{
+  rust_assert (is_single_fragment ());
+
+  return static_cast<MatchedFragmentContainerMetaVar &> (*this).get_fragment ();
+}
+
+std::vector<std::unique_ptr<MatchedFragmentContainer>> &
+MatchedFragmentContainer::get_fragments ()
+{
+  rust_assert (!is_single_fragment ());
+
+  return static_cast<MatchedFragmentContainerRepetition &> (*this)
+    .get_fragments ();
+}
+
+void
+MatchedFragmentContainer::add_fragment (MatchedFragment fragment)
+{
+  rust_assert (!is_single_fragment ());
+
+  return static_cast<MatchedFragmentContainerRepetition &> (*this)
+    .add_fragment (fragment);
+}
+
+void
+MatchedFragmentContainer::add_fragment (
+  std::unique_ptr<MatchedFragmentContainer> fragment)
+{
+  rust_assert (!is_single_fragment ());
+
+  return static_cast<MatchedFragmentContainerRepetition &> (*this)
+    .add_fragment (std::move (fragment));
+}
+
+std::unique_ptr<MatchedFragmentContainer>
+MatchedFragmentContainer::zero ()
+{
+  return std::unique_ptr<MatchedFragmentContainer> (
+    new MatchedFragmentContainerRepetition ());
+}
+
+std::unique_ptr<MatchedFragmentContainer>
+MatchedFragmentContainer::metavar (MatchedFragment fragment)
+{
+  return std::unique_ptr<MatchedFragmentContainer> (
+    new MatchedFragmentContainerMetaVar (fragment));
+}
+
 } // namespace Rust

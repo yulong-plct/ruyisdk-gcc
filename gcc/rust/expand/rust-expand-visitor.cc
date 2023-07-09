@@ -69,7 +69,7 @@ get_traits_to_derive (AST::Attribute &attr)
     case AST::AttrInput::LITERAL:
     case AST::AttrInput::META_ITEM:
     case AST::AttrInput::MACRO:
-      gcc_unreachable ();
+      rust_unreachable ();
       break;
     }
 
@@ -99,11 +99,97 @@ derive_item (std::unique_ptr<AST::Item> &item, std::string &to_derive,
 	      result.push_back (node.take_item ());
 	      break;
 	    default:
-	      gcc_unreachable ();
+	      rust_unreachable ();
 	    }
 	}
     }
   return result;
+}
+
+static std::vector<std::unique_ptr<AST::Item>>
+expand_item_attribute (AST::Item &item, AST::SimplePath &name,
+		       MacroExpander &expander)
+{
+  std::vector<std::unique_ptr<AST::Item>> result;
+  auto frag = expander.expand_attribute_proc_macro (item, name);
+  if (!frag.is_error ())
+    {
+      for (auto &node : frag.get_nodes ())
+	{
+	  switch (node.get_kind ())
+	    {
+	    case AST::SingleASTNode::ITEM:
+	      result.push_back (node.take_item ());
+	      break;
+	    default:
+	      rust_unreachable ();
+	    }
+	}
+    }
+  return result;
+}
+
+/* Helper function to expand a given attribute on a statement and collect back
+ * statements.
+ * T should be anything that can be used as a statement accepting outer
+ * attributes.
+ */
+template <typename T>
+static std::vector<std::unique_ptr<AST::Stmt>>
+expand_stmt_attribute (T &statement, AST::SimplePath &attribute,
+		       MacroExpander &expander)
+{
+  std::vector<std::unique_ptr<AST::Stmt>> result;
+  auto frag = expander.expand_attribute_proc_macro (statement, attribute);
+  if (!frag.is_error ())
+    {
+      for (auto &node : frag.get_nodes ())
+	{
+	  switch (node.get_kind ())
+	    {
+	    case AST::SingleASTNode::STMT:
+	      result.push_back (node.take_stmt ());
+	      break;
+	    default:
+	      rust_unreachable ();
+	    }
+	}
+    }
+  return result;
+}
+
+void
+expand_tail_expr (AST::BlockExpr &block_expr, MacroExpander &expander)
+{
+  if (block_expr.has_tail_expr ())
+    {
+      auto tail = block_expr.take_tail_expr ();
+      auto attrs = tail->get_outer_attrs ();
+      bool changed = false;
+      for (auto it = attrs.begin (); it != attrs.end ();)
+	{
+	  auto current = *it;
+	  if (is_builtin (current))
+	    {
+	      it++;
+	    }
+	  else
+	    {
+	      it = attrs.erase (it);
+	      changed = true;
+	      auto new_stmts
+		= expand_stmt_attribute (block_expr, current.get_path (),
+					 expander);
+	      auto &stmts = block_expr.get_statements ();
+	      std::move (new_stmts.begin (), new_stmts.end (),
+			 std::inserter (stmts, stmts.end ()));
+	    }
+	}
+      if (changed)
+	block_expr.normalize_tail_expr ();
+      else
+	block_expr.set_tail_expr (std::move (tail));
+    }
 }
 
 void

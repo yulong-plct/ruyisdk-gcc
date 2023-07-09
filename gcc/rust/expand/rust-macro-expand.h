@@ -178,7 +178,7 @@ public:
       current_map.insert ({fragment.fragment_ident,
 			   MatchedFragmentContainer::metavar (fragment)});
     else
-      gcc_unreachable ();
+      rust_unreachable ();
   }
 
   /**
