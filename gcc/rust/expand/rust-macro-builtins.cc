@@ -250,14 +250,14 @@ source_relative_path (std::string path, Location locus)
 /* Read the full contents of the file FILENAME and return them in a vector.
    FIXME: platform specific.  */
 
-std::vector<uint8_t>
-load_file_bytes (const char *filename)
+tl::optional<std::vector<uint8_t>>
+load_file_bytes (location_t invoc_locus, const char *filename)
 {
   RAIIFile file_wrap (filename);
   if (file_wrap.get_raw () == nullptr)
     {
-      rust_error_at (Location (), "cannot open filename %s: %m", filename);
-      return std::vector<uint8_t> ();
+      rust_error_at (invoc_locus, "cannot open filename %s: %m", filename);
+      return tl::nullopt;
     }
 
   FILE *f = file_wrap.get_raw ();
@@ -267,7 +267,7 @@ load_file_bytes (const char *filename)
 
   std::vector<uint8_t> buf (fsize);
 
-  if (fread (&buf[0], fsize, 1, f) != 1)
+  if (fsize > 0 && fread (&buf[0], fsize, 1, f) != 1)
     {
       rust_error_at (Location (), "error reading file %s: %m", filename);
       return std::vector<uint8_t> ();
@@ -331,7 +331,12 @@ MacroBuiltin::include_bytes_handler (Location invoc_locus,
   std::string target_filename
     = source_relative_path (lit_expr->as_string (), invoc_locus);
 
-  std::vector<uint8_t> bytes = load_file_bytes (target_filename.c_str ());
+  auto maybe_bytes = load_file_bytes (invoc_locus, target_filename.c_str ());
+
+  if (!maybe_bytes.has_value ())
+    return AST::Fragment::create_error ();
+
+  std::vector<uint8_t> bytes = maybe_bytes.value ();
 
   /* Is there a more efficient way to do this?  */
   std::vector<std::unique_ptr<AST::Expr>> elts;
@@ -387,10 +392,64 @@ MacroBuiltin::include_str_handler (Location invoc_locus,
   std::string target_filename
     = source_relative_path (lit_expr->as_string (), invoc_locus);
 
-  std::vector<uint8_t> bytes = load_file_bytes (target_filename.c_str ());
+  auto maybe_bytes = load_file_bytes (invoc_locus, target_filename.c_str ());
 
-  /* FIXME: Enforce that the file contents are valid UTF-8.  */
-  std::string str ((const char *) &bytes[0], bytes.size ());
+  if (!maybe_bytes.has_value ())
+    return AST::Fragment::create_error ();
+
+  std::vector<uint8_t> bytes = maybe_bytes.value ();
+
+  /* FIXME: reuse lexer */
+  int expect_single = 0;
+  for (uint8_t b : bytes)
+    {
+      if (expect_single)
+	{
+	  if ((b & 0xC0) != 0x80)
+	    /* character was truncated, exit with expect_single != 0 */
+	    break;
+	  expect_single--;
+	}
+      else if (b & 0x80)
+	{
+	  if (b >= 0xF8)
+	    {
+	      /* more than 4 leading 1s */
+	      expect_single = 1;
+	      break;
+	    }
+	  else if (b >= 0xF0)
+	    {
+	      /* 4 leading 1s */
+	      expect_single = 3;
+	    }
+	  else if (b >= 0xE0)
+	    {
+	      /* 3 leading 1s */
+	      expect_single = 2;
+	    }
+	  else if (b >= 0xC0)
+	    {
+	      /* 2 leading 1s */
+	      expect_single = 1;
+	    }
+	  else
+	    {
+	      /* only 1 leading 1 */
+	      expect_single = 1;
+	      break;
+	    }
+	}
+    }
+
+  std::string str;
+  if (expect_single)
+    rust_error_at (invoc_locus, "%s was not a valid utf-8 file",
+		   target_filename.c_str ());
+  else if (!bytes.empty ())
+    str = std::string ((const char *) &bytes[0], bytes.size ());
+  else
+    return tl::nullopt;
 
   auto node = AST::SingleASTNode (make_string (invoc_locus, str));
   auto str_tok = make_token (Token::make_string (invoc_locus, std::move (str)));
