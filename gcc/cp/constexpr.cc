@@ -2699,7 +2699,7 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
     }
   else
     {
-      bool cacheable = true;
+      bool cacheable = !!entry;
       if (result && result != error_mark_node)
 	/* OK */;
       else if (!DECL_SAVED_TREE (fun))
@@ -2850,7 +2850,7 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
 	     for the constexpr evaluation and should not be cached.
 	     It is fine if the call allocates something and deallocates it
 	     too.  */
-	  if (entry
+	  if (cacheable
 	      && (save_heap_alloc_count != ctx->global->heap_vars.length ()
 		  || (save_heap_dealloc_count
 		      != ctx->global->heap_dealloc_count)))
@@ -2878,6 +2878,10 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
 		&& !is_empty_class (TREE_TYPE (res)))
 	      if (replace_result_decl (&result, res, ctx->object))
 		cacheable = false;
+
+	  /* Only cache a permitted result of a constant expression.  */
+	  if (cacheable && !reduced_constant_expression_p (result))
+	    cacheable = false;
 	}
       else
 	/* Couldn't get a function copy to evaluate.  */
@@ -2929,8 +2933,9 @@ reduced_constant_expression_p (tree t)
     case CONSTRUCTOR:
       /* And we need to handle PTRMEM_CST wrapped in a CONSTRUCTOR.  */
       tree field;
-      if (TREE_CODE (TREE_TYPE (t)) == VECTOR_TYPE)
-	/* An initialized vector would have a VECTOR_CST.  */
+      if (!AGGREGATE_TYPE_P (TREE_TYPE (t)))
+	/* A constant vector would be folded to VECTOR_CST.
+	   A CONSTRUCTOR of scalar type means uninitialized.  */
 	return false;
       if (CONSTRUCTOR_NO_CLEARING (t))
 	{
