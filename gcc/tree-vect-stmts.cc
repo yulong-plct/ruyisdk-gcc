@@ -1081,10 +1081,12 @@ static void
 vect_model_load_cost (vec_info *vinfo,
 		      stmt_vec_info stmt_info, unsigned ncopies, poly_uint64 vf,
 		      vect_memory_access_type memory_access_type,
+		      dr_alignment_support alignment_support_scheme,
+		      int misalignment,
 		      slp_tree slp_node,
 		      stmt_vector_for_cost *cost_vec)
 {
-  gcc_assert ((memory_access_type != VMAT_GATHER_SCATTER || !gs_info->decl)
+  gcc_assert (memory_access_type != VMAT_GATHER_SCATTER
 	      && memory_access_type != VMAT_INVARIANT
 	      && memory_access_type != VMAT_ELEMENTWISE
 	      && memory_access_type != VMAT_STRIDED_SLP);
@@ -1170,26 +1172,9 @@ vect_model_load_cost (vec_info *vinfo,
                          group_size);
     }
 
-  /* The loads themselves.  */
-  if (memory_access_type == VMAT_GATHER_SCATTER)
-    {
-      /* N scalar loads plus gathering them into a vector.  */
-      tree vectype = STMT_VINFO_VECTYPE (stmt_info);
-      unsigned int assumed_nunits = vect_nunits_for_cost (vectype);
-      inside_cost += record_stmt_cost (cost_vec,
-				       ncopies * assumed_nunits,
-				       scalar_load, stmt_info, 0, vect_body);
-    }
-  else
-    vect_get_load_cost (vinfo, stmt_info, ncopies, first_stmt_p,
-			&inside_cost, &prologue_cost, 
-			cost_vec, cost_vec, true);
-
-  if (memory_access_type == VMAT_GATHER_SCATTER
-      && gs_info->ifn == IFN_LAST
-      && !gs_info->decl)
-    inside_cost += record_stmt_cost (cost_vec, ncopies, vec_construct,
-				     stmt_info, 0, vect_body);
+  vect_get_load_cost (vinfo, stmt_info, ncopies, alignment_support_scheme,
+		      misalignment, first_stmt_p, &inside_cost, &prologue_cost,
+		      cost_vec, cost_vec, true);
 
   if (dump_enabled_p ())
     dump_printf_loc (MSG_NOTE, vect_location,
@@ -9984,6 +9969,7 @@ vectorizable_load (vec_info *vinfo,
     }
   tree vec_mask = NULL_TREE;
   poly_uint64 group_elt = 0;
+  unsigned int inside_cost = 0;
   for (j = 0; j < ncopies; j++)
     {
       /* 1. Create the vector or array pointer update chain.  */
@@ -10118,25 +10104,28 @@ vectorizable_load (vec_info *vinfo,
 	  /* Record that VEC_ARRAY is now dead.  */
 	  vect_clobber_variable (vinfo, stmt_info, gsi, vec_array);
 	}
-      else if (!costing_p)
+      else
 	{
 	  for (i = 0; i < vec_num; i++)
 	    {
 	      tree final_mask = NULL_TREE;
 	      tree final_len = NULL_TREE;
 	      tree bias = NULL_TREE;
-	      if (loop_masks
-		  && memory_access_type != VMAT_INVARIANT)
-		final_mask = vect_get_loop_mask (gsi, loop_masks,
-						 vec_num * ncopies,
-						 vectype, vec_num * j + i);
-	      if (vec_mask)
-		final_mask = prepare_load_store_mask (mask_vectype, final_mask,
-						      vec_mask, gsi);
+	      if (!costing_p)
+		{
+		  if (loop_masks && memory_access_type != VMAT_INVARIANT)
+		    final_mask
+		      = vect_get_loop_mask (loop_vinfo, gsi, loop_masks,
+					    vec_num * ncopies, vectype,
+					    vec_num * j + i);
+		  if (vec_mask)
+		    final_mask = prepare_vec_mask (loop_vinfo, mask_vectype,
+						   final_mask, vec_mask, gsi);
 
-	      if (i > 0 && !STMT_VINFO_GATHER_SCATTER_P (stmt_info))
-		dataref_ptr = bump_vector_ptr (vinfo, dataref_ptr, ptr_incr,
-					       gsi, stmt_info, bump);
+		  if (i > 0 && !STMT_VINFO_GATHER_SCATTER_P (stmt_info))
+		    dataref_ptr = bump_vector_ptr (vinfo, dataref_ptr, ptr_incr,
+						   gsi, stmt_info, bump);
+		}
 
 	      /* 2. Create the vector-load in the loop.  */
 	      switch (alignment_support_scheme)
@@ -10149,6 +10138,16 @@ vectorizable_load (vec_info *vinfo,
 
 		    if (memory_access_type == VMAT_GATHER_SCATTER)
 		      {
+			if (costing_p)
+			  {
+			    unsigned int cnunits
+			      = vect_nunits_for_cost (vectype);
+			    inside_cost
+			      = record_stmt_cost (cost_vec, cnunits,
+						  scalar_load, stmt_info, 0,
+						  vect_body);
+			    goto vec_num_loop_costing_end;
+			  }
 			if (STMT_VINFO_GATHER_SCATTER_P (stmt_info))
 			  vec_offset = vec_offsets[vec_num * j + i];
 			tree zero = build_zero_cst (vectype);
@@ -10194,6 +10193,85 @@ vectorizable_load (vec_info *vinfo,
 			data_ref = NULL_TREE;
 			break;
 		      }
+		    else if (memory_access_type == VMAT_GATHER_SCATTER)
+		      {
+			/* Emulated gather-scatter.  */
+			gcc_assert (!final_mask);
+			unsigned HOST_WIDE_INT const_nunits
+			  = nunits.to_constant ();
+			if (costing_p)
+			  {
+			    /* For emulated gathers N offset vector element
+			       offset add is consumed by the load).  */
+			    inside_cost
+			      = record_stmt_cost (cost_vec, const_nunits,
+						  vec_to_scalar, stmt_info, 0,
+						  vect_body);
+			    /* N scalar loads plus gathering them into a
+			       vector.  */
+			    inside_cost
+			      = record_stmt_cost (cost_vec, const_nunits,
+						  scalar_load, stmt_info, 0,
+						  vect_body);
+			    inside_cost
+			      = record_stmt_cost (cost_vec, 1, vec_construct,
+						  stmt_info, 0, vect_body);
+			    goto vec_num_loop_costing_end;
+			  }
+			unsigned HOST_WIDE_INT const_offset_nunits
+			  = TYPE_VECTOR_SUBPARTS (gs_info.offset_vectype)
+			      .to_constant ();
+			vec<constructor_elt, va_gc> *ctor_elts;
+			vec_alloc (ctor_elts, const_nunits);
+			gimple_seq stmts = NULL;
+			/* We support offset vectors with more elements
+			   than the data vector for now.  */
+			unsigned HOST_WIDE_INT factor
+			  = const_offset_nunits / const_nunits;
+			vec_offset = vec_offsets[j / factor];
+			unsigned elt_offset = (j % factor) * const_nunits;
+			tree idx_type = TREE_TYPE (TREE_TYPE (vec_offset));
+			tree scale = size_int (gs_info.scale);
+			align
+			  = get_object_alignment (DR_REF (first_dr_info->dr));
+			tree ltype = build_aligned_type (TREE_TYPE (vectype),
+							 align);
+			for (unsigned k = 0; k < const_nunits; ++k)
+			  {
+			    tree boff = size_binop (MULT_EXPR,
+						    TYPE_SIZE (idx_type),
+						    bitsize_int
+						      (k + elt_offset));
+			    tree idx = gimple_build (&stmts, BIT_FIELD_REF,
+						     idx_type, vec_offset,
+						     TYPE_SIZE (idx_type),
+						     boff);
+			    idx = gimple_convert (&stmts, sizetype, idx);
+			    idx = gimple_build (&stmts, MULT_EXPR,
+						sizetype, idx, scale);
+			    tree ptr = gimple_build (&stmts, PLUS_EXPR,
+						     TREE_TYPE (dataref_ptr),
+						     dataref_ptr, idx);
+			    ptr = gimple_convert (&stmts, ptr_type_node, ptr);
+			    tree elt = make_ssa_name (TREE_TYPE (vectype));
+			    tree ref = build2 (MEM_REF, ltype, ptr,
+					       build_int_cst (ref_type, 0));
+			    new_stmt = gimple_build_assign (elt, ref);
+			    gimple_set_vuse (new_stmt,
+					     gimple_vuse (gsi_stmt (*gsi)));
+			    gimple_seq_add_stmt (&stmts, new_stmt);
+			    CONSTRUCTOR_APPEND_ELT (ctor_elts, NULL_TREE, elt);
+			  }
+			gsi_insert_seq_before (gsi, stmts, GSI_SAME_STMT);
+			new_stmt = gimple_build_assign (NULL_TREE,
+							build_constructor
+							  (vectype, ctor_elts));
+			data_ref = NULL_TREE;
+			break;
+		      }
+
+		    if (costing_p)
+		      goto vec_num_loop_costing_end;
 
 		    align =
 		      known_alignment (DR_TARGET_ALIGNMENT (first_dr_info));
@@ -10412,6 +10490,8 @@ vectorizable_load (vec_info *vinfo,
 		  }
 		case dr_explicit_realign:
 		  {
+		    if (costing_p)
+		      goto vec_num_loop_costing_end;
 		    tree ptr, bump;
 
 		    tree vs = size_int (TYPE_VECTOR_SUBPARTS (vectype));
@@ -10471,6 +10551,8 @@ vectorizable_load (vec_info *vinfo,
 		  }
 		case dr_explicit_realign_optimized:
 		  {
+		    if (costing_p)
+		      goto vec_num_loop_costing_end;
 		    if (TREE_CODE (dataref_ptr) == SSA_NAME)
 		      new_temp = copy_ssa_name (dataref_ptr);
 		    else
@@ -10567,10 +10649,14 @@ vectorizable_load (vec_info *vinfo,
 						 gsi, stmt_info, bump);
 		  group_elt = 0;
 		}
+vec_num_loop_costing_end:
+	      ;
 	    }
 	  /* Bump the vector pointer to account for a gap or for excess
 	     elements loaded for a permuted SLP load.  */
-	  if (maybe_ne (group_gap_adj, 0U) && slp_perm)
+	  if (!costing_p
+	      && maybe_ne (group_gap_adj, 0U)
+	      && slp_perm)
 	    {
 	      poly_wide_int bump_val
 		= (wi::to_wide (TYPE_SIZE_UNIT (elem_type))
@@ -10614,9 +10700,20 @@ vectorizable_load (vec_info *vinfo,
     *vec_stmt = STMT_VINFO_VEC_STMTS (stmt_info)[0];
 
   if (costing_p)
-    vect_model_load_cost (vinfo, stmt_info, ncopies, vf, memory_access_type,
-			  alignment_support_scheme, misalignment, &gs_info,
-			  slp_node, cost_vec);
+    {
+      if (memory_access_type == VMAT_GATHER_SCATTER)
+	{
+	  if (dump_enabled_p ())
+	    dump_printf_loc (MSG_NOTE, vect_location,
+			     "vect_model_load_cost: inside_cost = %u, "
+			     "prologue_cost = 0 .\n",
+			     inside_cost);
+	}
+      else
+	vect_model_load_cost (vinfo, stmt_info, ncopies, vf, memory_access_type,
+			      alignment_support_scheme, misalignment, slp_node,
+			      cost_vec);
+    }
 
   return true;
 }
