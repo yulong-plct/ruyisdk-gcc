@@ -1455,10 +1455,6 @@ minmax_replacement (basic_block cond_bb, basic_block middle_bb,
 
   tree type = TREE_TYPE (PHI_RESULT (phi));
 
-  /* The optimization may be unsafe due to NaNs.  */
-  if (HONOR_NANS (type) || HONOR_SIGNED_ZEROS (type))
-    return false;
-
   gcond *cond = as_a <gcond *> (*gsi_last_bb (cond_bb));
   enum tree_code cmp = gimple_cond_code (cond);
   tree rhs = gimple_cond_rhs (cond);
@@ -1641,6 +1637,162 @@ minmax_replacement (basic_block cond_bb, basic_block middle_bb,
       else
 	return false;
     }
+  else if (HONOR_NANS (type) || HONOR_SIGNED_ZEROS (type))
+    /* The optimization may be unsafe due to NaNs.  */
+    return false;
+  else if (middle_bb != alt_middle_bb && threeway_p)
+    {
+      /* Recognize the following case:
+
+	 if (smaller < larger)
+	   a = MIN (smaller, c);
+	 else
+	   b = MIN (larger, c);
+	 x = PHI <a, b>
+
+	 This is equivalent to
+
+	 a = MIN (smaller, c);
+	 x = MIN (larger, a);  */
+
+      gimple *assign = last_and_only_stmt (middle_bb);
+      tree lhs, op0, op1, bound;
+      tree alt_lhs, alt_op0, alt_op1;
+      bool invert = false;
+
+      /* When THREEWAY_P then e1 will point to the edge of the final transition
+	 from middle-bb to end.  */
+      if (true_edge == e0)
+	gcc_assert (false_edge == EDGE_PRED (e1->src, 0));
+      else
+	gcc_assert (true_edge == EDGE_PRED (e1->src, 0));
+
+      bool valid_minmax_p = false;
+      gimple_stmt_iterator it1
+	= gsi_start_nondebug_after_labels_bb (middle_bb);
+      gimple_stmt_iterator it2
+	= gsi_start_nondebug_after_labels_bb (alt_middle_bb);
+      if (gsi_one_nondebug_before_end_p (it1)
+	  && gsi_one_nondebug_before_end_p (it2))
+	{
+	  gimple *stmt1 = gsi_stmt (it1);
+	  gimple *stmt2 = gsi_stmt (it2);
+	  if (is_gimple_assign (stmt1) && is_gimple_assign (stmt2))
+	    {
+	      enum tree_code code1 = gimple_assign_rhs_code (stmt1);
+	      enum tree_code code2 = gimple_assign_rhs_code (stmt2);
+	      valid_minmax_p = (code1 == MIN_EXPR || code1 == MAX_EXPR)
+			       && (code2 == MIN_EXPR || code2 == MAX_EXPR);
+	    }
+	}
+
+      if (!valid_minmax_p)
+	return false;
+
+      if (!assign
+	  || gimple_code (assign) != GIMPLE_ASSIGN)
+	return false;
+
+      lhs = gimple_assign_lhs (assign);
+      ass_code = gimple_assign_rhs_code (assign);
+      if (ass_code != MAX_EXPR && ass_code != MIN_EXPR)
+	return false;
+
+      op0 = gimple_assign_rhs1 (assign);
+      op1 = gimple_assign_rhs2 (assign);
+
+      assign = last_and_only_stmt (alt_middle_bb);
+      if (!assign
+	  || gimple_code (assign) != GIMPLE_ASSIGN)
+	return false;
+
+      alt_lhs = gimple_assign_lhs (assign);
+      if (ass_code != gimple_assign_rhs_code (assign))
+	return false;
+
+      if (!operand_equal_for_phi_arg_p (lhs, arg_true)
+	 || !operand_equal_for_phi_arg_p (alt_lhs, arg_false))
+	return false;
+
+      alt_op0 = gimple_assign_rhs1 (assign);
+      alt_op1 = gimple_assign_rhs2 (assign);
+
+      if ((operand_equal_for_phi_arg_p (op0, smaller)
+		|| (alt_smaller
+		    && operand_equal_for_phi_arg_p (op0, alt_smaller)))
+	       && (operand_equal_for_phi_arg_p (alt_op0, larger)
+		   || (alt_larger
+		       && operand_equal_for_phi_arg_p (alt_op0, alt_larger))))
+	{
+	  /* We got here if the condition is true, i.e., SMALLER < LARGER.  */
+	  if (!operand_equal_for_phi_arg_p (op1, alt_op1))
+	    return false;
+
+	  if ((arg0 = strip_bit_not (op0)) != NULL
+	      && (arg1 = strip_bit_not (alt_op0)) != NULL
+	      && (bound = strip_bit_not (op1)) != NULL)
+	    {
+	      minmax = MAX_EXPR;
+	      ass_code = invert_minmax_code (ass_code);
+	      invert = true;
+	    }
+	  else
+	    {
+	      bound = op1;
+	      minmax = MIN_EXPR;
+	      arg0 = op0;
+	      arg1 = alt_op0;
+	     }
+	}
+      else if ((operand_equal_for_phi_arg_p (op0, larger)
+		|| (alt_larger
+		    && operand_equal_for_phi_arg_p (op0, alt_larger)))
+	       && (operand_equal_for_phi_arg_p (alt_op0, smaller)
+		   || (alt_smaller
+		       && operand_equal_for_phi_arg_p (alt_op0, alt_smaller))))
+	{
+	  /* We got here if the condition is true, i.e., SMALLER > LARGER.  */
+	  if (!operand_equal_for_phi_arg_p (op1, alt_op1))
+	    return false;
+
+	  if ((arg0 = strip_bit_not (op0)) != NULL
+	      && (arg1 = strip_bit_not (alt_op0)) != NULL
+	      && (bound = strip_bit_not (op1)) != NULL)
+	    {
+	      minmax = MIN_EXPR;
+	      ass_code = invert_minmax_code (ass_code);
+	      invert = true;
+	    }
+	  else
+	    {
+	      bound = op1;
+	      minmax = MAX_EXPR;
+	      arg0 = op0;
+	      arg1 = alt_op0;
+	     }
+	}
+      else
+	return false;
+
+      /* Emit the statement to compute min/max.  */
+      location_t locus = gimple_location (last_nondebug_stmt (cond_bb));
+      gimple_seq stmts = NULL;
+      tree phi_result = PHI_RESULT (phi);
+      result = gimple_build (&stmts, locus, minmax, TREE_TYPE (phi_result),
+			     arg0, arg1);
+      result = gimple_build (&stmts, locus, ass_code, TREE_TYPE (phi_result),
+			     result, bound);
+      if (invert)
+	result = gimple_build (&stmts, locus, BIT_NOT_EXPR, TREE_TYPE (phi_result),
+			       result);
+
+      gsi = gsi_last_bb (cond_bb);
+      gsi_insert_seq_before (&gsi, stmts, GSI_NEW_STMT);
+
+      replace_phi_edge_with_variable (cond_bb, e1, phi, result);
+
+      return true;
+    }
   else
     {
       /* Recognize the following case, assuming d <= u:
@@ -1818,14 +1970,19 @@ minmax_replacement (basic_block cond_bb, basic_block middle_bb,
   /* Emit the statement to compute min/max.  */
   gimple_seq stmts = NULL;
   tree phi_result = PHI_RESULT (phi);
-  result = gimple_build (&stmts, minmax, TREE_TYPE (phi_result), arg0, arg1);
-  /* Duplicate range info if we're the only things setting the target PHI.  */
-  if (!gimple_seq_empty_p (stmts)
-      && EDGE_COUNT (gimple_bb (phi)->preds) == 2
-      && !POINTER_TYPE_P (TREE_TYPE (phi_result))
-      && SSA_NAME_RANGE_INFO (phi_result))
-    duplicate_ssa_name_range_info (result, SSA_NAME_RANGE_TYPE (phi_result),
-				   SSA_NAME_RANGE_INFO (phi_result));
+
+  /* When we can't use a MIN/MAX_EXPR still make sure the expression
+     stays in a form to be recognized by ISA that map to IEEE x > y ? x : y
+     semantics (that's not IEEE max semantics).  */
+  if (HONOR_NANS (type) || HONOR_SIGNED_ZEROS (type))
+    {
+      result = gimple_build (&stmts, cmp, boolean_type_node,
+			     gimple_cond_lhs (cond), rhs);
+      result = gimple_build (&stmts, COND_EXPR, TREE_TYPE (phi_result),
+			     result, arg_true, arg_false);
+    }
+  else
+    result = gimple_build (&stmts, minmax, TREE_TYPE (phi_result), arg0, arg1);
 
   gsi = gsi_last_bb (cond_bb);
   gsi_insert_seq_before (&gsi, stmts, GSI_NEW_STMT);
@@ -3850,8 +4007,6 @@ make_pass_phiopt (gcc::context *ctxt)
   return new pass_phiopt (ctxt);
 }
 
-<<<<<<< HEAD
-=======
 unsigned int
 pass_phiopt::execute (function *)
 {
@@ -3860,8 +4015,6 @@ pass_phiopt::execute (function *)
   basic_block *bb_order;
   unsigned n, i;
   bool cfgchanged = false;
-
-  calculate_dominance_info (CDI_DOMINATORS);
 
   /* Search every basic block for COND_EXPR we may be able to optimize.
 
@@ -4069,7 +4222,6 @@ pass_phiopt::execute (function *)
        condtmp = PHI <RHS1, RHS2>
        *p = condtmp;  */
 
->>>>>>> 69f1a8af45d (PHIOPT: Add diamond bb form to factor_out_conditional_conversion)
 namespace {
 
 const pass_data pass_data_cselim =
@@ -4080,7 +4232,6 @@ const pass_data pass_data_cselim =
   TV_TREE_PHIOPT, /* tv_id */
   ( PROP_cfg | PROP_ssa ), /* properties_required */
   0, /* properties_provided */
-  0, /* properties_destroyed */
   0, /* todo_flags_start */
   0, /* todo_flags_finish */
 };
