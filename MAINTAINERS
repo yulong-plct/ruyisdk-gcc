@@ -294,6 +294,7 @@ Plugin			Le-Chun Wu		<lcwu@google.com>
 register allocation	Peter Bergner		<bergner@linux.ibm.com>
 register allocation	Kenneth Zadeck		<zadeck@naturalbridge.com>
 register allocation	Seongbae Park		<seongbae.park@gmail.com>
+riscv port		Robin Dapp		<rdapp.gcc@gmail.com>
 RTL optimizers		Steven Bosscher		<steven@gcc.gnu.org>
 selective scheduling	Andrey Belevantsev	<abel@ispras.ru>
 selective scheduling	Alexander Monakov	<amonakov@ispras.ru>
@@ -366,7 +367,6 @@ Ludovic Courtès					<ludo@gnu.org>
 Lawrence Crowl					<crowl@google.com>
 Ian Dall					<ian@beware.dropbear.id.au>
 David Daney					<david.daney@caviumnetworks.com>
-Robin Dapp					<rdapp@linux.ibm.com>
 Simon Dardis					<simon.dardis@gmail.com>
 Sudakshina Das					<sudi.das@arm.com>
 Bud Davis					<jmdavis@link.com>
