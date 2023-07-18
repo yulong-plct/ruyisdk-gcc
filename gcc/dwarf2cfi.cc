@@ -3132,7 +3132,7 @@ create_cie_data (void)
    state at each location within the function.  These notes will be
    emitted during pass_final.  */
 
-static unsigned int
+static void
 execute_dwarf2_frame (void)
 {
   /* Different HARD_FRAME_POINTER_REGNUM might coexist in the same file.  */
@@ -3163,8 +3163,6 @@ execute_dwarf2_frame (void)
 
   delete trace_index;
   trace_index = NULL;
-
-  return 0;
 }
 
 /* Convert a DWARF call frame info. operation to its string name */
@@ -3634,8 +3632,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *) { return execute_dwarf2_frame (); }
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
+  {
+    execute_dwarf2_frame ();
+    return 0;
+  }
 
 }; // class pass_dwarf2_frame
 
