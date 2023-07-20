@@ -155,7 +155,7 @@ initialize_ao_ref_for_dse (gimple *stmt, ao_ref *write)
 	{
 	case IFN_LEN_STORE:
 	case IFN_MASK_STORE:
-	case IFN_LEN_MASK_STORE:
+	case IFN_MASK_LEN_STORE:
 	  {
 	    internal_fn ifn = gimple_call_internal_fn (stmt);
 	    int stored_value_index = internal_fn_stored_value_index (ifn);
@@ -1238,13 +1238,14 @@ dse_dom_walker::dse_optimize_stmt (gimple_stmt_iterator *gsi)
 	;
       else
 	{
-	  m_byte_tracking_enabled
-	    = setup_live_bytes_from_ref (&ref, m_live_bytes);
-	  enum dse_store_status store_status;
-	  store_status = dse_classify_store (&ref, stmt,
-					     m_byte_tracking_enabled,
-					     m_live_bytes, &by_clobber_p);
-	  if (store_status == DSE_STORE_LIVE)
+	case IFN_LEN_STORE:
+	case IFN_MASK_STORE:
+	case IFN_MASK_LEN_STORE:
+	  {
+	    enum dse_store_status store_status;
+	    store_status = dse_classify_store (&ref, stmt, false, live_bytes);
+	    if (store_status == DSE_STORE_DEAD)
+	      delete_dead_or_redundant_call (gsi, "dead");
 	    return;
 
 	  if (store_status == DSE_STORE_MAYBE_PARTIAL_DEAD)
