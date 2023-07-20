@@ -5195,10 +5195,10 @@ arith_overflowed_p (enum tree_code code, const_tree type,
   return wi::min_precision (wres, sign) > TYPE_PRECISION (type);
 }
 
-/* If IFN_{MASK,LEN}_LOAD/STORE call CALL is unconditional, return a MEM_REF
-   for the memory it references, otherwise return null.  VECTYPE is the
-   type of the memory vector.  MASK_P indicates it's for MASK if true,
-   otherwise it's for LEN.  */
+/* If IFN_{MASK,LEN,MASK_LEN}_LOAD/STORE call CALL is unconditional,
+   return a MEM_REF for the memory it references, otherwise return null.
+   VECTYPE is the type of the memory vector.  MASK_P indicates it's for
+   MASK if true, otherwise it's for LEN.  */
 
 static tree
 gimple_fold_partial_load_store_mem_ref (gcall *call, tree vectype, bool mask_p)
@@ -5217,15 +5217,22 @@ gimple_fold_partial_load_store_mem_ref (gcall *call, tree vectype, bool mask_p)
       tree basic_len = gimple_call_arg (call, 2);
       if (!tree_fits_uhwi_p (basic_len))
 	return NULL_TREE;
-      unsigned int nargs = gimple_call_num_args (call);
-      tree bias = gimple_call_arg (call, nargs - 1);
-      gcc_assert (tree_fits_uhwi_p (bias));
-      tree biased_len = int_const_binop (MINUS_EXPR, basic_len, bias);
-      unsigned int len = tree_to_uhwi (biased_len);
-      unsigned int vect_len
-	= GET_MODE_SIZE (TYPE_MODE (vectype)).to_constant ();
-      if (vect_len != len)
+      tree bias = gimple_call_arg (call, len_index + 1);
+      gcc_assert (TREE_CODE (bias) == INTEGER_CST);
+      /* For LEN_LOAD/LEN_STORE/MASK_LEN_LOAD/MASK_LEN_STORE,
+	 we don't fold when (bias + len) != VF.  */
+      if (maybe_ne (wi::to_poly_widest (basic_len) + wi::to_widest (bias),
+		    GET_MODE_NUNITS (TYPE_MODE (vectype))))
 	return NULL_TREE;
+
+      /* For MASK_LEN_{LOAD,STORE}, we should also check whether
+	  the mask is all ones mask.  */
+      if (ifn == IFN_MASK_LEN_LOAD || ifn == IFN_MASK_LEN_STORE)
+	{
+	  tree mask = gimple_call_arg (call, internal_fn_mask_index (ifn));
+	  if (!integer_all_onesp (mask))
+	    return NULL_TREE;
+	}
     }
 
   unsigned HOST_WIDE_INT align = tree_to_uhwi (alias_align);
@@ -5513,9 +5520,11 @@ gimple_fold_call (gimple_stmt_iterator *gsi, bool inplace)
 	  changed |= gimple_fold_partial_store (gsi, stmt, true);
 	  break;
 	case IFN_LEN_LOAD:
+	case IFN_MASK_LEN_LOAD:
 	  changed |= gimple_fold_partial_load (gsi, stmt, false);
 	  break;
 	case IFN_LEN_STORE:
+	case IFN_MASK_LEN_STORE:
 	  changed |= gimple_fold_partial_store (gsi, stmt, false);
 	  break;
 	default:
