@@ -3180,6 +3180,140 @@ vn_reference_lookup_3 (ao_ref *ref, tree vuse, void *data_,
 	}
     }
 
+  /* 4b) Assignment done via one of the vectorizer internal store
+     functions where we may be able to access pieces from or we can
+     combine to a larger entity.  */
+  else if (known_eq (ref->size, maxsize)
+	   && is_gimple_reg_type (vr->type)
+	   && !reverse_storage_order_for_component_p (vr->operands)
+	   && !contains_storage_order_barrier_p (vr->operands)
+	   && is_gimple_call (def_stmt)
+	   && gimple_call_internal_p (def_stmt)
+	   && internal_store_fn_p (gimple_call_internal_fn (def_stmt)))
+    {
+      gcall *call = as_a <gcall *> (def_stmt);
+      internal_fn fn = gimple_call_internal_fn (call);
+
+      tree mask = NULL_TREE, len = NULL_TREE, bias = NULL_TREE;
+      switch (fn)
+	{
+	case IFN_MASK_STORE:
+	  mask = gimple_call_arg (call, internal_fn_mask_index (fn));
+	  mask = vn_valueize (mask);
+	  if (TREE_CODE (mask) != VECTOR_CST)
+	    return (void *)-1;
+	  break;
+	case IFN_LEN_STORE:
+	  {
+	    int len_index = internal_fn_len_index (fn);
+	    len = gimple_call_arg (call, len_index);
+	    bias = gimple_call_arg (call, len_index + 1);
+	    if (!tree_fits_uhwi_p (len) || !tree_fits_shwi_p (bias))
+	      return (void *) -1;
+	    break;
+	  }
+	default:
+	  return (void *)-1;
+	}
+      tree def_rhs = gimple_call_arg (call,
+				      internal_fn_stored_value_index (fn));
+      def_rhs = vn_valueize (def_rhs);
+      if (TREE_CODE (def_rhs) != VECTOR_CST)
+	return (void *)-1;
+
+      ao_ref_init_from_ptr_and_size (&lhs_ref,
+				     vn_valueize (gimple_call_arg (call, 0)),
+				     TYPE_SIZE_UNIT (TREE_TYPE (def_rhs)));
+      tree base2;
+      poly_int64 offset2, size2, maxsize2;
+      HOST_WIDE_INT offset2i, size2i, offseti;
+      base2 = ao_ref_base (&lhs_ref);
+      offset2 = lhs_ref.offset;
+      size2 = lhs_ref.size;
+      maxsize2 = lhs_ref.max_size;
+      if (known_size_p (maxsize2)
+	  && known_eq (maxsize2, size2)
+	  && adjust_offsets_for_equal_base_address (base, &offset,
+						    base2, &offset2)
+	  && maxsize.is_constant (&maxsizei)
+	  && offset.is_constant (&offseti)
+	  && offset2.is_constant (&offset2i)
+	  && size2.is_constant (&size2i))
+	{
+	  if (!ranges_maybe_overlap_p (offset, maxsize, offset2, size2))
+	    /* Poor-mans disambiguation.  */
+	    return NULL;
+	  else if (ranges_known_overlap_p (offset, maxsize, offset2, size2))
+	    {
+	      pd_data pd;
+	      pd.rhs = def_rhs;
+	      tree aa = gimple_call_arg (call, 1);
+	      alias_set_type set = get_deref_alias_set (TREE_TYPE (aa));
+	      tree vectype = TREE_TYPE (def_rhs);
+	      unsigned HOST_WIDE_INT elsz
+		= tree_to_uhwi (TYPE_SIZE (TREE_TYPE (vectype)));
+	      if (mask)
+		{
+		  HOST_WIDE_INT start = 0, length = 0;
+		  unsigned mask_idx = 0;
+		  do
+		    {
+		      if (integer_zerop (VECTOR_CST_ELT (mask, mask_idx)))
+			{
+			  if (length != 0)
+			    {
+			      pd.rhs_off = start;
+			      pd.offset = offset2i + start;
+			      pd.size = length;
+			      if (ranges_known_overlap_p
+				    (offset, maxsize, pd.offset, pd.size))
+				{
+				  void *res = data->push_partial_def
+					      (pd, set, set, offseti, maxsizei);
+				  if (res != NULL)
+				    return res;
+				}
+			    }
+			  start = (mask_idx + 1) * elsz;
+			  length = 0;
+			}
+		      else
+			length += elsz;
+		      mask_idx++;
+		    }
+		  while (known_lt (mask_idx, TYPE_VECTOR_SUBPARTS (vectype)));
+		  if (length != 0)
+		    {
+		      pd.rhs_off = start;
+		      pd.offset = offset2i + start;
+		      pd.size = length;
+		      if (ranges_known_overlap_p (offset, maxsize,
+						  pd.offset, pd.size))
+			return data->push_partial_def (pd, set, set,
+						       offseti, maxsizei);
+		    }
+		}
+	      else if (fn == IFN_LEN_STORE)
+		{
+		  pd.offset = offset2i;
+		  pd.size = (tree_to_uhwi (len)
+			     + -tree_to_shwi (bias)) * BITS_PER_UNIT;
+		  if (BYTES_BIG_ENDIAN)
+		    pd.rhs_off = pd.size - tree_to_uhwi (TYPE_SIZE (vectype));
+		  else
+		    pd.rhs_off = 0;
+		  if (ranges_known_overlap_p (offset, maxsize,
+					      pd.offset, pd.size))
+		    return data->push_partial_def (pd, set, set,
+						   offseti, maxsizei);
+		}
+	      else
+		gcc_unreachable ();
+	      return NULL;
+	    }
+	}
+    }
+
   /* 5) For aggregate copies translate the reference through them if
      the copy kills ref.  */
   else if (data->vn_walk_kind == VN_WALKREWRITE
