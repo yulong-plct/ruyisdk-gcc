@@ -233,6 +233,137 @@ average_num_loop_insns (const class loop *loop)
   return ret;
 }
 
+/* Return true if BB profile can be used to determine the expected number of
+   iterations (that is number of executions of latch edge(s) for each
+   entry of the loop.  If this is the case initialize RET with the number
+   of iterations.
+
+   RELIABLE is set if profile indiates that the returned value should be
+   realistic estimate.  (This is the case if we read profile and did not
+   messed it up yet and not the case of guessed profiles.)
+
+   This function uses only CFG profile.  We track more reliable info in
+   loop_info structure and for loop optimization heuristics more relevant
+   is get_estimated_loop_iterations API.  */
+
+bool
+expected_loop_iterations_by_profile (const class loop *loop, sreal *ret,
+				     bool *reliable)
+{
+  profile_count header_count = loop->header->count;
+  if (reliable)
+    *reliable = false;
+
+  /* TODO: For single exit loops we can use loop exit edge probability.
+     It also may be reliable while loop itself was adjusted.  */
+  if (!header_count.initialized_p ()
+      || !header_count.nonzero_p ())
+    return false;
+
+  profile_count count_in = profile_count::zero ();
+  edge e;
+  edge_iterator ei;
+
+  /* For single-latch loops avoid querying dominators.  */
+  if (loop->latch)
+    {
+      bool found = false;
+      FOR_EACH_EDGE (e, ei, loop->header->preds)
+	if (e->src != loop->latch)
+	  count_in += e->count ();
+	else
+	  found = true;
+      /* If latch is not found, loop is inconsistent.  */
+      gcc_checking_assert (found);
+    }
+  else
+    FOR_EACH_EDGE (e, ei, loop->header->preds)
+      if (!dominated_by_p (CDI_DOMINATORS, e->src, loop->header))
+	count_in += e->count ();
+
+  bool known;
+  /* Number of iterations is number of executions of latch edge.  */
+  *ret = (header_count - count_in).to_sreal_scale (count_in, &known);
+  if (!known)
+    return false;
+  if (reliable)
+    {
+      /* Header should have at least count_in many executions.
+	 Give up on clearly inconsistent profile.  */
+      if (header_count < count_in && header_count.differs_from_p (count_in))
+	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file, "Inconsistent bb profile of loop %i\n",
+		     loop->num);
+	  *reliable = false;
+	}
+      else
+	*reliable = count_in.reliable_p () && header_count.reliable_p ();
+    }
+  return true;
+}
+
+/* Return true if loop CFG profile may be unrealistically flat.
+   This is a common case, since average loops iterate only about 5 times.
+   In the case we do not have profile feedback or do not know real number of
+   iterations during profile estimation, we are likely going to predict it with
+   similar low iteration count.  For static loop profiles we also artificially
+   cap profile of loops with known large iteration count so they do not appear
+   significantly more hot than other loops with unknown iteration counts.
+
+   For loop optimization heuristics we ignore CFG profile and instead
+   use get_estimated_loop_iterations API which returns estimate
+   only when it is realistic.  For unknown counts some optimizations,
+   like vectorizer or unroller make guess that iteration count will
+   be large.  In this case we need to avoid scaling down the profile
+   after the loop transform.  */
+
+bool
+maybe_flat_loop_profile (const class loop *loop)
+{
+  bool reliable;
+  sreal ret;
+
+  if (!expected_loop_iterations_by_profile (loop, &ret, &reliable))
+    return true;
+
+  /* Reliable CFG estimates ought never be flat.  Sanity check with
+     nb_iterations_estimate.  If those differ, it is a but in profile
+     updating code  */
+  if (reliable)
+    {
+      int64_t intret = ret.to_nearest_int ();
+      if (loop->any_estimate
+	  && (wi::ltu_p (intret * 2, loop->nb_iterations_estimate)
+	      || wi::gtu_p (intret, loop->nb_iterations_estimate * 2)))
+	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file,
+		    "Loop %i has inconsistent iterations estimates: "
+		    "reliable CFG based iteration estimate is %f "
+		    "while nb_iterations_estimate is %i\n",
+		    loop->num,
+		    ret.to_double (),
+		    (int)loop->nb_iterations_estimate.to_shwi ());
+	  return true;
+	}
+      return false;
+    }
+
+  /* Allow some margin of error and see if we are close to known bounds.
+     sreal (9,-3) is 9/8  */
+  int64_t intret = (ret * sreal (9, -3)).to_nearest_int ();
+  if (loop->any_upper_bound && wi::geu_p (intret, loop->nb_iterations_upper_bound))
+    return false;
+  if (loop->any_likely_upper_bound
+      && wi::geu_p (intret, loop->nb_iterations_likely_upper_bound))
+    return false;
+  if (loop->any_estimate
+      && wi::geu_p (intret, loop->nb_iterations_estimate))
+    return false;
+  return true;
+}
+
 /* Returns expected number of iterations of LOOP, according to
    measured or guessed profile.
 

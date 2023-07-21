@@ -8397,6 +8397,58 @@ print_loops_bb (FILE *file, basic_block bb, int indent, int verbosity)
     }
 }
 
+/* Print loop information.  */
+
+void
+print_loop_info (FILE *file, const class loop *loop, const char *prefix)
+{
+  if (loop->can_be_parallel)
+    fprintf (file, ", can_be_parallel");
+  if (loop->warned_aggressive_loop_optimizations)
+    fprintf (file, ", warned_aggressive_loop_optimizations");
+  if (loop->dont_vectorize)
+    fprintf (file, ", dont_vectorize");
+  if (loop->force_vectorize)
+    fprintf (file, ", force_vectorize");
+  if (loop->in_oacc_kernels_region)
+    fprintf (file, ", in_oacc_kernels_region");
+  if (loop->finite_p)
+    fprintf (file, ", finite_p");
+  if (loop->unroll)
+    fprintf (file, "\n%sunroll %d", prefix, loop->unroll);
+  if (loop->nb_iterations)
+    {
+      fprintf (file, "\n%sniter ", prefix);
+      print_generic_expr (file, loop->nb_iterations);
+    }
+
+  if (loop->any_upper_bound)
+    {
+      fprintf (file, "\n%supper_bound ", prefix);
+      print_decu (loop->nb_iterations_upper_bound, file);
+    }
+  if (loop->any_likely_upper_bound)
+    {
+      fprintf (file, "\n%slikely_upper_bound ", prefix);
+      print_decu (loop->nb_iterations_likely_upper_bound, file);
+    }
+
+  if (loop->any_estimate)
+    {
+      fprintf (file, "\n%sestimate ", prefix);
+      print_decu (loop->nb_iterations_estimate, file);
+    }
+  bool reliable;
+  sreal iterations;
+  if (loop->num && expected_loop_iterations_by_profile (loop, &iterations, &reliable))
+    {
+      fprintf (file, "\n%siterations by profile: %f (%s%s)", prefix,
+	       iterations.to_double (), reliable ? "reliable" : "unreliable",
+	       maybe_flat_loop_profile (loop) ? ", maybe flat" : "");
+    }
+
+}
+
 static void print_loop_and_siblings (FILE *, class loop *, int, int);
 
 /* Pretty print LOOP on FILE, indented INDENT spaces.  Following
