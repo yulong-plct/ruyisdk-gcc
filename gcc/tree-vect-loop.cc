@@ -6542,11 +6542,13 @@ static internal_fn
 get_masked_reduction_fn (internal_fn reduc_fn, tree vectype_in)
 {
   internal_fn mask_reduc_fn;
+  internal_fn mask_len_reduc_fn;
 
   switch (reduc_fn)
     {
     case IFN_FOLD_LEFT_PLUS:
       mask_reduc_fn = IFN_MASK_FOLD_LEFT_PLUS;
+      mask_len_reduc_fn = IFN_MASK_LEN_FOLD_LEFT_PLUS;
       break;
 
     default:
@@ -6556,6 +6558,9 @@ get_masked_reduction_fn (internal_fn reduc_fn, tree vectype_in)
   if (direct_internal_fn_supported_p (mask_reduc_fn, vectype_in,
 				      OPTIMIZE_FOR_SPEED))
     return mask_reduc_fn;
+  if (direct_internal_fn_supported_p (mask_len_reduc_fn, vectype_in,
+				      OPTIMIZE_FOR_SPEED))
+    return mask_len_reduc_fn;
   return IFN_LAST;
 }
 
@@ -6576,7 +6581,8 @@ vectorize_fold_left_reduction (loop_vec_info loop_vinfo,
 			       gimple *reduc_def_stmt,
 			       tree_code code, internal_fn reduc_fn,
 			       tree ops[3], tree vectype_in,
-			       int reduc_index, vec_loop_masks *masks)
+			       int reduc_index, vec_loop_masks *masks,
+			       vec_loop_lens *lens)
 {
   class loop *loop = LOOP_VINFO_LOOP (loop_vinfo);
   tree vectype_out = STMT_VINFO_VECTYPE (stmt_info);
@@ -6638,8 +6644,18 @@ vectorize_fold_left_reduction (loop_vec_info loop_vinfo,
     {
       gimple *new_stmt;
       tree mask = NULL_TREE;
+      tree len = NULL_TREE;
+      tree bias = NULL_TREE;
       if (LOOP_VINFO_FULLY_MASKED_P (loop_vinfo))
-	mask = vect_get_loop_mask (gsi, masks, vec_num, vectype_in, i);
+	mask = vect_get_loop_mask (loop_vinfo, gsi, masks, vec_num, vectype_in, i);
+      if (LOOP_VINFO_FULLY_WITH_LENGTH_P (loop_vinfo))
+	{
+	  len = vect_get_loop_len (loop_vinfo, gsi, lens, vec_num, vectype_in,
+				   i, 1);
+	  signed char biasval = LOOP_VINFO_PARTIAL_LOAD_STORE_BIAS (loop_vinfo);
+	  bias = build_int_cst (intQI_type_node, biasval);
+	  mask = build_minus_one_cst (truth_type_for (vectype_in));
+	}
 
       /* Handle MINUS by adding the negative.  */
       if (reduc_fn != IFN_LAST && code == MINUS_EXPR)
@@ -6659,7 +6675,10 @@ vectorize_fold_left_reduction (loop_vec_info loop_vinfo,
 	 the preceding operation.  */
       if (reduc_fn != IFN_LAST || (mask && mask_reduc_fn != IFN_LAST))
 	{
-	  if (mask && mask_reduc_fn != IFN_LAST)
+	  if (mask && len && mask_reduc_fn == IFN_MASK_LEN_FOLD_LEFT_PLUS)
+	    new_stmt = gimple_build_call_internal (mask_reduc_fn, 5, reduc_var,
+						   def0, mask, len, bias);
+	  else if (mask && mask_reduc_fn == IFN_MASK_FOLD_LEFT_PLUS)
 	    new_stmt = gimple_build_call_internal (mask_reduc_fn, 3, reduc_var,
 						   def0, mask);
 	  else
@@ -7723,6 +7742,7 @@ vectorizable_reduction (loop_vec_info loop_vinfo,
   else if (loop_vinfo && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo))
     {
       vec_loop_masks *masks = &LOOP_VINFO_MASKS (loop_vinfo);
+      vec_loop_lens *lens = &LOOP_VINFO_LENS (loop_vinfo);
       internal_fn cond_fn = get_conditional_internal_fn (op.code, op.type);
 
       if (reduction_type != FOLD_LEFT_REDUCTION
@@ -7750,8 +7770,17 @@ vectorizable_reduction (loop_vec_info loop_vinfo,
 	  LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo) = false;
 	}
       else
-	vect_record_loop_mask (loop_vinfo, masks, ncopies * vec_num,
-			       vectype_in, NULL);
+	{
+	  internal_fn mask_reduc_fn
+	    = get_masked_reduction_fn (reduc_fn, vectype_in);
+
+	  if (mask_reduc_fn == IFN_MASK_LEN_FOLD_LEFT_PLUS)
+	    vect_record_loop_len (loop_vinfo, lens, ncopies * vec_num,
+				  vectype_in, 1);
+	  else
+	    vect_record_loop_mask (loop_vinfo, masks, ncopies * vec_num,
+				   vectype_in, NULL);
+	}
     }
   return true;
 }
@@ -7881,6 +7910,7 @@ vect_transform_reduction (loop_vec_info loop_vinfo,
   code_helper code = canonicalize_code (op.code, op.type);
   internal_fn cond_fn = get_conditional_internal_fn (code, op.type);
   vec_loop_masks *masks = &LOOP_VINFO_MASKS (loop_vinfo);
+  vec_loop_lens *lens = &LOOP_VINFO_LENS (loop_vinfo);
   bool mask_by_cond_expr = use_mask_by_cond_expr_p (code, cond_fn, vectype_in);
 
   /* Transform.  */
@@ -7906,7 +7936,8 @@ vect_transform_reduction (loop_vec_info loop_vinfo,
       gcc_assert (code.is_tree_code ());
       return vectorize_fold_left_reduction
 	  (loop_vinfo, stmt_info, gsi, vec_stmt, slp_node, reduc_def_phi,
-	   tree_code (code), reduc_fn, op.ops, vectype_in, reduc_index, masks);
+	   tree_code (code), reduc_fn, op.ops, vectype_in, reduc_index, masks,
+	   lens);
     }
 
   bool single_defuse_cycle = STMT_VINFO_FORCE_SINGLE_CYCLE (reduc_info);
