@@ -32,6 +32,8 @@ enum
 					   field of newly create BB.  */
 #define DLTHE_FLAG_COMPLETTE_PEEL 4	/* Update frequencies expecting
 					   a complete peeling.  */
+#define DLTHE_FLAG_FLAT_PROFILE 8	/* Profile is flat; do not reduce
+					   count by unroll factor.  */
 extern edge mfb_kj_edge;
 
 extern bool remove_path (edge, bool * = NULL, bitmap = NULL);
@@ -66,5 +68,8 @@ class loop * loop_version (class loop *, void *,
 			    basic_block *,
 			    profile_probability, profile_probability,
 			    profile_probability, profile_probability, bool);
+void adjust_loop_info_after_peeling (class loop *loop, int npeel, bool precise);
+void scale_dominated_blocks_in_loop (class loop *loop, basic_block bb,
+				     profile_count num, profile_count den);
 
 #endif /* GCC_CFGLOOPMANIP_H */

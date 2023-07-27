@@ -790,7 +790,7 @@ dump_prediction (FILE *file, enum br_predictor predictor, int probability,
     {
       fprintf (file, "  exec ");
       bb->count.dump (file);
-      if (e)
+      if (e && e->count ().initialized_p () && bb->count.to_gcov_type ())
 	{
 	  fprintf (file, " hit ");
 	  e->count ().dump (file);
