@@ -508,12 +508,18 @@ split_loop (class loop *loop1)
 	 skipped by the original exit before.  */
       || !empty_block_p (loop1->latch)
       || !easy_exit_values (loop1)
-      || !number_of_iterations_exit (loop1, single_exit (loop1), &niter,
-				     false, true)
-      || niter.cmp == ERROR_MARK
-      /* We can't yet handle loops controlled by a != predicate.  */
-      || niter.cmp == NE_EXPR)
+      || !number_of_iterations_exit (loop1, exit1, &niter, false, true)
+      || niter.cmp == ERROR_MARK)
     return false;
+  if (niter.cmp == NE_EXPR)
+    {
+      if (!niter.control.no_overflow)
+	return false;
+      if (tree_int_cst_sign_bit (niter.control.step) > 0)
+	niter.cmp = GT_EXPR;
+      else
+	niter.cmp = LT_EXPR;
+    }
 
   bbs = get_loop_body (loop1);
 
