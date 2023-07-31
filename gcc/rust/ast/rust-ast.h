@@ -504,6 +504,10 @@ public:
     : path (std::move (path)), attr_input (std::move (input)), locus (locus)
   {}
 
+  bool is_derive () const;
+
+  std::vector<std::reference_wrapper<AST::SimplePath>> get_traits_to_derive ();
+
   // default destructor
   ~Attribute () = default;
 
