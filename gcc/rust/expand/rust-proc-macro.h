@@ -17,16 +17,65 @@
 #ifndef RUST_PROC_MACRO_H
 #define RUST_PROC_MACRO_H
 
-#include <string>
-#include "rust-hir-map.h"
-#include "rust-name-resolver.h"
-#include "rust-session-manager.h"
-#include "rust-ast.h"
-#include "rust-ast-collector.h"
-#include "rust-token-converter.h"
-#include "libproc_macro/proc_macro.h"
+#include "libproc_macro_internal/proc_macro.h"
+#include "rust-mapping-common.h"
 
 namespace Rust {
+
+class BangProcMacro
+{
+private:
+  std::string name;
+  NodeId node_id;
+  ProcMacro::BangMacro macro;
+
+public:
+  BangProcMacro (ProcMacro::Bang macro);
+  BangProcMacro () = default;
+
+  const std::string &get_name () const { return name; }
+
+  NodeId get_node_id () const { return node_id; }
+
+  ProcMacro::BangMacro get_handle () const { return macro; }
+};
+
+class AttributeProcMacro
+{
+private:
+  std::string name;
+  NodeId node_id;
+  ProcMacro::AttributeMacro macro;
+
+public:
+  AttributeProcMacro (ProcMacro::Attribute macro);
+  AttributeProcMacro () = default;
+
+  const std::string &get_name () const { return name; }
+
+  NodeId get_node_id () const { return node_id; }
+
+  ProcMacro::AttributeMacro get_handle () const { return macro; }
+};
+
+class CustomDeriveProcMacro
+{
+private:
+  std::string trait_name;
+  std::vector<std::string> attributes;
+  NodeId node_id;
+  ProcMacro::CustomDeriveMacro macro;
+
+public:
+  CustomDeriveProcMacro (ProcMacro::CustomDerive macro);
+  CustomDeriveProcMacro () = default;
+
+  const std::string &get_trait_name () const { return trait_name; }
+
+  NodeId get_node_id () const { return node_id; }
+
+  ProcMacro::CustomDeriveMacro get_handle () const { return macro; }
+};
 
 /**
  * Load a procedural macro library and return a pointer to it's entrypoint.

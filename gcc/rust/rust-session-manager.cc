@@ -1055,6 +1055,32 @@ Session::load_extern_crate (const std::string &crate_name, Location locus)
   AST::Crate &parsed_crate
     = mappings->insert_ast_crate (std::move (metadata_crate), crate_num);
 
+  std::vector<AttributeProcMacro> attribute_macros;
+  std::vector<CustomDeriveProcMacro> derive_macros;
+  std::vector<BangProcMacro> bang_macros;
+
+  for (auto &macro : extern_crate.get_proc_macros ())
+    {
+      switch (macro.tag)
+	{
+	case ProcMacro::CUSTOM_DERIVE:
+	  derive_macros.push_back (macro.payload.custom_derive);
+	  break;
+	case ProcMacro::ATTR:
+	  attribute_macros.push_back (macro.payload.attribute);
+	  break;
+	case ProcMacro::BANG:
+	  bang_macros.push_back (macro.payload.bang);
+	  break;
+	default:
+	  gcc_unreachable ();
+	}
+    }
+
+  mappings->insert_attribute_proc_macros (crate_num, attribute_macros);
+  mappings->insert_bang_proc_macros (crate_num, bang_macros);
+  mappings->insert_derive_proc_macros (crate_num, derive_macros);
+
   // name resolve it
   Resolver::NameResolution::Resolve (parsed_crate);
 

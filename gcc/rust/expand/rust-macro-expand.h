@@ -340,7 +340,7 @@ struct MacroExpander
   template <typename T>
   AST::Fragment expand_derive_proc_macro (T &item, ProcMacroInvocable &path)
   {
-    ProcMacro::CustomDerive macro;
+    CustomDeriveProcMacro macro;
     if (!mappings->lookup_derive_proc_macro_invocation (path, macro))
       {
 	rust_error_at (path.get_locus (), "Macro not found");
@@ -354,14 +354,14 @@ struct MacroExpander
     auto c = collector.collect_tokens ();
     std::vector<const_TokenPtr> vec (c.cbegin (), c.cend ());
 
-    return parse_proc_macro_output (macro.macro (convert (vec)));
+    return parse_proc_macro_output (macro.get_handle () (convert (vec)));
   }
 
   template <typename T>
   AST::Fragment expand_bang_proc_macro (T &item,
 					AST::MacroInvocation &invocation)
   {
-    ProcMacro::Bang macro;
+    BangProcMacro macro;
     if (!mappings->lookup_bang_proc_macro_invocation (invocation, macro))
       {
 	rust_error_at (invocation.get_locus (), "Macro not found");
@@ -375,13 +375,13 @@ struct MacroExpander
     auto c = collector.collect_tokens ();
     std::vector<const_TokenPtr> vec (c.cbegin (), c.cend ());
 
-    return parse_proc_macro_output (macro.macro (convert (vec)));
+    return parse_proc_macro_output (macro.get_handle () (convert (vec)));
   }
 
   template <typename T>
   AST::Fragment expand_attribute_proc_macro (T &item, ProcMacroInvocable &path)
   {
-    ProcMacro::Attribute macro;
+    AttributeProcMacro macro;
     if (!mappings->lookup_attribute_proc_macro_invocation (path, macro))
       {
 	rust_error_at (path.get_locus (), "Macro not found");
@@ -397,7 +397,8 @@ struct MacroExpander
 
     // FIXME: Handle attributes
     return parse_proc_macro_output (
-      macro.macro (ProcMacro::TokenStream::make_tokenstream (), convert (vec)));
+      macro.get_handle () (ProcMacro::TokenStream::make_tokenstream (),
+			   convert (vec)));
   }
 
   /**
