@@ -7486,6 +7486,7 @@ vect_slp_region (vec<basic_block> bbs, vec<data_reference_p> datarefs,
 	      if (instance->subgraph_entries.is_empty ())
 		continue;
 
+	      dump_user_location_t saved_vect_location = vect_location;
 	      vect_location = instance->location ();
 	      if (!unlimited_cost_model (NULL)
 		  && !vect_bb_vectorization_profitable_p
@@ -7495,9 +7496,11 @@ vect_slp_region (vec<basic_block> bbs, vec<data_reference_p> datarefs,
 		    dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
 				     "not vectorized: vectorization is not "
 				     "profitable.\n");
+		  vect_location = saved_vect_location;
 		  continue;
 		}
 
+	      vect_location = saved_vect_location;
 	      if (!dbg_cnt (vect_slp))
 		continue;
 
@@ -7547,6 +7550,9 @@ vect_slp_region (vec<basic_block> bbs, vec<data_reference_p> datarefs,
 				 "using SLP\n");
 	      vectorized = true;
 
+	      dump_user_location_t saved_vect_location = vect_location;
+	      vect_location = instance->location ();
+
 	      vect_schedule_slp (bb_vinfo, instance->subgraph_entries);
 
 	      unsigned HOST_WIDE_INT bytes;
@@ -7562,6 +7568,8 @@ vect_slp_region (vec<basic_block> bbs, vec<data_reference_p> datarefs,
 				     "basic block part vectorized using "
 				     "variable length vectors\n");
 		}
+
+	      vect_location = saved_vect_location;
 	    }
 	}
       else
