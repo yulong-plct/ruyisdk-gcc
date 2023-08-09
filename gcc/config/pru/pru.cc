@@ -1405,8 +1405,9 @@ pru_valid_addr_expr_p (machine_mode mode, rtx base, rtx offset, bool strict_p)
 
 /* Implement TARGET_LEGITIMATE_ADDRESS_P.  */
 static bool
-pru_legitimate_address_p (machine_mode mode,
-			    rtx operand, bool strict_p)
+pru_addr_space_legitimate_address_p (machine_mode mode, rtx operand,
+				     bool strict_p, addr_space_t as,
+				     code_helper = ERROR_MARK)
 {
   switch (GET_CODE (operand))
     {

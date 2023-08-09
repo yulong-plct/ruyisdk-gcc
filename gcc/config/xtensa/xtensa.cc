@@ -128,7 +128,8 @@ static bool xtensa_mode_dependent_address_p (const_rtx, addr_space_t);
 static bool xtensa_return_in_msb (const_tree);
 static void printx (FILE *, signed int);
 static rtx xtensa_builtin_saveregs (void);
-static bool xtensa_legitimate_address_p (machine_mode, rtx, bool);
+static bool xtensa_legitimate_address_p (machine_mode, rtx, bool,
+					 code_helper = ERROR_MARK);
 static unsigned int xtensa_multibss_section_type_flags (tree, const char *,
 							int) ATTRIBUTE_UNUSED;
 static section *xtensa_select_rtx_section (machine_mode, rtx,
@@ -1847,8 +1848,26 @@ xtensa_emit_call (int callop, rtx *operands)
 }
 
 
+char *
+xtensa_emit_sibcall (int callop, rtx *operands)
+{
+  static char result[64];
+  rtx tgt = operands[callop];
+
+  if (CONST_INT_P (tgt))
+    sprintf (result, "j.l\t" HOST_WIDE_INT_PRINT_HEX ", a9",
+	     INTVAL (tgt));
+  else if (register_operand (tgt, VOIDmode))
+    sprintf (result, "jx\t%%%d", callop);
+  else
+    sprintf (result, "j.l\t%%%d, a9", callop);
+
+  return result;
+}
+
 bool
-xtensa_legitimate_address_p (machine_mode mode, rtx addr, bool strict)
+xtensa_legitimate_address_p (machine_mode mode, rtx addr, bool strict,
+			     code_helper)
 {
   /* Allow constant pool addresses.  */
   if (mode != BLKmode && GET_MODE_SIZE (mode) >= UNITS_PER_WORD
