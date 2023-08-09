@@ -516,7 +516,8 @@ bpf_address_base_p (rtx x, bool strict)
 static bool
 bpf_legitimate_address_p (machine_mode mode ATTRIBUTE_UNUSED,
 			  rtx x,
-			  bool strict)
+			  bool strict,
+			  code_helper = ERROR_MARK)
 {
   switch (GET_CODE (x))
     {
