@@ -80,6 +80,12 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (CEIL)
 DEFINE_INT_AND_FLOAT_ROUND_FN (ROUND)
 DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 
+/* Unary operations and their associated IFN_COND_* function.  */
+(define_operator_list UNCOND_UNARY
+  negate bit_not)
+(define_operator_list COND_UNARY
+  IFN_COND_NEG IFN_COND_NOT)
+
 /* Binary operations and their associated IFN_COND_* function.  */
 (define_operator_list UNCOND_BINARY
   plus minus
@@ -7173,6 +7179,43 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 						  wi::mask (tree_to_uhwi (@1),
 						  false, prec)); })
 		     { build_zero_cst (TREE_TYPE (@0)); }))))))))
+
+#if GIMPLE
+
+/* Simplify:
+     a = op a1
+     r = cond ? a : b
+     --> r = .COND_FN (cond, a, b)
+and,
+    a = op a1
+    r = cond ? b : a
+    --> r = .COND_FN (~cond, b, a).  */
+
+(for uncond_op (UNCOND_UNARY)
+     cond_op (COND_UNARY)
+ (simplify
+  (vec_cond @0 (view_convert? (uncond_op@3 @1)) @2)
+   (with { tree op_type = TREE_TYPE (@3); }
+    (if (vectorized_internal_fn_supported_p (as_internal_fn (cond_op), op_type)
+        && is_truth_type_for (op_type, TREE_TYPE (@0)))
+     (cond_op @0 @1 @2))))
+ (simplify
+  (vec_cond @0 @1 (view_convert? (uncond_op@3 @2)))
+   (with { tree op_type = TREE_TYPE (@3); }
+    (if (vectorized_internal_fn_supported_p (as_internal_fn (cond_op), op_type)
+        && is_truth_type_for (op_type, TREE_TYPE (@0)))
+     (cond_op (bit_not @0) @2 @1)))))
+
+/* `(a ? -1 : 0) ^ b` can be converted into a conditional not.  */
+(simplify
+ (bit_xor:c (vec_cond @0 uniform_integer_cst_p@1 uniform_integer_cst_p@2) @3)
+ (if (canonicalize_math_after_vectorization_p ()
+      && vectorized_internal_fn_supported_p (IFN_COND_NOT, type)
+      && is_truth_type_for (type, TREE_TYPE (@0)))
+ (if (integer_all_onesp (@1) && integer_zerop (@2))
+  (IFN_COND_NOT @0 @3 @3))
+  (if (integer_all_onesp (@2) && integer_zerop (@1))
+   (IFN_COND_NOT (bit_not @0) @3 @3))))
 
 /* Simplify:
 
