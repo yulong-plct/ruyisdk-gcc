@@ -434,8 +434,23 @@ gomp_map_pointer (struct target_mem_desc *tgt, struct goacc_asyncqueue *aq,
   splay_tree_key n = gomp_map_lookup (mem_map, &cur_node);
   if (n == NULL)
     {
-      gomp_mutex_unlock (&devicep->lock);
-      gomp_fatal ("Pointer target of array section wasn't mapped");
+      if (allow_zero_length_array_sections)
+	cur_node.tgt_offset = cur_node.host_start;
+      else
+	{
+	  gomp_mutex_unlock (&devicep->lock);
+	  gomp_fatal ("Pointer target of array section wasn't mapped");
+	}
+    }
+  else
+    {
+      cur_node.host_start -= n->host_start;
+      cur_node.tgt_offset
+	= n->tgt->tgt_start + n->tgt_offset + cur_node.host_start;
+      /* At this point tgt_offset is target address of the
+	 array section.  Now subtract bias to get what we want
+	 to initialize the pointer with.  */
+      cur_node.tgt_offset -= bias;
     }
   cur_node.host_start -= n->host_start;
   cur_node.tgt_offset
@@ -464,7 +479,7 @@ gomp_map_fields_existing (struct target_mem_desc *tgt,
 
   cur_node.host_start = (uintptr_t) hostaddrs[i];
   cur_node.host_end = cur_node.host_start + sizes[i];
-  splay_tree_key n2 = splay_tree_lookup (mem_map, &cur_node);
+  splay_tree_key n2 = gomp_map_0len_lookup (mem_map, &cur_node);
   kind = get_kind (short_mapkind, kinds, i);
   if (n2
       && n2->tgt == n->tgt
@@ -556,8 +571,20 @@ gomp_attach_pointer (struct gomp_device_descr *devicep,
 
       if ((void *) target == NULL)
 	{
-	  gomp_mutex_unlock (&devicep->lock);
-	  gomp_fatal ("attempt to attach null pointer");
+	  /* As a special case, allow attaching NULL host pointers.  This
+	     allows e.g. unassociated Fortran pointers to be mapped
+	     properly.  */
+	  data = 0;
+
+	  gomp_debug (1,
+		      "%s: attaching NULL host pointer, target %p "
+		      "(struct base %p)\n", __FUNCTION__, (void *) devptr,
+		      (void *) (n->tgt->tgt_start + n->tgt_offset));
+
+	  gomp_copy_host2dev (devicep, aq, (void *) devptr, (void *) &data,
+			      sizeof (void *), true, cbufp);
+
+	  return;
 	}
 
       s.host_start = target + bias;
@@ -566,8 +593,15 @@ gomp_attach_pointer (struct gomp_device_descr *devicep,
 
       if (!tn)
 	{
-	  gomp_mutex_unlock (&devicep->lock);
-	  gomp_fatal ("pointer target not mapped for attach");
+	  if (allow_zero_length_array_sections)
+	    /* When allowing attachment to zero-length array sections, we
+	       copy the host pointer when the target region is not mapped.  */
+	    data = target;
+	  else
+	    {
+	      gomp_mutex_unlock (&devicep->lock);
+	      gomp_fatal ("pointer target not mapped for attach");
+	    }
 	}
 
       data = tn->tgt->tgt_start + tn->tgt_offset + target - tn->host_start;
@@ -801,8 +835,10 @@ gomp_map_vars_internal (struct gomp_device_descr *devicep,
 	      for (i = first; i <= last; i++)
 		{
 		  tgt->list[i].key = NULL;
-		  if (gomp_to_device_kind_p (get_kind (short_mapkind, kinds, i)
-					     & typemask))
+		  if (!aq
+		      && gomp_to_device_kind_p (get_kind (short_mapkind, kinds, i)
+						& typemask)
+		      && sizes[i] != 0)
 		    gomp_coalesce_buf_add (&cbuf,
 					   tgt_size - cur_node.host_end
 					   + (uintptr_t) hostaddrs[i],
@@ -1141,7 +1177,17 @@ gomp_map_vars_internal (struct gomp_device_descr *devicep,
 				    + sizes[last];
 		if (tgt->list[first].key != NULL)
 		  continue;
+		if (sizes[last] == 0)
+		  cur_node.host_end++;
 		n = splay_tree_lookup (mem_map, &cur_node);
+		if (sizes[last] == 0)
+		  cur_node.host_end--;
+		if (n == NULL && cur_node.host_start == cur_node.host_end)
+		  {
+		    gomp_mutex_unlock (&devicep->lock);
+		    gomp_fatal ("Struct pointer member not mapped (%p)",
+				(void*) hostaddrs[first]);
+		  }
 		if (n == NULL)
 		  {
 		    size_t align = (size_t) 1 << (kind >> rshift);

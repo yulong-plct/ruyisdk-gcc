@@ -1458,8 +1458,14 @@ scan_sharing_clauses (tree clauses, omp_context *ctx)
 	    {
 	      /* If this is an offloaded region, an attach operation should
 		 only exist when the pointer variable is mapped in a prior
-		 clause.  */
-	      if (is_gimple_omp_offloaded (ctx->stmt))
+		 clause.  An exception is if we have a reference (to pointer):
+		 in that case we should have mapped "*decl" in a previous
+		 mapping instead of "decl".  Skip the assertion in that case.
+		 If we had an error, we may not have attempted to sort clauses
+		 properly, so avoid the test.  */
+	      if (TREE_CODE (TREE_TYPE (decl)) != REFERENCE_TYPE
+		  && is_gimple_omp_offloaded (ctx->stmt)
+		  && !seen_error ())
 		gcc_assert
 		  (maybe_lookup_decl (decl, ctx)
 		   || (is_global_var (maybe_lookup_decl_in_outer_ctx (decl, ctx))

@@ -1717,6 +1717,25 @@ class auto_suppress_location_wrappers
    variable.  */
 #define OMP_CLAUSE_MAP_IN_REDUCTION(NODE) \
   TREE_PRIVATE (OMP_CLAUSE_SUBCODE_CHECK (NODE, OMP_CLAUSE_MAP))
+/* Nonzero on map clauses added implicitly for reduction clauses on combined
+   or composite constructs.  They shall be removed if there is an explicit
+   map clause.  */
+#define OMP_CLAUSE_MAP_IMPLICIT(NODE) \
+  (OMP_CLAUSE_SUBCODE_CHECK (NODE, OMP_CLAUSE_MAP)->base.default_def_flag)
+/* Nonzero if this map clause is to be indicated to the runtime as 'implicit',
+   due to being created through implicit data-mapping rules in the middle-end.
+   NOTE: this is different than OMP_CLAUSE_MAP_IMPLICIT.  */
+#define OMP_CLAUSE_MAP_RUNTIME_IMPLICIT_P(NODE) \
+  (OMP_CLAUSE_SUBCODE_CHECK (NODE, OMP_CLAUSE_MAP)->base.deprecated_flag)
+/* Nonzero for an attach/detach node whose decl was explicitly mapped on the
+   same directive.  */
+#define OMP_CLAUSE_ATTACHMENT_MAPPING_ERASED(NODE) \
+  TREE_STATIC (OMP_CLAUSE_SUBCODE_CHECK (NODE, OMP_CLAUSE_MAP))
+
+/* Flag that 'OMP_CLAUSE_DECL (NODE)' is to be made addressable during OMP
+   lowering.  */
+#define OMP_CLAUSE_MAP_DECL_MAKE_ADDRESSABLE(NODE) \
+  (OMP_CLAUSE_SUBCODE_CHECK (NODE, OMP_CLAUSE_MAP)->base.addressable_flag)
 
 /* True on an OMP_CLAUSE_USE_DEVICE_PTR with an OpenACC 'if_present'
    clause.  */
