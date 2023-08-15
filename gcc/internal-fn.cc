@@ -4236,6 +4236,7 @@ internal_load_fn_p (internal_fn fn)
     case IFN_MASK_LOAD:
     case IFN_LOAD_LANES:
     case IFN_MASK_LOAD_LANES:
+    case IFN_MASK_LEN_LOAD_LANES:
     case IFN_GATHER_LOAD:
     case IFN_MASK_GATHER_LOAD:
     case IFN_LEN_LOAD:
@@ -4257,6 +4258,7 @@ internal_store_fn_p (internal_fn fn)
     case IFN_MASK_STORE:
     case IFN_STORE_LANES:
     case IFN_MASK_STORE_LANES:
+    case IFN_MASK_LEN_STORE_LANES:
     case IFN_SCATTER_STORE:
     case IFN_MASK_SCATTER_STORE:
     case IFN_LEN_STORE:
@@ -4304,6 +4306,30 @@ internal_fn_len_index (internal_fn fn)
     case IFN_LEN_MASK_SCATTER_STORE:
       return 5;
 
+    case IFN_COND_LEN_ADD:
+    case IFN_COND_LEN_SUB:
+    case IFN_COND_LEN_MUL:
+    case IFN_COND_LEN_DIV:
+    case IFN_COND_LEN_MOD:
+    case IFN_COND_LEN_RDIV:
+    case IFN_COND_LEN_MIN:
+    case IFN_COND_LEN_MAX:
+    case IFN_COND_LEN_FMIN:
+    case IFN_COND_LEN_FMAX:
+    case IFN_COND_LEN_AND:
+    case IFN_COND_LEN_IOR:
+    case IFN_COND_LEN_XOR:
+    case IFN_COND_LEN_SHL:
+    case IFN_COND_LEN_SHR:
+      return 4;
+
+    case IFN_COND_LEN_NEG:
+    case IFN_MASK_LEN_LOAD:
+    case IFN_MASK_LEN_STORE:
+    case IFN_MASK_LEN_LOAD_LANES:
+    case IFN_MASK_LEN_STORE_LANES:
+      return 3;
+
     default:
       return -1;
     }
@@ -4319,8 +4345,12 @@ internal_fn_mask_index (internal_fn fn)
     {
     case IFN_MASK_LOAD:
     case IFN_MASK_LOAD_LANES:
+    case IFN_MASK_LEN_LOAD_LANES:
     case IFN_MASK_STORE:
     case IFN_MASK_STORE_LANES:
+    case IFN_MASK_LEN_STORE_LANES:
+    case IFN_MASK_LEN_LOAD:
+    case IFN_MASK_LEN_STORE:
       return 2;
 
     case IFN_MASK_GATHER_LOAD:
@@ -4354,6 +4384,10 @@ internal_fn_stored_value_index (internal_fn fn)
 
     case IFN_LEN_MASK_STORE:
       return 4;
+
+    case IFN_MASK_LEN_STORE:
+    case IFN_MASK_LEN_STORE_LANES:
+      return 5;
 
     default:
       return -1;
