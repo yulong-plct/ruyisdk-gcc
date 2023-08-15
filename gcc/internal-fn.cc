@@ -171,6 +171,7 @@ init_internal_fns ()
 #define len_store_direct { 3, 3, false }
 #define mask_len_store_direct { 4, 5, false }
 #define vec_set_direct { 3, 3, false }
+#define vec_extract_direct { 0, -1, false }
 #define unary_direct { 0, 0, true }
 #define binary_direct { 0, 0, true }
 #define ternary_direct { 0, 0, true }
@@ -3600,6 +3601,14 @@ expand_while_optab_fn (internal_fn, gcall *stmt, convert_optab optab)
 #define expand_check_ptrs_optab_fn(FN, STMT, OPTAB) \
   expand_direct_optab_fn (FN, STMT, OPTAB, 4)
 
+/* Expanders for optabs that can use expand_convert_optab_fn.  */
+
+#define expand_unary_convert_optab_fn(FN, STMT, OPTAB) \
+  expand_convert_optab_fn (FN, STMT, OPTAB, 1)
+
+#define expand_vec_extract_optab_fn(FN, STMT, OPTAB) \
+  expand_convert_optab_fn (FN, STMT, OPTAB, 2)
+
 /* RETURN_TYPE and ARGS are a return type and argument list that are
    in principle compatible with FN (which satisfies direct_internal_fn_p).
    Return the types that should be used to determine whether the
@@ -3702,6 +3711,7 @@ multi_vector_optab_supported_p (convert_optab optab, tree_pair types,
 #define direct_mask_len_fold_left_optab_supported_p direct_optab_supported_p
 #define direct_check_ptrs_optab_supported_p direct_optab_supported_p
 #define direct_vec_set_optab_supported_p direct_optab_supported_p
+#define direct_vec_extract_optab_supported_p convert_optab_supported_p
 
 /* Return the optab used by internal function FN.  */
 
