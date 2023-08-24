@@ -1044,7 +1044,7 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
   bool need_same_oprnds = false;
   tree vectype = NULL_TREE, first_op1 = NULL_TREE;
   stmt_vec_info first_load = NULL, prev_first_load = NULL;
-  bool first_stmt_load_p = false, load_p = false;
+  bool first_stmt_ldst_p = false, ldst_p = false;
   bool first_stmt_phi_p = false, phi_p = false;
   bool maybe_soft_fail = false;
   tree soft_fail_nunits_vectype = NULL_TREE;
@@ -1166,7 +1166,7 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
       else
 	{
 	  rhs_code = gimple_assign_rhs_code (stmt);
-	  load_p = gimple_vuse (stmt);
+	  ldst_p = STMT_VINFO_DATA_REF (stmt_info) != nullptr;
 	}
 
       /* Check the operation.  */
@@ -1174,7 +1174,7 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
 	{
 	  *node_vectype = vectype;
 	  first_stmt_code = rhs_code;
-	  first_stmt_load_p = load_p;
+	  first_stmt_ldst_p = ldst_p;
 	  first_stmt_phi_p = phi_p;
 
 	  /* Shift arguments should be equal in all the packed stmts for a
@@ -1208,7 +1208,7 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
               need_same_oprnds = true;
               first_op1 = gimple_assign_rhs2 (stmt);
             }
-	  else if (!load_p
+	  else if (!ldst_p
 		   && rhs_code == BIT_FIELD_REF)
 	    {
 	      tree vec = TREE_OPERAND (gimple_assign_rhs1 (stmt), 0);
@@ -1260,7 +1260,7 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
 			|| rhs_code == INDIRECT_REF
 			|| rhs_code == COMPONENT_REF
 			|| rhs_code == MEM_REF)))
-	      || first_stmt_load_p != load_p
+	      || first_stmt_ldst_p != ldst_p
 	      || first_stmt_phi_p != phi_p)
 	    {
 	      if (dump_enabled_p ())
@@ -1275,7 +1275,7 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
 	      continue;
 	    }
 
-	  if (!load_p
+	  if (!ldst_p
 	      && first_stmt_code == BIT_FIELD_REF
 	      && (TREE_OPERAND (gimple_assign_rhs1 (first_stmt_info->stmt), 0)
 		  != TREE_OPERAND (gimple_assign_rhs1 (stmt_info->stmt), 0)))
@@ -1342,10 +1342,13 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
       /* Grouped store or load.  */
       if (STMT_VINFO_GROUPED_ACCESS (stmt_info))
 	{
-	  if (REFERENCE_CLASS_P (lhs))
+	  gcc_assert (ldst_p);
+	  if (DR_IS_WRITE (STMT_VINFO_DATA_REF (stmt_info)))
 	    {
 	      /* Store.  */
-	      ;
+	      gcc_assert (rhs_code == CFN_MASK_STORE
+			  || REFERENCE_CLASS_P (lhs)
+			  || DECL_P (lhs));
 	    }
 	  else
 	    {
@@ -1370,10 +1373,11 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
               else
                 prev_first_load = first_load;
            }
-        } /* Grouped access.  */
-      else
+	}
+      /* Non-grouped store or load.  */
+      else if (ldst_p)
 	{
-	  if (load_p
+	  if (DR_IS_READ (STMT_VINFO_DATA_REF (stmt_info))
 	      && rhs_code != CFN_GATHER_LOAD
 	      && rhs_code != CFN_MASK_GATHER_LOAD
 				&& rhs_code != CFN_MASK_LEN_GATHER_LOAD
@@ -1396,8 +1400,10 @@ vect_build_slp_tree_1 (vec_info *vinfo, unsigned char *swap,
 	      matches[0] = false;
 	      return false;
 	    }
-
-	  /* Not memory operation.  */
+	}
+      /* Not memory operation.  */
+      else
+	{
 	  if (!phi_p
 	      && rhs_code.is_tree_code ()
 	      && TREE_CODE_CLASS (tree_code (rhs_code)) != tcc_binary
