@@ -1041,6 +1041,12 @@ public:
   DefId get_id () const { return reference; }
 
 private:
+  struct mark_is_error
+  {
+  };
+
+  TypeBoundPredicate (mark_is_error);
+
   DefId reference;
   Location locus;
   bool error_flag;
