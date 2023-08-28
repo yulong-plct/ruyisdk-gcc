@@ -192,13 +192,14 @@ compile_intrinsic_function (Context *ctx, TyTy::FnType *fntype)
 }
 
 static void
-enter_intrinsic_block (Context *ctx, tree fndecl)
+enter_intrinsic_block (Context *ctx, tree fndecl,
+		       const std::vector<Bvariable *> &vars = {})
 {
   tree enclosing_scope = NULL_TREE;
   Location start_location = Location ();
   Location end_location = Location ();
 
-  auto block = ctx->get_backend ()->block (fndecl, enclosing_scope, {},
+  auto block = ctx->get_backend ()->block (fndecl, enclosing_scope, vars,
 					   start_location, end_location);
 
   ctx->push_block (block);
@@ -599,6 +600,386 @@ copy_nonoverlapping_handler (Context *ctx, TyTy::FnType *fntype)
   ctx->add_statement (copy_call);
 
   // BUILTIN copy_nonoverlapping BODY END
+
+  finalize_intrinsic_block (ctx, fndecl);
+
+  return fndecl;
+}
+
+static tree
+make_unsigned_long_tree (Context *ctx, unsigned long value)
+{
+  mpz_t mpz_value;
+  mpz_init_set_ui (mpz_value, value);
+
+  return ctx->get_backend ()->integer_constant_expression (integer_type_node,
+							   mpz_value);
+}
+
+static tree
+prefetch_data_handler (Context *ctx, TyTy::FnType *fntype, Prefetch kind)
+{
+  rust_assert (fntype->get_params ().size () == 2);
+
+  tree lookup = NULL_TREE;
+  if (check_for_cached_intrinsic (ctx, fntype, &lookup))
+    return lookup;
+
+  auto fndecl = compile_intrinsic_function (ctx, fntype);
+
+  // prefetching isn't pure and shouldn't be discarded after GIMPLE
+  TREE_READONLY (fndecl) = 0;
+  TREE_SIDE_EFFECTS (fndecl) = 1;
+
+  std::vector<Bvariable *> args;
+  compile_fn_params (ctx, fntype, fndecl, &args);
+
+  if (!ctx->get_backend ()->function_set_parameters (fndecl, args))
+    return error_mark_node;
+
+  enter_intrinsic_block (ctx, fndecl);
+
+  auto addr = ctx->get_backend ()->var_expression (args[0], UNDEF_LOCATION);
+  auto locality = ctx->get_backend ()->var_expression (args[1], UNDEF_LOCATION);
+  auto rw_flag = make_unsigned_long_tree (ctx, kind == Prefetch::Write ? 1 : 0);
+
+  auto prefetch_raw = NULL_TREE;
+  auto ok
+    = BuiltinsContext::get ().lookup_simple_builtin ("prefetch", &prefetch_raw);
+  rust_assert (ok);
+  auto prefetch = build_fold_addr_expr_loc (UNKNOWN_LOCATION, prefetch_raw);
+
+  auto prefetch_call
+    = ctx->get_backend ()->call_expression (prefetch, {addr, rw_flag, locality},
+					    nullptr, UNDEF_LOCATION);
+
+  TREE_READONLY (prefetch_call) = 0;
+  TREE_SIDE_EFFECTS (prefetch_call) = 1;
+
+  ctx->add_statement (prefetch_call);
+
+  finalize_intrinsic_block (ctx, fndecl);
+
+  return fndecl;
+}
+
+static std::string
+build_atomic_builtin_name (const std::string &prefix, location_t locus,
+			   TyTy::BaseType *operand_type)
+{
+  static const std::map<std::string, std::string> allowed_types = {
+    {"i8", "1"},    {"i16", "2"},   {"i32", "4"},   {"i64", "8"},
+    {"i128", "16"}, {"isize", "8"}, {"u8", "1"},    {"u16", "2"},
+    {"u32", "4"},   {"u64", "8"},   {"u128", "16"}, {"usize", "8"},
+  };
+
+  // TODO: Can we maybe get the generic version (atomic_store_n) to work... This
+  // would be so much better
+
+  std::string result = prefix;
+
+  auto type_name = operand_type->get_name ();
+  if (type_name == "usize" || type_name == "isize")
+    {
+      rust_sorry_at (
+	locus, "atomics are not yet available for size types (usize, isize)");
+      return "";
+    }
+
+  auto type_size_str = allowed_types.find (type_name);
+
+  if (!check_for_basic_integer_type ("atomic", locus, operand_type))
+    return "";
+
+  result += type_size_str->second;
+
+  return result;
+}
+
+static tree
+atomic_store_handler_inner (Context *ctx, TyTy::FnType *fntype, int ordering)
+{
+  rust_assert (fntype->get_params ().size () == 2);
+  rust_assert (fntype->get_num_substitutions () == 1);
+
+  tree lookup = NULL_TREE;
+  if (check_for_cached_intrinsic (ctx, fntype, &lookup))
+    return lookup;
+
+  auto fndecl = compile_intrinsic_function (ctx, fntype);
+
+  // Most intrinsic functions are pure but not the atomic ones
+  TREE_READONLY (fndecl) = 0;
+  TREE_SIDE_EFFECTS (fndecl) = 1;
+
+  // setup the params
+  std::vector<Bvariable *> param_vars;
+  std::vector<tree> types;
+  compile_fn_params (ctx, fntype, fndecl, &param_vars, &types);
+
+  auto ok = ctx->get_backend ()->function_set_parameters (fndecl, param_vars);
+  rust_assert (ok);
+
+  enter_intrinsic_block (ctx, fndecl);
+
+  auto dst
+    = ctx->get_backend ()->var_expression (param_vars[0], UNDEF_LOCATION);
+  TREE_READONLY (dst) = 0;
+
+  auto value
+    = ctx->get_backend ()->var_expression (param_vars[1], UNDEF_LOCATION);
+  auto memorder = make_unsigned_long_tree (ctx, ordering);
+
+  auto monomorphized_type
+    = fntype->get_substs ()[0].get_param_ty ()->resolve ();
+
+  auto builtin_name
+    = build_atomic_builtin_name ("atomic_store_", fntype->get_locus (),
+				 monomorphized_type);
+  if (builtin_name.empty ())
+    return error_mark_node;
+
+  tree atomic_store_raw = nullptr;
+  BuiltinsContext::get ().lookup_simple_builtin (builtin_name,
+						 &atomic_store_raw);
+  rust_assert (atomic_store_raw);
+
+  auto atomic_store
+    = build_fold_addr_expr_loc (UNKNOWN_LOCATION, atomic_store_raw);
+
+  auto store_call
+    = ctx->get_backend ()->call_expression (atomic_store,
+					    {dst, value, memorder}, nullptr,
+					    UNDEF_LOCATION);
+  TREE_READONLY (store_call) = 0;
+  TREE_SIDE_EFFECTS (store_call) = 1;
+
+  ctx->add_statement (store_call);
+  finalize_intrinsic_block (ctx, fndecl);
+
+  return fndecl;
+}
+
+static tree
+atomic_load_handler_inner (Context *ctx, TyTy::FnType *fntype, int ordering)
+{
+  rust_assert (fntype->get_params ().size () == 1);
+  rust_assert (fntype->get_num_substitutions () == 1);
+
+  tree lookup = NULL_TREE;
+  if (check_for_cached_intrinsic (ctx, fntype, &lookup))
+    return lookup;
+
+  auto fndecl = compile_intrinsic_function (ctx, fntype);
+
+  // Most intrinsic functions are pure but not the atomic ones
+  // FIXME: Is atomic_load_* pure? Feels like it shouldn't so
+  TREE_READONLY (fndecl) = 0;
+  TREE_SIDE_EFFECTS (fndecl) = 1;
+
+  // setup the params
+  std::vector<Bvariable *> param_vars;
+  std::vector<tree> types;
+  compile_fn_params (ctx, fntype, fndecl, &param_vars, &types);
+
+  auto ok = ctx->get_backend ()->function_set_parameters (fndecl, param_vars);
+  rust_assert (ok);
+
+  enter_intrinsic_block (ctx, fndecl);
+
+  auto src
+    = ctx->get_backend ()->var_expression (param_vars[0], UNDEF_LOCATION);
+  auto memorder = make_unsigned_long_tree (ctx, ordering);
+
+  auto monomorphized_type
+    = fntype->get_substs ()[0].get_param_ty ()->resolve ();
+
+  auto builtin_name
+    = build_atomic_builtin_name ("atomic_load_", fntype->get_locus (),
+				 monomorphized_type);
+  if (builtin_name.empty ())
+    return error_mark_node;
+
+  tree atomic_load_raw = nullptr;
+  BuiltinsContext::get ().lookup_simple_builtin (builtin_name,
+						 &atomic_load_raw);
+  rust_assert (atomic_load_raw);
+
+  auto atomic_load
+    = build_fold_addr_expr_loc (UNKNOWN_LOCATION, atomic_load_raw);
+
+  auto load_call
+    = ctx->get_backend ()->call_expression (atomic_load, {src, memorder},
+					    nullptr, UNDEF_LOCATION);
+  auto return_statement
+    = ctx->get_backend ()->return_statement (fndecl, load_call, UNDEF_LOCATION);
+
+  TREE_READONLY (load_call) = 0;
+  TREE_SIDE_EFFECTS (load_call) = 1;
+
+  ctx->add_statement (return_statement);
+  finalize_intrinsic_block (ctx, fndecl);
+
+  return fndecl;
+}
+
+static inline tree
+unchecked_op_inner (Context *ctx, TyTy::FnType *fntype, tree_code op)
+{
+  rust_assert (fntype->get_params ().size () == 2);
+  rust_assert (fntype->get_num_substitutions () == 1);
+
+  tree lookup = NULL_TREE;
+  if (check_for_cached_intrinsic (ctx, fntype, &lookup))
+    return lookup;
+
+  auto fndecl = compile_intrinsic_function (ctx, fntype);
+
+  // setup the params
+  std::vector<Bvariable *> param_vars;
+  compile_fn_params (ctx, fntype, fndecl, &param_vars);
+
+  if (!ctx->get_backend ()->function_set_parameters (fndecl, param_vars))
+    return error_mark_node;
+
+  enter_intrinsic_block (ctx, fndecl);
+
+  // BUILTIN unchecked_<op> BODY BEGIN
+
+  auto x = ctx->get_backend ()->var_expression (param_vars[0], UNDEF_LOCATION);
+  auto y = ctx->get_backend ()->var_expression (param_vars[1], UNDEF_LOCATION);
+
+  auto *monomorphized_type
+    = fntype->get_substs ().at (0).get_param_ty ()->resolve ();
+
+  check_for_basic_integer_type ("unchecked operation", fntype->get_locus (),
+				monomorphized_type);
+
+  auto expr = build2 (op, TREE_TYPE (x), x, y);
+  auto return_statement
+    = ctx->get_backend ()->return_statement (fndecl, expr, UNDEF_LOCATION);
+
+  ctx->add_statement (return_statement);
+
+  // BUILTIN unchecked_<op> BODY END
+
+  finalize_intrinsic_block (ctx, fndecl);
+
+  return fndecl;
+}
+
+static tree
+uninit_handler (Context *ctx, TyTy::FnType *fntype)
+{
+  // uninit has _zero_ parameters its parameter is the generic one
+  rust_assert (fntype->get_params ().size () == 0);
+
+  tree lookup = NULL_TREE;
+  if (check_for_cached_intrinsic (ctx, fntype, &lookup))
+    return lookup;
+
+  auto fndecl = compile_intrinsic_function (ctx, fntype);
+
+  // get the template parameter type tree fn uninit<T>();
+  rust_assert (fntype->get_num_substitutions () == 1);
+  auto &param_mapping = fntype->get_substs ().at (0);
+  const TyTy::ParamType *param_tyty = param_mapping.get_param_ty ();
+  TyTy::BaseType *resolved_tyty = param_tyty->resolve ();
+  tree template_parameter_type
+    = TyTyResolveCompile::compile (ctx, resolved_tyty);
+
+  // result temporary
+  tree dst_type = TREE_TYPE (DECL_RESULT (fndecl));
+  rust_assert (TYPE_SIZE_UNIT (template_parameter_type)
+	       == TYPE_SIZE_UNIT (dst_type));
+
+  tree tmp_stmt = error_mark_node;
+  Bvariable *bvar
+    = ctx->get_backend ()->temporary_variable (fndecl, NULL_TREE, dst_type,
+					       NULL_TREE,
+					       true /*address_is_taken*/,
+					       UNDEF_LOCATION, &tmp_stmt);
+
+  enter_intrinsic_block (ctx, fndecl, {bvar});
+
+  // BUILTIN size_of FN BODY BEGIN
+
+  tree memset_builtin = error_mark_node;
+  BuiltinsContext::get ().lookup_simple_builtin ("memset", &memset_builtin);
+  rust_assert (memset_builtin != error_mark_node);
+
+  // call memset with 0x01 and size of the thing see
+  // https://github.com/Rust-GCC/gccrs/issues/1899
+
+  tree dst = bvar->get_tree (BUILTINS_LOCATION);
+  tree dst_addr = build_fold_addr_expr_loc (BUILTINS_LOCATION, dst);
+  tree constant_byte = build_int_cst (integer_type_node, 0x01);
+  tree size_expr = TYPE_SIZE_UNIT (template_parameter_type);
+
+  tree memset_call = build_call_expr_loc (BUILTINS_LOCATION, memset_builtin, 3,
+					  dst_addr, constant_byte, size_expr);
+  TREE_READONLY (memset_call) = 0;
+  TREE_SIDE_EFFECTS (memset_call) = 1;
+
+  ctx->add_statement (memset_call);
+
+  auto return_statement
+    = ctx->get_backend ()->return_statement (fndecl, dst, UNDEF_LOCATION);
+  ctx->add_statement (return_statement);
+  // BUILTIN size_of FN BODY END
+
+  finalize_intrinsic_block (ctx, fndecl);
+
+  return fndecl;
+}
+
+static tree
+move_val_init_handler (Context *ctx, TyTy::FnType *fntype)
+{
+  rust_assert (fntype->get_params ().size () == 2);
+
+  tree lookup = NULL_TREE;
+  if (check_for_cached_intrinsic (ctx, fntype, &lookup))
+    return lookup;
+
+  auto fndecl = compile_intrinsic_function (ctx, fntype);
+
+  // get the template parameter type tree fn size_of<T>();
+  rust_assert (fntype->get_num_substitutions () == 1);
+  auto &param_mapping = fntype->get_substs ().at (0);
+  const TyTy::ParamType *param_tyty = param_mapping.get_param_ty ();
+  TyTy::BaseType *resolved_tyty = param_tyty->resolve ();
+  tree template_parameter_type
+    = TyTyResolveCompile::compile (ctx, resolved_tyty);
+
+  std::vector<Bvariable *> param_vars;
+  compile_fn_params (ctx, fntype, fndecl, &param_vars);
+
+  if (!ctx->get_backend ()->function_set_parameters (fndecl, param_vars))
+    return error_mark_node;
+
+  enter_intrinsic_block (ctx, fndecl);
+
+  // BUILTIN size_of FN BODY BEGIN
+
+  tree dst
+    = ctx->get_backend ()->var_expression (param_vars[0], UNDEF_LOCATION);
+  tree src
+    = ctx->get_backend ()->var_expression (param_vars[1], UNDEF_LOCATION);
+  tree size = TYPE_SIZE_UNIT (template_parameter_type);
+
+  tree memcpy_builtin = error_mark_node;
+  BuiltinsContext::get ().lookup_simple_builtin ("memcpy", &memcpy_builtin);
+  rust_assert (memcpy_builtin != error_mark_node);
+
+  src = build_fold_addr_expr_loc (BUILTINS_LOCATION, src);
+  tree memset_call = build_call_expr_loc (BUILTINS_LOCATION, memcpy_builtin, 3,
+					  dst, src, size);
+  TREE_READONLY (memset_call) = 0;
+  TREE_SIDE_EFFECTS (memset_call) = 1;
+
+  ctx->add_statement (memset_call);
+  // BUILTIN size_of FN BODY END
 
   finalize_intrinsic_block (ctx, fndecl);
 
