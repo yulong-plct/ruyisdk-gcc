@@ -4391,6 +4391,166 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 	(op (min @X { wide_int_to_tree (from_type, real_c1); })
 	    { wide_int_to_tree (from_type, c2); })))))))))
 
+#if GIMPLE
+/* A >= B ? A : B -> max (A, B) and friends.  The code is still
+   in fold_cond_expr_with_comparison for GENERIC folding with
+   some extra constraints.  */
+(for cmp (eq ne le lt unle unlt ge gt unge ungt uneq ltgt)
+ (simplify
+  (cond (cmp:c (nop_convert1?@c0 @0) (nop_convert2?@c1 @1))
+        (convert3? @0) (convert4? @1))
+  (if (!HONOR_SIGNED_ZEROS (type)
+       && (/* Allow widening conversions of the compare operands as data.  */
+	   (INTEGRAL_TYPE_P (type)
+	    && types_match (TREE_TYPE (@c0), TREE_TYPE (@0))
+	    && types_match (TREE_TYPE (@c1), TREE_TYPE (@1))
+	    && TYPE_PRECISION (TREE_TYPE (@0)) <= TYPE_PRECISION (type)
+	    && TYPE_PRECISION (TREE_TYPE (@1)) <= TYPE_PRECISION (type))
+	   /* Or sign conversions for the comparison.  */
+	   || (types_match (type, TREE_TYPE (@0))
+	       && types_match (type, TREE_TYPE (@1)))))
+   (switch
+    (if (cmp == EQ_EXPR)
+     (if (VECTOR_TYPE_P (type))
+      (view_convert @c1)
+      (convert @c1)))
+    (if (cmp == NE_EXPR)
+     (if (VECTOR_TYPE_P (type))
+      (view_convert @c0)
+      (convert @c0)))
+    (if (cmp == LE_EXPR || cmp == UNLE_EXPR || cmp == LT_EXPR || cmp == UNLT_EXPR)
+     (if (!HONOR_NANS (type))
+      (if (VECTOR_TYPE_P (type))
+       (view_convert (min @c0 @c1))
+       (convert (min @c0 @c1)))))
+    (if (cmp == GE_EXPR || cmp == UNGE_EXPR || cmp == GT_EXPR || cmp == UNGT_EXPR)
+     (if (!HONOR_NANS (type))
+      (if (VECTOR_TYPE_P (type))
+       (view_convert (max @c0 @c1))
+       (convert (max @c0 @c1)))))
+    (if (cmp == UNEQ_EXPR)
+     (if (!HONOR_NANS (type))
+      (if (VECTOR_TYPE_P (type))
+       (view_convert @c1)
+       (convert @c1))))
+    (if (cmp == LTGT_EXPR)
+     (if (!HONOR_NANS (type))
+      (if (VECTOR_TYPE_P (type))
+       (view_convert @c0)
+       (convert @c0))))))))
+#endif
+
+(for cnd (cond vec_cond)
+ /* (a != b) ? (a - b) : 0 -> (a - b) */
+ (simplify
+  (cnd (ne:c @0 @1) (minus@2 @0 @1) integer_zerop)
+  @2)
+ /* (a != b) ? (a ^ b) : 0 -> (a ^ b) */
+ (simplify
+  (cnd (ne:c @0 @1) (bit_xor:c@2 @0 @1) integer_zerop)
+  @2)
+ /* (a != b) ? (a & b) : a -> (a & b) */
+ /* (a != b) ? (a | b) : a -> (a | b) */
+ /* (a != b) ? min(a,b) : a -> min(a,b) */
+ /* (a != b) ? max(a,b) : a -> max(a,b) */
+ (for op (bit_and bit_ior min max)
+  (simplify
+   (cnd (ne:c @0 @1) (op:c@2 @0 @1) @0)
+   @2))
+ /* (a != b) ? (a * b) : (a * a) -> (a * b) */
+ /* (a != b) ? (a + b) : (a + a) -> (a + b) */
+ (for op (mult plus)
+  (simplify
+   (cnd (ne:c @0 @1) (op@2 @0 @1) (op @0 @0))
+   (if (ANY_INTEGRAL_TYPE_P (type))
+    @2)))
+ /* (a != b) ? (a + b) : (2 * a) -> (a + b) */
+ (simplify
+  (cnd (ne:c @0 @1) (plus@2 @0 @1) (mult @0 uniform_integer_cst_p@3))
+  (if (wi::to_wide (uniform_integer_cst_p (@3)) == 2)
+   @2))
+)
+
+/* These was part of minmax phiopt.  */
+/* Optimize (a CMP b) ? minmax<a, c> : minmax<b, c>
+   to minmax<min/max<a, b>, c> */
+(for minmax (min max)
+ (for cmp (lt le gt ge ne)
+  (simplify
+   (cond (cmp @1 @3) (minmax:c @1 @4) (minmax:c @2 @4))
+   (with
+    {
+      tree_code code = minmax_from_comparison (cmp, @1, @2, @1, @3);
+    }
+    (if (code == MIN_EXPR)
+     (minmax (min @1 @2) @4)
+     (if (code == MAX_EXPR)
+      (minmax (max @1 @2) @4)))))))
+
+/* Optimize (a CMP CST1) ? max<a,CST2> : a */
+(for cmp    (gt  ge  lt  le)
+     minmax (min min max max)
+ (simplify
+  (cond (cmp @0 @1) (minmax:c@2 @0 @3) @4)
+   (with
+    {
+      tree_code code = minmax_from_comparison (cmp, @0, @1, @0, @4);
+    }
+    (if ((cmp == LT_EXPR || cmp == LE_EXPR)
+	 && code == MIN_EXPR
+         && integer_nonzerop (fold_build2 (LE_EXPR, boolean_type_node, @3, @1)))
+     (min @2 @4)
+     (if ((cmp == GT_EXPR || cmp == GE_EXPR)
+	  && code == MAX_EXPR
+          && integer_nonzerop (fold_build2 (GE_EXPR, boolean_type_node, @3, @1)))
+      (max @2 @4))))))
+
+#if GIMPLE
+/* These patterns should be after min/max detection as simplifications
+   of `(type)(zero_one ==/!= 0)` to `(type)(zero_one)`
+   and `(type)(zero_one^1)` are not done yet.  See PR 110637.
+   Even without those, reaching min/max/and/ior faster is better.  */
+(simplify
+ (cond @0 zero_one_valued_p@1 zero_one_valued_p@2)
+ (switch
+  /* bool0 ? bool1 : 0 -> bool0 & bool1 */
+  (if (integer_zerop (@2))
+   (bit_and (convert @0) @1))
+  /* bool0 ? 0 : bool2 -> (bool0^1) & bool2 */
+  (if (integer_zerop (@1))
+   (bit_and (bit_xor (convert @0) { build_one_cst (type); } ) @2))
+  /* bool0 ? 1 : bool2 -> bool0 | bool2 */
+  (if (integer_onep (@1))
+   (bit_ior (convert @0) @2))
+  /* bool0 ? bool1 : 1 -> (bool0^1) | bool1 */
+  (if (integer_onep (@2))
+   (bit_ior (bit_xor (convert @0) @2) @1))
+ )
+)
+#endif
+
+/* X != C1 ? -X : C2 simplifies to -X when -C1 == C2.  */
+(simplify
+ (cond (ne @0 INTEGER_CST@1) (negate@3 @0) INTEGER_CST@2)
+ (if (!TYPE_SATURATING (type)
+      && (TYPE_OVERFLOW_WRAPS (type)
+	  || !wi::only_sign_bit_p (wi::to_wide (@1)))
+      && wi::eq_p (wi::neg (wi::to_wide (@1)), wi::to_wide (@2)))
+  @3))
+
+/* X != C1 ? ~X : C2 simplifies to ~X when ~C1 == C2.  */
+(simplify
+ (cond (ne @0 INTEGER_CST@1) (bit_not@3 @0) INTEGER_CST@2)
+ (if (wi::eq_p (wi::bit_not (wi::to_wide (@1)), wi::to_wide (@2)))
+  @3))
+
+/* (X + 1) > Y ? -X : 1 simplifies to X >= Y ? -X : 1 when
+   X is unsigned, as when X + 1 overflows, X is -1, so -X == 1.  */
+(simplify
+ (cond (gt (plus @0 integer_onep) @1) (negate @0) integer_onep@2)
+ (if (TYPE_UNSIGNED (type))
+  (cond (ge @0 @1) (negate @0) @2)))
+
 (for cnd (cond vec_cond)
  /* A ? B : (A ? X : C) -> A ? B : C.  */
  (simplify
