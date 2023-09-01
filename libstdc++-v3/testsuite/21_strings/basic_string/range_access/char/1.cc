@@ -17,7 +17,7 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// 24.6.5, range access [iterator.range]
+// { dg-do compile { target c++23 } }
 
 #include <string>
 

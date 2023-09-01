@@ -17,6 +17,9 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
+// { dg-do compile { target c++23 } }
+
+#include <type_traits>
 #include <string>
 #include <set>
 #include <bitset>

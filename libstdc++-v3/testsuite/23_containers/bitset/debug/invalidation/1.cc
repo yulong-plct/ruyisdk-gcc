@@ -1,4 +1,4 @@
-// Bitset reference invalidation tests
+// { dg-do compile { target c++23 } }
 
 // Copyright (C) 2003-2021 Free Software Foundation, Inc.
 //

@@ -1,4 +1,5 @@
-// 2004-11-17  Paolo Carlini  <pcarlini@suse.de>
+// { dg-do compile { target c++23 } }
+// { dg-require-normal-namespace "" }
 
 // Copyright (C) 2004-2021 Free Software Foundation, Inc.
 //

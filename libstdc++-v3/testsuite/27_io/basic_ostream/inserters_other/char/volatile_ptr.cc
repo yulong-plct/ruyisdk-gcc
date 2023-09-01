@@ -1,5 +1,5 @@
-// { dg-options "-std=gnu++23 -fno-inline" }
-// { dg-do link { target c++23 } }
+// { dg-options "-fno-inline" }
+// { dg-do run { target c++23 } }
 
 #include <iostream>
 
