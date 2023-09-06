@@ -863,6 +863,7 @@ tree_code_size (enum tree_code code)
 	case VOID_TYPE:
 	case FUNCTION_TYPE:
 	case METHOD_TYPE:
+	case BITINT_TYPE:
 	case LANG_TYPE:		return sizeof (tree_type_non_common);
 	default:
 	  gcc_checking_assert (code >= NUM_TREE_CODES);
@@ -1604,6 +1605,7 @@ wide_int_to_tree_1 (tree type, const wide_int_ref &pcst)
 
 	case INTEGER_TYPE:
 	case OFFSET_TYPE:
+	case BITINT_TYPE:
 	  if (TYPE_SIGN (type) == UNSIGNED)
 	    {
 	      /* Cache [0, N).  */
@@ -1787,6 +1789,7 @@ cache_integer_cst (tree t, bool might_duplicate ATTRIBUTE_UNUSED)
 
     case INTEGER_TYPE:
     case OFFSET_TYPE:
+    case BITINT_TYPE:
       if (TYPE_UNSIGNED (type))
 	{
 	  /* Cache 0..N */
@@ -2484,7 +2487,7 @@ build_zero_cst (tree type)
     {
     case INTEGER_TYPE: case ENUMERAL_TYPE: case BOOLEAN_TYPE:
     case POINTER_TYPE: case REFERENCE_TYPE:
-    case OFFSET_TYPE: case NULLPTR_TYPE:
+    case OFFSET_TYPE: case NULLPTR_TYPE: case BITINT_TYPE:
       return build_int_cst (type, 0);
 
     case REAL_TYPE:
@@ -7071,7 +7074,16 @@ type_hash_canon_hash (tree type)
 	  hstate.add_object (TREE_INT_CST_ELT (t, i));
 	break;
       }
-      
+
+    case BITINT_TYPE:
+      {
+	unsigned prec = TYPE_PRECISION (type);
+	unsigned uns = TYPE_UNSIGNED (type);
+	hstate.add_object (prec);
+	hstate.add_int (uns);
+	break;
+      }
+
     case REAL_TYPE:
     case FIXED_POINT_TYPE:
       {
@@ -7153,6 +7165,11 @@ type_cache_hasher::equal (type_hash *a, type_hash *b)
 	      && (TYPE_MIN_VALUE (a->type) == TYPE_MIN_VALUE (b->type)
 		  || tree_int_cst_equal (TYPE_MIN_VALUE (a->type),
 					 TYPE_MIN_VALUE (b->type))));
+
+    case BITINT_TYPE:
+      if (TYPE_PRECISION (a->type) != TYPE_PRECISION (b->type))
+	return false;
+      return TYPE_UNSIGNED (a->type) == TYPE_UNSIGNED (b->type);
 
     case FIXED_POINT_TYPE:
       return TYPE_SATURATING (a->type) == TYPE_SATURATING (b->type);
@@ -7254,7 +7271,7 @@ type_hash_canon (unsigned int hashcode, tree type)
       /* Free also min/max values and the cache for integer
 	 types.  This can't be done in free_node, as LTO frees
 	 those on its own.  */
-      if (TREE_CODE (type) == INTEGER_TYPE)
+      if (TREE_CODE (type) == INTEGER_TYPE || TREE_CODE (type) == BITINT_TYPE)
 	{
 	  if (TYPE_MIN_VALUE (type)
 	      && TREE_TYPE (TYPE_MIN_VALUE (type)) == type)
@@ -8161,6 +8178,44 @@ build_nonstandard_boolean_type (unsigned HOST_WIDE_INT precision)
     nonstandard_boolean_type_cache[precision] = type;
 
   return type;
+}
+
+static GTY(()) vec<tree, va_gc> *bitint_type_cache;
+
+/* Builds a signed or unsigned _BitInt(PRECISION) type.  */
+tree
+build_bitint_type (unsigned HOST_WIDE_INT precision, int unsignedp)
+{
+  tree itype, ret;
+
+  if (unsignedp)
+    unsignedp = MAX_INT_CACHED_PREC + 1;
+
+  if (bitint_type_cache == NULL)
+    vec_safe_grow_cleared (bitint_type_cache, 2 * MAX_INT_CACHED_PREC + 2);
+
+  if (precision <= MAX_INT_CACHED_PREC)
+    {
+      itype = (*bitint_type_cache)[precision + unsignedp];
+      if (itype)
+	return itype;
+    }
+
+  itype = make_node (BITINT_TYPE);
+  TYPE_PRECISION (itype) = precision;
+
+  if (unsignedp)
+    fixup_unsigned_type (itype);
+  else
+    fixup_signed_type (itype);
+
+  inchash::hash hstate;
+  inchash::add_expr (TYPE_MAX_VALUE (itype), hstate);
+  ret = type_hash_canon (hstate.end (), itype);
+  if (precision <= MAX_INT_CACHED_PREC)
+    (*bitint_type_cache)[precision + unsignedp] = ret;
+
+  return ret;
 }
 
 /* Create a range of some discrete type TYPE (an INTEGER_TYPE, ENUMERAL_TYPE
@@ -11856,6 +11911,8 @@ signed_or_unsigned_type_for (int unsignedp, tree type)
   else
     return NULL_TREE;
 
+  if (TREE_CODE (type) == BITINT_TYPE)
+    return build_bitint_type (bits, unsignedp);
   return build_nonstandard_integer_type (bits, unsignedp);
 }
 
@@ -14215,8 +14272,9 @@ verify_type_variant (const_tree t, tree tv)
   if ((TREE_CODE (t) == ENUMERAL_TYPE && COMPLETE_TYPE_P (t))
        || TREE_CODE (t) == INTEGER_TYPE
        || TREE_CODE (t) == BOOLEAN_TYPE
-       || TREE_CODE (t) == REAL_TYPE
-       || TREE_CODE (t) == FIXED_POINT_TYPE)
+       || TREE_CODE (t) == BITINT_TYPE
+       || SCALAR_FLOAT_TYPE_P (t)
+       || FIXED_POINT_TYPE_P (t))
     {
       verify_variant_match (TYPE_MAX_VALUE);
       verify_variant_match (TYPE_MIN_VALUE);
@@ -14881,6 +14939,7 @@ verify_type (const_tree t)
     }
   else if (TREE_CODE (t) == INTEGER_TYPE
 	   || TREE_CODE (t) == BOOLEAN_TYPE
+	   || TREE_CODE (t) == BITINT_TYPE
 	   || TREE_CODE (t) == OFFSET_TYPE
 	   || TREE_CODE (t) == REFERENCE_TYPE
 	   || TREE_CODE (t) == NULLPTR_TYPE
@@ -14940,6 +14999,7 @@ verify_type (const_tree t)
     }
   if (TREE_CODE (t) != INTEGER_TYPE
       && TREE_CODE (t) != BOOLEAN_TYPE
+      && TREE_CODE (t) != BITINT_TYPE
       && TREE_CODE (t) != OFFSET_TYPE
       && TREE_CODE (t) != REFERENCE_TYPE
       && TREE_CODE (t) != NULLPTR_TYPE
@@ -15545,6 +15605,150 @@ valid_new_delete_pair_p (tree new_asm, tree delete_asm)
 	return true;
     }
   return false;
+}
+
+/* Return the zero-based number corresponding to the argument being
+   deallocated if FNDECL is a deallocation function or an out-of-bounds
+   value if it isn't.  */
+
+unsigned
+fndecl_dealloc_argno (tree fndecl)
+{
+  /* A call to operator delete isn't recognized as one to a built-in.  */
+  if (DECL_IS_OPERATOR_DELETE_P (fndecl))
+    {
+      if (DECL_IS_REPLACEABLE_OPERATOR (fndecl))
+	return 0;
+
+      /* Avoid placement delete that's not been inlined.  */
+      tree fname = DECL_ASSEMBLER_NAME (fndecl);
+      if (id_equal (fname, "_ZdlPvS_")       // ordinary form
+	  || id_equal (fname, "_ZdaPvS_"))   // array form
+	return UINT_MAX;
+      return 0;
+    }
+
+  /* TODO: Handle user-defined functions with attribute malloc?  Handle
+     known non-built-ins like fopen?  */
+  if (fndecl_built_in_p (fndecl, BUILT_IN_NORMAL))
+    {
+      switch (DECL_FUNCTION_CODE (fndecl))
+	{
+	case BUILT_IN_FREE:
+	case BUILT_IN_REALLOC:
+	  return 0;
+	default:
+	  break;
+	}
+      return UINT_MAX;
+    }
+
+  tree attrs = DECL_ATTRIBUTES (fndecl);
+  if (!attrs)
+    return UINT_MAX;
+
+  for (tree atfree = attrs;
+       (atfree = lookup_attribute ("*dealloc", atfree));
+       atfree = TREE_CHAIN (atfree))
+    {
+      tree alloc = TREE_VALUE (atfree);
+      if (!alloc)
+	continue;
+
+      tree pos = TREE_CHAIN (alloc);
+      if (!pos)
+	return 0;
+
+      pos = TREE_VALUE (pos);
+      return TREE_INT_CST_LOW (pos) - 1;
+    }
+
+  return UINT_MAX;
+}
+
+/* If EXPR refers to a character array or pointer declared attribute
+   nonstring, return a decl for that array or pointer and set *REF
+   to the referenced enclosing object or pointer.  Otherwise return
+   null.  */
+
+tree
+get_attr_nonstring_decl (tree expr, tree *ref)
+{
+  tree decl = expr;
+  tree var = NULL_TREE;
+  if (TREE_CODE (decl) == SSA_NAME)
+    {
+      gimple *def = SSA_NAME_DEF_STMT (decl);
+
+      if (is_gimple_assign (def))
+	{
+	  tree_code code = gimple_assign_rhs_code (def);
+	  if (code == ADDR_EXPR
+	      || code == COMPONENT_REF
+	      || code == VAR_DECL)
+	    decl = gimple_assign_rhs1 (def);
+	}
+      else
+	var = SSA_NAME_VAR (decl);
+    }
+
+  if (TREE_CODE (decl) == ADDR_EXPR)
+    decl = TREE_OPERAND (decl, 0);
+
+  /* To simplify calling code, store the referenced DECL regardless of
+     the attribute determined below, but avoid storing the SSA_NAME_VAR
+     obtained above (it's not useful for dataflow purposes).  */
+  if (ref)
+    *ref = decl;
+
+  /* Use the SSA_NAME_VAR that was determined above to see if it's
+     declared nonstring.  Otherwise drill down into the referenced
+     DECL.  */
+  if (var)
+    decl = var;
+  else if (TREE_CODE (decl) == ARRAY_REF)
+    decl = TREE_OPERAND (decl, 0);
+  else if (TREE_CODE (decl) == COMPONENT_REF)
+    decl = TREE_OPERAND (decl, 1);
+  else if (TREE_CODE (decl) == MEM_REF)
+    return get_attr_nonstring_decl (TREE_OPERAND (decl, 0), ref);
+
+  if (DECL_P (decl)
+      && lookup_attribute ("nonstring", DECL_ATTRIBUTES (decl)))
+    return decl;
+
+  return NULL_TREE;
+}
+
+/* Return length of attribute names string,
+   if arglist chain > 1, -1 otherwise.  */
+
+int
+get_target_clone_attr_len (tree arglist)
+{
+  tree arg;
+  int str_len_sum = 0;
+  int argnum = 0;
+
+  for (arg = arglist; arg; arg = TREE_CHAIN (arg))
+    {
+      const char *str = TREE_STRING_POINTER (TREE_VALUE (arg));
+      size_t len = strlen (str);
+      str_len_sum += len + 1;
+      for (const char *p = strchr (str, ','); p; p = strchr (p + 1, ','))
+	argnum++;
+      argnum++;
+    }
+  if (argnum <= 1)
+    return -1;
+  return str_len_sum;
+}
+
+void
+tree_cc_finalize (void)
+{
+  clear_nonstandard_integer_type_cache ();
+  vec_free (bitint_type_cache);
 }
 
 #if CHECKING_P

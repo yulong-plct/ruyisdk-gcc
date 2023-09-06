@@ -933,6 +933,8 @@ Do not define this macro if it would never modify @var{m}.
 
 @hook TARGET_C_EXCESS_PRECISION
 
+@hook TARGET_C_BITINT_TYPE_INFO
+
 @hook TARGET_PROMOTE_FUNCTION_MODE
 
 @defmac PARM_BOUNDARY

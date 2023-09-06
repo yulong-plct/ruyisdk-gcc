@@ -71,6 +71,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-ssa-loop-niter.h"
 #include "builtins.h"
 #include "tree-ssa-sccvn.h"
+#include "target.h"
 
 /* This algorithm is based on the SCC algorithm presented by Keith
    Cooper and L. Taylor Simpson in "SCC-Based Value numbering"
@@ -6309,8 +6310,14 @@ eliminate_dom_walker::eliminate_stmt (basic_block b, gimple_stmt_iterator *gsi)
 	      || !DECL_BIT_FIELD_TYPE (TREE_OPERAND (lhs, 1)))
 	  && !type_has_mode_precision_p (TREE_TYPE (lhs)))
 	{
-	  if (TREE_CODE (lhs) == COMPONENT_REF
-	      || TREE_CODE (lhs) == MEM_REF)
+	  if (TREE_CODE (TREE_TYPE (lhs)) == BITINT_TYPE
+	      && (TYPE_PRECISION (TREE_TYPE (lhs))
+		  > (targetm.scalar_mode_supported_p (TImode)
+		     ? GET_MODE_PRECISION (TImode)
+		     : GET_MODE_PRECISION (DImode))))
+	    lookup_lhs = NULL_TREE;
+	  else if (TREE_CODE (lhs) == COMPONENT_REF
+		   || TREE_CODE (lhs) == MEM_REF)
 	    {
 	      tree ltype = build_nonstandard_integer_type
 				(TREE_INT_CST_LOW (TYPE_SIZE (TREE_TYPE (lhs))),
