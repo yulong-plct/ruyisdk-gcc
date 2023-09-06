@@ -12075,6 +12075,29 @@ finish_declspecs (struct c_declspecs *specs)
 			  : accum_type_node;
 	}
       break;
+    case cts_bitint:
+      gcc_assert (!specs->long_p && !specs->short_p
+		  && !specs->complex_p);
+      if (!specs->unsigned_p && specs->u.bitint_prec == 1)
+	{
+	  error_at (specs->locations[cdw_typespec],
+		    "%<signed _BitInt%> argument must be at least 2");
+	  specs->type = integer_type_node;
+	  break;
+	}
+      if (specs->u.bitint_prec == -1)
+	specs->type = integer_type_node;
+      else
+	{
+	  pedwarn_c11 (specs->locations[cdw_typespec], OPT_Wpedantic,
+		       "ISO C does not support %<%s_BitInt(%d)%> before C2X",
+		       specs->unsigned_p ? "unsigned "
+		       : specs->signed_p ? "signed " : "",
+		       specs->u.bitint_prec);
+	  specs->type = build_bitint_type (specs->u.bitint_prec,
+					   specs->unsigned_p);
+	}
+      break;
     default:
       gcc_unreachable ();
     }
