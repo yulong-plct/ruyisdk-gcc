@@ -1,46 +1,57 @@
-## Makefile for the C++20 sources of the GNU C++ Standard library.
+## Makefile for experimental additions to the GNU C++ Standard library.
 ##
-## Copyright (C) 1997-2021 Free Software Foundation, Inc.
+## Copyright (C) 2014-2023 Free Software Foundation, Inc.
 ##
-## This file is part of the libstdc++ version 3 distribution.
 ## Process this file with automake to produce Makefile.in.
-
-## This file is part of the GNU ISO C++ Library.  This library is free
-## software; you can redistribute it and/or modify it under the
-## terms of the GNU General Public License as published by the
-## Free Software Foundation; either version 3, or (at your option)
+##
+## This file is part of GCC.
+##
+## GCC is free software; you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation; either version 3, or (at your option)
 ## any later version.
-
-## This library is distributed in the hope that it will be useful,
+##
+## GCC is distributed in the hope that it will be useful,
 ## but WITHOUT ANY WARRANTY; without even the implied warranty of
 ## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ## GNU General Public License for more details.
-
-## You should have received a copy of the GNU General Public License along
-## with this library; see the file COPYING3.  If not see
+##
+## You should have received a copy of the GNU General Public License
+## along with GCC; see the file COPYING3.  If not see
 ## <http://www.gnu.org/licenses/>.
 
 include $(top_srcdir)/fragment.am
 
-# Convenience library for C++20 runtime.
-noinst_LTLIBRARIES = libc++20convenience.la
+toolexeclib_LTLIBRARIES = libstdc++exp.la
+
+if ENABLE_FILESYSTEM_TS
+filesystem_lib = $(top_builddir)/src/filesystem/libstdc++fs.la
+else
+filesystem_lib =
+endif
+
+if ENABLE_BACKTRACE
+backtrace_lib = $(top_builddir)/src/libbacktrace/libstdc++_libbacktrace.la
+else
+backtrace_lib =
+endif
 
 headers =
 
-if ENABLE_EXTERN_TEMPLATE
-# XTEMPLATE_FLAGS = -fno-implicit-templates
-inst_sources = \
-	sstream-inst.cc
-else
-# XTEMPLATE_FLAGS =
-inst_sources =
-endif
+sources = \
+	contract.cc
 
-sources =
+# vpath % $(top_srcdir)/src/experimental
 
-vpath % $(top_srcdir)/src/c++20
+libstdc__exp_la_SOURCES = $(sources)
 
-libc__20convenience_la_SOURCES = $(sources)  $(inst_sources)
+libstdc__exp_la_LIBADD = \
+	$(top_builddir)/src/c++23/libc++23convenience.la \
+	$(filesystem_lib) $(backtrace_lib)
+
+libstdc__exp_la_DEPENDENCIES = \
+	$(top_builddir)/src/c++23/libc++23convenience.la \
+	$(filesystem_lib) $(backtrace_lib)
 
 # AM_CXXFLAGS needs to be in each subdirectory so that it can be
 # modified in a per-library or per-sub-library way.  Need to manually
@@ -48,7 +59,7 @@ libc__20convenience_la_SOURCES = $(sources)  $(inst_sources)
 # OPTIMIZE_CXXFLAGS on the compile line so that -O2 can be overridden
 # as the occasion calls for it.
 AM_CXXFLAGS = \
-	-std=gnu++20 \
+	-std=gnu++17 -nostdinc++ \
 	$(glibcxx_lt_pic_flag) $(glibcxx_compiler_shared_flag) \
 	$(XTEMPLATE_FLAGS) $(VTV_CXXFLAGS) \
 	$(WARN_CXXFLAGS) $(OPTIMIZE_CXXFLAGS) $(CONFIG_CXXFLAGS) \

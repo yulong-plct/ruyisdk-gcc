@@ -111,8 +111,12 @@ A quick read of the relevant part of the GCC
       no shared library for it. To use the library you should include
       <code class="filename">&lt;experimental/filesystem&gt;</code>
       and link with <code class="option">-lstdc++fs</code>. The library implementation
-      is incomplete on non-POSIX platforms, specifically Windows support is
-      rudimentary.
+      is incomplete on non-POSIX platforms, specifically Windows is only
+      partially supported.
+      Since GCC 14, <code class="filename">libstdc++exp.a</code>
+      also contains the definitions for this library,
+      so <code class="option">-lstdc++exp</code> can be used instead of
+      <code class="option">-lstdc++fs</code>.
     </p><p>
       Due to the experimental nature of the Filesystem library the usual
       guarantees about ABI stability and backwards compatibility do not apply

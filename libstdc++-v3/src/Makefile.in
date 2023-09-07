@@ -238,7 +238,8 @@ am__define_uniq_tagged_files = \
   done | $(am__uniquify_input)`
 ETAGS = etags
 CTAGS = ctags
-DIST_SUBDIRS = c++98 c++11 c++17 c++20 filesystem
+DIST_SUBDIRS = c++98 c++11 c++17 c++20 c++23 filesystem libbacktrace \
+	experimental
 ABI_TWEAKS_SRCDIR = @ABI_TWEAKS_SRCDIR@
 ACLOCAL = @ACLOCAL@
 ALLOCATOR_H = @ALLOCATOR_H@
@@ -470,9 +471,17 @@ WARN_CXXFLAGS = \
 
 # -I/-D flags to pass when compiling.
 AM_CPPFLAGS = $(GLIBCXX_INCLUDES) $(CPPFLAGS)
-@ENABLE_FILESYSTEM_TS_FALSE@filesystem_dir = 
-@ENABLE_FILESYSTEM_TS_TRUE@filesystem_dir = filesystem
-SUBDIRS = c++98 c++11 c++17 c++20 $(filesystem_dir)
+@ENABLE_FILESYSTEM_TS_FALSE@@GLIBCXX_HOSTED_TRUE@filesystem_dir = 
+@ENABLE_FILESYSTEM_TS_TRUE@@GLIBCXX_HOSTED_TRUE@filesystem_dir = filesystem
+@GLIBCXX_HOSTED_FALSE@filesystem_dir = 
+@ENABLE_BACKTRACE_FALSE@@GLIBCXX_HOSTED_TRUE@backtrace_dir = 
+@ENABLE_BACKTRACE_TRUE@@GLIBCXX_HOSTED_TRUE@backtrace_dir = libbacktrace
+@GLIBCXX_HOSTED_FALSE@backtrace_dir = 
+@GLIBCXX_HOSTED_FALSE@experimental_dir = 
+@GLIBCXX_HOSTED_TRUE@experimental_dir = experimental
+SUBDIRS = c++98 c++11 c++17 c++20 c++23 \
+	$(filesystem_dir) $(backtrace_dir) $(experimental_dir)
+
 @VTV_CYGMIN_FALSE@toolexeclib_LTLIBRARIES = libstdc++.la
 
 # Cross compiler support.
@@ -993,6 +1002,7 @@ vpath % $(top_srcdir)/src/c++98
 vpath % $(top_srcdir)/src/c++11
 vpath % $(top_srcdir)/src/c++17
 vpath % $(top_srcdir)/src/c++20
+vpath % $(top_srcdir)/src/c++23
 @ENABLE_FILESYSTEM_TS_TRUE@vpath % $(top_srcdir)/src/filesystem
 @GLIBCXX_LDBL_COMPAT_TRUE@compatibility-ldbl.lo: compatibility-ldbl.cc
 @GLIBCXX_LDBL_COMPAT_TRUE@	$(LTCXXCOMPILE64) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<

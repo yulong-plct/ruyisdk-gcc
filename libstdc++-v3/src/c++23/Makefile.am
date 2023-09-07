@@ -1,6 +1,6 @@
-## Makefile for the C++20 sources of the GNU C++ Standard library.
+## Makefile for the C++23 sources of the GNU C++ Standard library.
 ##
-## Copyright (C) 1997-2021 Free Software Foundation, Inc.
+## Copyright (C) 1997-2023 Free Software Foundation, Inc.
 ##
 ## This file is part of the libstdc++ version 3 distribution.
 ## Process this file with automake to produce Makefile.in.
@@ -22,25 +22,29 @@
 
 include $(top_srcdir)/fragment.am
 
-# Convenience library for C++20 runtime.
-noinst_LTLIBRARIES = libc++20convenience.la
+# Convenience library for C++23 runtime.
+noinst_LTLIBRARIES = libc++23convenience.la
 
 headers =
 
 if ENABLE_EXTERN_TEMPLATE
 # XTEMPLATE_FLAGS = -fno-implicit-templates
-inst_sources = \
-	sstream-inst.cc
+inst_sources =
 else
 # XTEMPLATE_FLAGS =
 inst_sources =
 endif
 
-sources =
+sources = stacktrace.cc
 
-vpath % $(top_srcdir)/src/c++20
+vpath % $(top_srcdir)/src/c++23
 
-libc__20convenience_la_SOURCES = $(sources)  $(inst_sources)
+
+if GLIBCXX_HOSTED
+libc__23convenience_la_SOURCES = $(sources)  $(inst_sources)
+else
+libc__23convenience_la_SOURCES =
+endif
 
 # AM_CXXFLAGS needs to be in each subdirectory so that it can be
 # modified in a per-library or per-sub-library way.  Need to manually
@@ -48,7 +52,7 @@ libc__20convenience_la_SOURCES = $(sources)  $(inst_sources)
 # OPTIMIZE_CXXFLAGS on the compile line so that -O2 can be overridden
 # as the occasion calls for it.
 AM_CXXFLAGS = \
-	-std=gnu++20 \
+	-std=gnu++23 \
 	$(glibcxx_lt_pic_flag) $(glibcxx_compiler_shared_flag) \
 	$(XTEMPLATE_FLAGS) $(VTV_CXXFLAGS) \
 	$(WARN_CXXFLAGS) $(OPTIMIZE_CXXFLAGS) $(CONFIG_CXXFLAGS) \
