@@ -370,38 +370,15 @@ function integer_range_info(range_option, init, option)
         return "-1, -1"
 }
 
-# Handle LangEnabledBy(ENABLED_BY_LANGS, ENABLEDBY_NAME, ENABLEDBY_POSARG,
-# ENABLEDBY_NEGARG). This function does not return anything.
-function lang_enabled_by(enabledby_langs, enabledby_name, enabledby_posarg, enabledby_negarg)
+# Find the index of VAR in VAR_ARRY which as length N_VAR_ARRY.  If
+# VAR is not found, return N_VAR_ARRY. That means the var is a new
+# defination.
+function find_index(var, var_arry, n_var_arry)
 {
-    n_enabledby_arg_langs = split(enabledby_langs, enabledby_arg_langs, " ");
-    if (enabledby_posarg != "" && enabledby_negarg != "") {
-        with_args = "," enabledby_posarg "," enabledby_negarg
-    } else if (enabledby_posarg == "" && enabledby_negarg == "") {
-        with_args = ""
-    } else {
-        print "#error " opts[i] " LangEnabledBy("enabledby_langs","enabledby_name", " \
-            enabledby_posarg", " enabledby_negargs                  \
-            ") with three arguments, it should have either 2 or 4"
+    for (var_index = 0; var_index < n_var_arry; var_index++)
+    {
+        if (var_arry[var_index] == var)
+            break
     }
-
-    n_enabledby_array = split(enabledby_name, enabledby_array, " \\|\\| ");
-    for (k = 1; k <= n_enabledby_array; k++) {
-        enabledby_index = opt_numbers[enabledby_array[k]];
-        if (enabledby_index == "") {
-             print "#error " opts[i] " LangEnabledBy("enabledby_langs","enabledby_name", " \
-                 enabledby_posarg", " enabledby_negargs"), unknown option '" enabledby_name "'"
-        } else {
-            for (j = 1; j <= n_enabledby_arg_langs; j++) {
-                 lang_name = lang_sanitized_name(enabledby_arg_langs[j]);
-                 lang_index = lang_numbers[enabledby_arg_langs[j]];
-                 if (enables[lang_name,enabledby_array[k]] == "") {
-                     enabledby[lang_name,n_enabledby_lang[lang_index]] = enabledby_array[k];
-                     n_enabledby_lang[lang_index]++;
-                 }
-                 enables[lang_name,enabledby_array[k]] \
-                     = enables[lang_name,enabledby_array[k]] opts[i] with_args ";";
-            }
-        }
-    }
+    return var_index
 }
