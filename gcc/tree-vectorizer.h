@@ -2152,8 +2152,8 @@ extern tree vect_create_addr_base_for_vector_ref (vec_info *,
 						  stmt_vec_info, gimple_seq *,
 						  tree, tree = NULL_TREE);
 
-/* In tree-vect-loop.c.  */
-extern tree neutral_op_for_reduction (tree, code_helper, tree);
+/* In tree-vect-loop.cc.  */
+extern tree neutral_op_for_reduction (tree, code_helper, tree, bool = true);
 extern widest_int vect_iv_limit_for_partial_vectors (loop_vec_info loop_vinfo);
 bool vect_rgroup_iv_might_wrap_p (loop_vec_info, rgroup_controls *);
 /* Used in tree-vect-loop-manip.cc */

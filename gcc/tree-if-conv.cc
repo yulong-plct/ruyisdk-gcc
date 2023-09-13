@@ -1738,9 +1738,13 @@ convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
   gimple *new_assign;
   tree rhs;
   tree rhs1 = gimple_assign_rhs1 (reduc);
+  tree lhs = gimple_assign_lhs (reduc);
   tree tmp = make_temp_ssa_name (TREE_TYPE (rhs1), NULL, "_ifc_");
   tree c;
-  tree zero = build_zero_cst (TREE_TYPE (rhs1));
+  enum tree_code reduction_op  = gimple_assign_rhs_code (reduc);
+  tree op_nochange = neutral_op_for_reduction (TREE_TYPE (rhs1), reduction_op,
+					       NULL, false);
+  gimple_seq stmts = NULL;
 
   if (dump_file && (dump_flags & TDF_DETAILS))
     {
@@ -1748,19 +1752,46 @@ convert_scalar_cond_reduction (gimple *reduc, gimple_stmt_iterator *gsi,
       print_gimple_stmt (dump_file, reduc, 0, TDF_SLIM);
     }
 
-  /* Build cond expression using COND and constant operand
-     of reduction rhs.  */
-  c = fold_build_cond_expr (TREE_TYPE (rhs1),
-			    unshare_expr (cond),
-			    swap ? zero : op1,
-			    swap ? op1 : zero);
+  /* If possible create a COND_OP instead of a COND_EXPR and an OP_EXPR.
+     The COND_OP will have a neutral_op else value.  */
+  internal_fn ifn;
+  ifn = get_conditional_internal_fn (reduction_op);
+  if (ifn != IFN_LAST
+      && vectorized_internal_fn_supported_p (ifn, TREE_TYPE (lhs))
+      && !swap)
+    {
+      gcall *cond_call = gimple_build_call_internal (ifn, 4,
+						     unshare_expr (cond),
+						     op0, op1, op0);
+      gsi_insert_before (gsi, cond_call, GSI_SAME_STMT);
+      gimple_call_set_lhs (cond_call, tmp);
+      rhs = tmp;
+    }
+  else
+    {
+      /* Build cond expression using COND and constant operand
+	 of reduction rhs.  */
+      c = fold_build_cond_expr (TREE_TYPE (rhs1),
+				unshare_expr (cond),
+				swap ? op_nochange : op1,
+				swap ? op1 : op_nochange);
+      /* Create assignment stmt and insert it at GSI.  */
+      new_assign = gimple_build_assign (tmp, c);
+      gsi_insert_before (gsi, new_assign, GSI_SAME_STMT);
+      /* Build rhs for unconditional increment/decrement/logic_operation.  */
+      rhs = gimple_build (&stmts, reduction_op,
+			  TREE_TYPE (rhs1), op0, tmp);
+    }
 
-  /* Create assignment stmt and insert it at GSI.  */
-  new_assign = gimple_build_assign (tmp, c);
-  gsi_insert_before (gsi, new_assign, GSI_SAME_STMT);
-  /* Build rhs for unconditional increment/decrement.  */
-  rhs = fold_build2 (gimple_assign_rhs_code (reduc),
-		     TREE_TYPE (rhs1), op0, tmp);
+  if (has_nop)
+    {
+      rhs = gimple_convert (&stmts,
+			    TREE_TYPE (gimple_assign_lhs (nop_reduc)), rhs);
+      stmt_it = gsi_for_stmt (nop_reduc);
+      gsi_remove (&stmt_it, true);
+      release_defs (nop_reduc);
+    }
+  gsi_insert_seq_before (gsi, stmts, GSI_SAME_STMT);
 
   /* Delete original reduction stmt.  */
   stmt_it = gsi_for_stmt (reduc);
@@ -1993,9 +2024,12 @@ predicate_scalar_phi (gphi *phi, gimple_stmt_iterator *gsi)
 				    swap? arg1 : arg0,
 				    swap? arg0 : arg1);
       else
-	/* Convert reduction stmt into vectorizable form.  */
-	rhs = convert_scalar_cond_reduction (reduc, gsi, cond, op0, op1,
-					     swap);
+	{
+	  /* Convert reduction stmt into vectorizable form.  */
+	  rhs = convert_scalar_cond_reduction (reduc, gsi, cond, op0, op1,
+					       swap, has_nop, nop_reduc);
+	  redundant_ssa_names.safe_push (std::make_pair (res, rhs));
+	}
       new_stmt = gimple_build_assign (res, rhs);
       gsi_insert_before (gsi, new_stmt, GSI_SAME_STMT);
       update_stmt (new_stmt);
