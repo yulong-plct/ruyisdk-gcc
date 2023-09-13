@@ -5,10 +5,6 @@
 
 #include "reduc_call-1.c"
 
-<<<<<<< HEAD
 /* { dg-final { scan-assembler-times {vfmadd\.vv\s+v[0-9]+,v[0-9]+,v[0-9]+} 1 } } */
 /* { dg-final { scan-assembler-times {vfadd\.vv\s+v[0-9]+,v[0-9]+,v[0-9]+,v0.t} 1 } } */
 /* { dg-final { scan-assembler-not {vmerge} } } */
-=======
-/* { dg-final { scan-assembler-times {vfmacc\.vv\s+v[0-9]+,v[0-9]+,v[0-9]+,v0.t} 1 } } */
->>>>>>> 6ae5565e78c (RISC-V: Support CALL conditional autovec patterns)
