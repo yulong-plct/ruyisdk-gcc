@@ -1935,6 +1935,80 @@ auto_diagnostic_group::~auto_diagnostic_group ()
     }
 }
 
+/* Set the output format for CONTEXT to FORMAT, using BASE_FILE_NAME for
+   file-based output formats.  */
+
+void
+diagnostic_output_format_init (diagnostic_context *context,
+			       const char *base_file_name,
+			       enum diagnostics_output_format format)
+{
+  switch (format)
+    {
+    default:
+      gcc_unreachable ();
+    case DIAGNOSTICS_OUTPUT_FORMAT_TEXT:
+      /* The default; do nothing.  */
+      break;
+
+    case DIAGNOSTICS_OUTPUT_FORMAT_JSON_STDERR:
+      diagnostic_output_format_init_json_stderr (context);
+      break;
+
+    case DIAGNOSTICS_OUTPUT_FORMAT_JSON_FILE:
+      diagnostic_output_format_init_json_file (context, base_file_name);
+      break;
+
+    case DIAGNOSTICS_OUTPUT_FORMAT_SARIF_STDERR:
+      diagnostic_output_format_init_sarif_stderr (context);
+      break;
+
+    case DIAGNOSTICS_OUTPUT_FORMAT_SARIF_FILE:
+      diagnostic_output_format_init_sarif_file (context, base_file_name);
+      break;
+    }
+}
+
+/* Initialize CONTEXT->m_diagrams based on CHARSET.
+   Specifically, make a text_art::theme object for m_diagrams.m_theme,
+   (or NULL for "no diagrams").  */
+
+void
+diagnostics_text_art_charset_init (diagnostic_context *context,
+				   enum diagnostic_text_art_charset charset)
+{
+  delete context->m_diagrams.m_theme;
+  switch (charset)
+    {
+    default:
+      gcc_unreachable ();
+
+    case DIAGNOSTICS_TEXT_ART_CHARSET_NONE:
+      context->m_diagrams.m_theme = NULL;
+      break;
+
+    case DIAGNOSTICS_TEXT_ART_CHARSET_ASCII:
+      context->m_diagrams.m_theme = new text_art::ascii_theme ();
+      break;
+
+    case DIAGNOSTICS_TEXT_ART_CHARSET_UNICODE:
+      context->m_diagrams.m_theme = new text_art::unicode_theme ();
+      break;
+
+    case DIAGNOSTICS_TEXT_ART_CHARSET_EMOJI:
+      context->m_diagrams.m_theme = new text_art::emoji_theme ();
+      break;
+    }
+}
+
+/* class simple_diagnostic_path : public diagnostic_path.  */
+
+simple_diagnostic_path::simple_diagnostic_path (pretty_printer *event_pp)
+  : m_event_pp (event_pp)
+{
+  add_thread ("main");
+}
+
 /* Implementation of diagnostic_path::num_events vfunc for
    simple_diagnostic_path: simply get the number of events in the vec.  */
 
@@ -1951,6 +2025,25 @@ const diagnostic_event &
 simple_diagnostic_path::get_event (int idx) const
 {
   return *m_events[idx];
+}
+
+unsigned
+simple_diagnostic_path::num_threads () const
+{
+  return m_threads.length ();
+}
+
+const diagnostic_thread &
+simple_diagnostic_path::get_thread (diagnostic_thread_id_t idx) const
+{
+  return *m_threads[idx];
+}
+
+diagnostic_thread_id_t
+simple_diagnostic_path::add_thread (const char *name)
+{
+  m_threads.safe_push (new simple_diagnostic_thread (name));
+  return m_threads.length () - 1;
 }
 
 /* Add an event to this path at LOC within function FNDECL at
@@ -1995,15 +2088,56 @@ simple_diagnostic_path::add_event (location_t loc, tree fndecl, int depth,
   return diagnostic_event_id_t (m_events.length () - 1);
 }
 
+diagnostic_event_id_t
+simple_diagnostic_path::add_thread_event (diagnostic_thread_id_t thread_id,
+					  location_t loc,
+					  tree fndecl,
+					  int depth,
+					  const char *fmt, ...)
+{
+  pretty_printer *pp = m_event_pp;
+  pp_clear_output_area (pp);
+
+  text_info ti;
+  rich_location rich_loc (line_table, UNKNOWN_LOCATION);
+
+  va_list ap;
+
+  va_start (ap, fmt);
+
+  ti.format_spec = _(fmt);
+  ti.args_ptr = &ap;
+  ti.err_no = 0;
+  ti.x_data = NULL;
+  ti.m_richloc = &rich_loc;
+
+  pp_format (pp, &ti);
+  pp_output_formatted_text (pp);
+
+  va_end (ap);
+
+  simple_diagnostic_event *new_event
+    = new simple_diagnostic_event (loc, fndecl, depth, pp_formatted_text (pp),
+				   thread_id);
+  m_events.safe_push (new_event);
+
+  pp_clear_output_area (pp);
+
+  return diagnostic_event_id_t (m_events.length () - 1);
+}
+
 /* struct simple_diagnostic_event.  */
 
 /* simple_diagnostic_event's ctor.  */
 
-simple_diagnostic_event::simple_diagnostic_event (location_t loc,
-						  tree fndecl,
-						  int depth,
-						  const char *desc)
-: m_loc (loc), m_fndecl (fndecl), m_depth (depth), m_desc (xstrdup (desc))
+simple_diagnostic_event::
+simple_diagnostic_event (location_t loc,
+			 tree fndecl,
+			 int depth,
+			 const char *desc,
+			 diagnostic_thread_id_t thread_id)
+: m_loc (loc), m_fndecl (fndecl), m_depth (depth), m_desc (xstrdup (desc)),
+  m_thread_id (thread_id)
 {
 }
 

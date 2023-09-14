@@ -1,5 +1,5 @@
-/* Subclasses of diagnostic_path and diagnostic_event for analyzer diagnostics.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+/* Subclasses of diagnostic_event for analyzer diagnostics.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -18,10 +18,26 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-#ifndef GCC_ANALYZER_CHECKER_PATH_H
-#define GCC_ANALYZER_CHECKER_PATH_H
+#ifndef GCC_ANALYZER_CHECKER_EVENT_H
+#define GCC_ANALYZER_CHECKER_EVENT_H
+
+#include "tree-logical-location.h"
+#include "analyzer/program-state.h"
 
 namespace ana {
+
+/* A bundle of location information for a checker_event.  */
+
+struct event_loc_info
+{
+  event_loc_info (location_t loc, tree fndecl, int depth)
+  : m_loc (loc), m_fndecl (fndecl), m_depth (depth)
+  {}
+
+  location_t m_loc;
+  tree m_fndecl;
+  int m_depth;
+};
 
 /* An enum for discriminating between the concrete subclasses of
    checker_event.  */
@@ -31,6 +47,7 @@ enum event_kind
   EK_DEBUG,
   EK_CUSTOM,
   EK_STMT,
+  EK_REGION_CREATION,
   EK_FUNCTION_ENTRY,
   EK_STATE_CHANGE,
   EK_START_CFG_EDGE,
@@ -39,6 +56,7 @@ enum event_kind
   EK_RETURN_EDGE,
   EK_START_CONSOLIDATED_CFG_EDGES,
   EK_END_CONSOLIDATED_CFG_EDGES,
+  EK_INLINED_CALL,
   EK_SETJMP,
   EK_REWIND_FROM_LONGJMP,
   EK_REWIND_TO_SETJMP,
@@ -56,7 +74,9 @@ extern const char *event_kind_to_string (enum event_kind ek);
      checker_event
        debug_event (EK_DEBUG)
        custom_event (EK_CUSTOM)
+	 precanned_custom_event
        statement_event (EK_STMT)
+       region_creation_event (EK_REGION_CREATION)
        function_entry_event (EK_FUNCTION_ENTRY)
        state_change_event (EK_STATE_CHANGE)
        superedge_event
@@ -67,6 +87,7 @@ extern const char *event_kind_to_string (enum event_kind ek);
          return_edge (EK_RETURN_EDGE)
        start_consolidated_cfg_edges_event (EK_START_CONSOLIDATED_CFG_EDGES)
        end_consolidated_cfg_edges_event (EK_END_CONSOLIDATED_CFG_EDGES)
+       inlined_call_event (EK_INLINED_CALL)
        setjmp_event (EK_SETJMP)
        rewind_event
          rewind_from_longjmp_event (EK_REWIND_FROM_LONGJMP)
@@ -79,20 +100,27 @@ extern const char *event_kind_to_string (enum event_kind ek);
 class checker_event : public diagnostic_event
 {
 public:
-  checker_event (enum event_kind kind,
-		 location_t loc, tree fndecl, int depth)
-    : m_kind (kind), m_loc (loc), m_fndecl (fndecl), m_depth (depth),
-      m_pending_diagnostic (NULL), m_emission_id ()
-  {
-  }
-
   /* Implementation of diagnostic_event.  */
 
-  location_t get_location () const FINAL OVERRIDE { return m_loc; }
-  tree get_fndecl () const FINAL OVERRIDE { return m_fndecl; }
-  int get_stack_depth () const FINAL OVERRIDE { return m_depth; }
+  location_t get_location () const final override { return m_loc; }
+  tree get_fndecl () const final override { return m_effective_fndecl; }
+  int get_stack_depth () const final override { return m_effective_depth; }
+  const logical_location *get_logical_location () const final override
+  {
+    if (m_effective_fndecl)
+      return &m_logical_loc;
+    else
+      return NULL;
+  }
+  meaning get_meaning () const override;
+  diagnostic_thread_id_t get_thread_id () const final override
+  {
+    return 0;
+  }
 
   /* Additional functionality.  */
+
+  int get_original_stack_depth () const { return m_original_depth; }
 
   virtual void prepare_for_emission (checker_path *,
 				     pending_diagnostic *pd,
@@ -108,17 +136,25 @@ public:
   }
 
   void dump (pretty_printer *pp) const;
+  void debug () const;
 
   void set_location (location_t loc) { m_loc = loc; }
+
+protected:
+  checker_event (enum event_kind kind,
+		 const event_loc_info &loc_info);
 
  public:
   const enum event_kind m_kind;
  protected:
   location_t m_loc;
-  tree m_fndecl;
-  int m_depth;
+  tree m_original_fndecl;
+  tree m_effective_fndecl;
+  int m_original_depth;
+  int m_effective_depth;
   pending_diagnostic *m_pending_diagnostic;
   diagnostic_event_id_t m_emission_id; // only set once all pruning has occurred
+  tree_logical_location m_logical_loc;
 };
 
 /* A concrete event subclass for a purely textual event, for use in
@@ -127,9 +163,10 @@ public:
 class debug_event : public checker_event
 {
 public:
-  debug_event (location_t loc, tree fndecl, int depth,
-	      const char *desc)
-  : checker_event (EK_DEBUG, loc, fndecl, depth),
+
+  debug_event (const event_loc_info &loc_info,
+	       const char *desc)
+  : checker_event (EK_DEBUG, loc_info),
     m_desc (xstrdup (desc))
   {
   }
@@ -138,30 +175,41 @@ public:
     free (m_desc);
   }
 
-  label_text get_desc (bool) const FINAL OVERRIDE;
+  label_text get_desc (bool) const final override;
 
 private:
   char *m_desc;
 };
 
-/* A concrete event subclass for custom events.  These are not filtered,
+/* An abstract event subclass for custom events.  These are not filtered,
    as they are likely to be pertinent to the diagnostic.  */
 
 class custom_event : public checker_event
 {
+protected:
+  custom_event (const event_loc_info &loc_info)
+  : checker_event (EK_CUSTOM, loc_info)
+  {
+  }
+};
+
+/* A concrete custom_event subclass with a precanned message.  */
+
+class precanned_custom_event : public custom_event
+{
 public:
-  custom_event (location_t loc, tree fndecl, int depth,
-		const char *desc)
-  : checker_event (EK_CUSTOM, loc, fndecl, depth),
+  precanned_custom_event (const event_loc_info &loc_info,
+			  const char *desc)
+  : custom_event (loc_info),
     m_desc (xstrdup (desc))
   {
   }
-  ~custom_event ()
+  ~precanned_custom_event ()
   {
     free (m_desc);
   }
 
-  label_text get_desc (bool) const FINAL OVERRIDE;
+  label_text get_desc (bool) const final override;
 
 private:
   char *m_desc;
@@ -176,10 +224,111 @@ public:
   statement_event (const gimple *stmt, tree fndecl, int depth,
 		   const program_state &dst_state);
 
-  label_text get_desc (bool) const FINAL OVERRIDE;
+  label_text get_desc (bool) const final override;
 
   const gimple * const m_stmt;
   const program_state m_dst_state;
+};
+
+/* An abstract event subclass describing the creation of a region that
+   is significant for a diagnostic.
+
+   There are too many combinations to express region creation in one message,
+   so we emit multiple region_creation_event instances when each pertinent
+   region is created.
+
+   The events are created by pending_diagnostic's add_region_creation_events
+   vfunc, which by default creates a region_creation_event_memory_space, and
+   if a capacity is known, a region_creation_event_capacity, giving e.g.:
+     (1) region created on stack here
+     (2) capacity: 100 bytes
+   but this vfunc can be overridden to create other events if other wordings
+   are more appropriate foa a given pending_diagnostic.  */
+
+class region_creation_event : public checker_event
+{
+protected:
+  region_creation_event (const event_loc_info &loc_info);
+};
+
+/* Concrete subclass of region_creation_event.
+   Generates a message based on the memory space of the region
+   e.g. "region created on stack here".  */
+
+class region_creation_event_memory_space : public region_creation_event
+{
+public:
+  region_creation_event_memory_space (enum memory_space mem_space,
+				      const event_loc_info &loc_info)
+  : region_creation_event (loc_info),
+    m_mem_space (mem_space)
+  {
+  }
+
+  label_text get_desc (bool can_colorize) const final override;
+
+private:
+  enum memory_space m_mem_space;
+};
+
+/* Concrete subclass of region_creation_event.
+   Generates a message based on the capacity of the region
+   e.g. "capacity: 100 bytes".  */
+
+class region_creation_event_capacity : public region_creation_event
+{
+public:
+  region_creation_event_capacity (tree capacity,
+				  const event_loc_info &loc_info)
+  : region_creation_event (loc_info),
+    m_capacity (capacity)
+  {
+    gcc_assert (m_capacity);
+  }
+
+  label_text get_desc (bool can_colorize) const final override;
+
+private:
+  tree m_capacity;
+};
+
+/* Concrete subclass of region_creation_event.
+   Generates a message based on the capacity of the region
+   e.g. "allocated 100 bytes here".  */
+
+class region_creation_event_allocation_size : public region_creation_event
+{
+public:
+  region_creation_event_allocation_size (tree capacity,
+					 const event_loc_info &loc_info)
+  : region_creation_event (loc_info),
+    m_capacity (capacity)
+  {}
+
+  label_text get_desc (bool can_colorize) const final override;
+
+private:
+  tree m_capacity;
+};
+
+/* Concrete subclass of region_creation_event.
+   Generates a debug message intended for analyzer developers.  */
+
+class region_creation_event_debug : public region_creation_event
+{
+public:
+  region_creation_event_debug (const region *reg, tree capacity,
+			       const event_loc_info &loc_info)
+  : region_creation_event (loc_info),
+    m_reg (reg), m_capacity (capacity)
+  {
+  }
+
+  label_text get_desc (bool can_colorize) const final override;
+
+private:
+  const region *m_reg;
+  tree m_capacity;
 };
 
 /* An event subclass describing the entry to a function.  */
@@ -187,14 +336,17 @@ public:
 class function_entry_event : public checker_event
 {
 public:
-  function_entry_event (location_t loc, tree fndecl, int depth)
-  : checker_event (EK_FUNCTION_ENTRY, loc, fndecl, depth)
+  function_entry_event (const event_loc_info &loc_info)
+  : checker_event (EK_FUNCTION_ENTRY, loc_info)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  function_entry_event (const program_point &dst_point);
 
-  bool is_function_entry_p () const FINAL OVERRIDE { return true; }
+  label_text get_desc (bool can_colorize) const override;
+  meaning get_meaning () const override;
+
+  bool is_function_entry_p () const final override { return true; }
 };
 
 /* Subclass of checker_event describing a state change.  */
@@ -209,14 +361,18 @@ public:
 		      state_machine::state_t from,
 		      state_machine::state_t to,
 		      const svalue *origin,
-		      const program_state &dst_state);
+		      const program_state &dst_state,
+		      const exploded_node *enode);
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
+  meaning get_meaning () const override;
 
   function *get_dest_function () const
   {
     return m_dst_state.get_current_function ();
   }
+
+  const exploded_node *get_exploded_node () const { return m_enode; }
 
   const supernode *m_node;
   const gimple *m_stmt;
@@ -226,6 +382,7 @@ public:
   state_machine::state_t m_to;
   const svalue *m_origin;
   program_state m_dst_state;
+  const exploded_node *m_enode;
 };
 
 /* Subclass of checker_event; parent class for subclasses that relate to
@@ -250,7 +407,7 @@ public:
 
  protected:
   superedge_event (enum event_kind kind, const exploded_edge &eedge,
-		   location_t loc, tree fndecl, int depth);
+		   const event_loc_info &loc_info);
 
  public:
   const exploded_edge &m_eedge;
@@ -266,11 +423,13 @@ public:
 class cfg_edge_event : public superedge_event
 {
 public:
+  meaning get_meaning () const override;
+
   const cfg_superedge& get_cfg_superedge () const;
 
  protected:
   cfg_edge_event (enum event_kind kind, const exploded_edge &eedge,
-		  location_t loc, tree fndecl, int depth);
+		  const event_loc_info &loc_info);
 };
 
 /* A concrete event subclass for the start of a CFG edge
@@ -280,12 +439,12 @@ class start_cfg_edge_event : public cfg_edge_event
 {
 public:
   start_cfg_edge_event (const exploded_edge &eedge,
-			location_t loc, tree fndecl, int depth)
-  : cfg_edge_event (EK_START_CFG_EDGE, eedge, loc, fndecl, depth)
+			const event_loc_info &loc_info)
+  : cfg_edge_event (EK_START_CFG_EDGE, eedge, loc_info)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
 
  private:
   label_text maybe_describe_condition (bool can_colorize) const;
@@ -304,12 +463,12 @@ class end_cfg_edge_event : public cfg_edge_event
 {
 public:
   end_cfg_edge_event (const exploded_edge &eedge,
-		      location_t loc, tree fndecl, int depth)
-  : cfg_edge_event (EK_END_CFG_EDGE, eedge, loc, fndecl, depth)
+		      const event_loc_info &loc_info)
+  : cfg_edge_event (EK_END_CFG_EDGE, eedge, loc_info)
   {
   }
 
-  label_text get_desc (bool /*can_colorize*/) const FINAL OVERRIDE
+  label_text get_desc (bool /*can_colorize*/) const final override
   {
     return label_text::borrow ("...to here");
   }
@@ -321,11 +480,19 @@ class call_event : public superedge_event
 {
 public:
   call_event (const exploded_edge &eedge,
-	      location_t loc, tree fndecl, int depth);
+	      const event_loc_info &loc_info);
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const override;
+  meaning get_meaning () const override;
 
-  bool is_call_p () const FINAL OVERRIDE;
+  bool is_call_p () const final override;
+
+protected:
+  tree get_caller_fndecl () const;
+  tree get_callee_fndecl () const;
+
+  const supernode *m_src_snode;
+  const supernode *m_dest_snode;
 };
 
 /* A concrete event subclass for an interprocedural return.  */
@@ -334,11 +501,15 @@ class return_event : public superedge_event
 {
 public:
   return_event (const exploded_edge &eedge,
-		location_t loc, tree fndecl, int depth);
+		const event_loc_info &loc_info);
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
+  meaning get_meaning () const override;
 
-  bool is_return_p () const FINAL OVERRIDE;
+  bool is_return_p () const final override;
+
+  const supernode *m_src_snode;
+  const supernode *m_dest_snode;
 };
 
 /* A concrete event subclass for the start of a consolidated run of CFG
@@ -347,14 +518,15 @@ public:
 class start_consolidated_cfg_edges_event : public checker_event
 {
 public:
-  start_consolidated_cfg_edges_event (location_t loc, tree fndecl, int depth,
+  start_consolidated_cfg_edges_event (const event_loc_info &loc_info,
 				      bool edge_sense)
-  : checker_event (EK_START_CONSOLIDATED_CFG_EDGES, loc, fndecl, depth),
+  : checker_event (EK_START_CONSOLIDATED_CFG_EDGES, loc_info),
     m_edge_sense (edge_sense)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
+  meaning get_meaning () const override;
 
  private:
   bool m_edge_sense;
@@ -366,15 +538,44 @@ public:
 class end_consolidated_cfg_edges_event : public checker_event
 {
 public:
-  end_consolidated_cfg_edges_event (location_t loc, tree fndecl, int depth)
-  : checker_event (EK_END_CONSOLIDATED_CFG_EDGES, loc, fndecl, depth)
+  end_consolidated_cfg_edges_event (const event_loc_info &loc_info)
+  : checker_event (EK_END_CONSOLIDATED_CFG_EDGES, loc_info)
   {
   }
 
-  label_text get_desc (bool /*can_colorize*/) const FINAL OVERRIDE
+  label_text get_desc (bool /*can_colorize*/) const final override
   {
     return label_text::borrow ("...to here");
   }
+};
+
+/* A concrete event subclass for describing an inlined call event
+   e.g. "inlined call to 'callee' from 'caller'".  */
+
+class inlined_call_event : public checker_event
+{
+public:
+  inlined_call_event (location_t loc,
+		      tree apparent_callee_fndecl,
+		      tree apparent_caller_fndecl,
+		      int actual_depth,
+		      int stack_depth_adjustment)
+  : checker_event (EK_INLINED_CALL,
+		   event_loc_info (loc,
+				   apparent_caller_fndecl,
+				   actual_depth + stack_depth_adjustment)),
+    m_apparent_callee_fndecl (apparent_callee_fndecl),
+    m_apparent_caller_fndecl (apparent_caller_fndecl)
+  {
+    gcc_assert (LOCATION_BLOCK (loc) == NULL);
+  }
+
+  label_text get_desc (bool /*can_colorize*/) const final override;
+  meaning get_meaning () const override;
+
+private:
+  tree m_apparent_callee_fndecl;
+  tree m_apparent_caller_fndecl;
 };
 
 /* A concrete event subclass for a setjmp or sigsetjmp call.  */
@@ -382,18 +583,19 @@ public:
 class setjmp_event : public checker_event
 {
 public:
-  setjmp_event (location_t loc, const exploded_node *enode,
-		tree fndecl, int depth, const gcall *setjmp_call)
-  : checker_event (EK_SETJMP, loc, fndecl, depth),
+  setjmp_event (const event_loc_info &loc_info,
+		const exploded_node *enode,
+		const gcall *setjmp_call)
+  : checker_event (EK_SETJMP, loc_info),
     m_enode (enode), m_setjmp_call (setjmp_call)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
 
   void prepare_for_emission (checker_path *path,
 			     pending_diagnostic *pd,
-			     diagnostic_event_id_t emission_id) FINAL OVERRIDE;
+			     diagnostic_event_id_t emission_id) final override;
 
 private:
   const exploded_node *m_enode;
@@ -416,7 +618,7 @@ public:
  protected:
   rewind_event (const exploded_edge *eedge,
 		enum event_kind kind,
-		location_t loc, tree fndecl, int depth,
+		const event_loc_info &loc_info,
 		const rewind_info_t *rewind_info);
   const rewind_info_t *m_rewind_info;
 
@@ -431,14 +633,14 @@ class rewind_from_longjmp_event : public rewind_event
 {
 public:
   rewind_from_longjmp_event (const exploded_edge *eedge,
-			     location_t loc, tree fndecl, int depth,
+			     const event_loc_info &loc_info,
 			     const rewind_info_t *rewind_info)
-  : rewind_event (eedge, EK_REWIND_FROM_LONGJMP, loc, fndecl, depth,
+  : rewind_event (eedge, EK_REWIND_FROM_LONGJMP, loc_info,
 		  rewind_info)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
 };
 
 /* A concrete event subclass for rewinding from a longjmp to a setjmp,
@@ -448,18 +650,18 @@ class rewind_to_setjmp_event : public rewind_event
 {
 public:
   rewind_to_setjmp_event (const exploded_edge *eedge,
-			  location_t loc, tree fndecl, int depth,
+			  const event_loc_info &loc_info,
 			  const rewind_info_t *rewind_info)
-  : rewind_event (eedge, EK_REWIND_TO_SETJMP, loc, fndecl, depth,
+  : rewind_event (eedge, EK_REWIND_TO_SETJMP, loc_info,
 		  rewind_info)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
 
   void prepare_for_emission (checker_path *path,
 			     pending_diagnostic *pd,
-			     diagnostic_event_id_t emission_id) FINAL OVERRIDE;
+			     diagnostic_event_id_t emission_id) final override;
 
 private:
   diagnostic_event_id_t m_original_setjmp_event_id;
@@ -473,140 +675,28 @@ private:
 class warning_event : public checker_event
 {
 public:
-  warning_event (location_t loc, tree fndecl, int depth,
+  warning_event (const event_loc_info &loc_info,
+		 const exploded_node *enode,
 		 const state_machine *sm,
 		 tree var, state_machine::state_t state)
-  : checker_event (EK_WARNING, loc, fndecl, depth),
+  : checker_event (EK_WARNING, loc_info),
+    m_enode (enode),
     m_sm (sm), m_var (var), m_state (state)
   {
   }
 
-  label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
+  label_text get_desc (bool can_colorize) const final override;
+  meaning get_meaning () const override;
+
+  const exploded_node *get_exploded_node () const { return m_enode; }
 
 private:
+  const exploded_node *m_enode;
   const state_machine *m_sm;
   tree m_var;
   state_machine::state_t m_state;
 };
 
-/* Subclass of diagnostic_path for analyzer diagnostics.  */
-
-class checker_path : public diagnostic_path
-{
-public:
-  checker_path (logger *logger)
-  : diagnostic_path (),
-    m_thread ("main"),
-    m_logger (logger)
-  {}
-
-  /* Implementation of diagnostic_path vfuncs.  */
-
-  unsigned num_events () const FINAL OVERRIDE
-  {
-    return m_events.length ();
-  }
-
-  const diagnostic_event & get_event (int idx) const FINAL OVERRIDE
-  {
-    return *m_events[idx];
-  }
-  unsigned num_threads () const final override
-  {
-    return 1;
-  }
-  const diagnostic_thread &
-  get_thread (diagnostic_thread_id_t) const final override
-  {
-    return m_thread;
-  }
-
-  checker_event *get_checker_event (int idx)
-  {
-    return m_events[idx];
-  }
-
-  void dump (pretty_printer *pp) const;
-  void debug () const;
-
-  void maybe_log (logger *logger, const char *desc) const;
-
-  void add_event (checker_event *event)
-  {
-    m_events.safe_push (event);
-  }
-
-  void delete_event (int idx)
-  {
-    checker_event *event = m_events[idx];
-    m_events.ordered_remove (idx);
-    delete event;
-  }
-
-  void delete_events (unsigned start_idx, unsigned len)
-  {
-    for (unsigned i = start_idx; i < start_idx + len; i++)
-      delete m_events[i];
-    m_events.block_remove (start_idx, len);
-  }
-
-  void replace_event (unsigned idx, checker_event *new_event)
-  {
-    delete m_events[idx];
-    m_events[idx] = new_event;
-  }
-
-  void add_final_event (const state_machine *sm,
-			const exploded_node *enode, const gimple *stmt,
-			tree var, state_machine::state_t state);
-
-  /* After all event-pruning, a hook for notifying each event what
-     its ID will be.  The events are notified in order, allowing
-     for later events to refer to the IDs of earlier events in
-     their descriptions.  */
-  void prepare_for_emission (pending_diagnostic *pd)
-  {
-    checker_event *e;
-    int i;
-    FOR_EACH_VEC_ELT (m_events, i, e)
-      e->prepare_for_emission (this, pd, diagnostic_event_id_t (i));
-  }
-
-  void fixup_locations (pending_diagnostic *pd);
-
-  void record_setjmp_event (const exploded_node *enode,
-			    diagnostic_event_id_t setjmp_emission_id)
-  {
-    m_setjmp_event_ids.put (enode, setjmp_emission_id);
-  }
-
-  bool get_setjmp_event (const exploded_node *enode,
-			 diagnostic_event_id_t *out_emission_id)
-  {
-    if (diagnostic_event_id_t *emission_id = m_setjmp_event_ids.get (enode))
-      {
-	*out_emission_id = *emission_id;
-	return true;
-      }
-    return false;
-  }
-
-  bool cfg_edge_pair_at_p (unsigned idx) const;
-
-private:
-  DISABLE_COPY_AND_ASSIGN(checker_path);
-
-  simple_diagnostic_thread m_thread;
-
-  /* The events that have occurred along this path.  */
-  auto_delete_vec<checker_event> m_events;
-
-  /* During prepare_for_emission (and after), the setjmp_event for each
-     exploded_node *, so that rewind events can refer to them in their
-     descriptions.  */
-  hash_map <const exploded_node *, diagnostic_event_id_t> m_setjmp_event_ids;
-};
-
 } // namespace ana
 
-#endif /* GCC_ANALYZER_CHECKER_PATH_H */
+#endif /* GCC_ANALYZER_CHECKER_EVENT_H */

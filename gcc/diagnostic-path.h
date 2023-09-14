@@ -81,6 +81,25 @@ class diagnostic_event
 
   /* Get a localized (and possibly colorized) description of this event.  */
   virtual label_text get_desc (bool can_colorize) const = 0;
+
+  /* Get a logical_location for this event, or NULL.  */
+  virtual const logical_location *get_logical_location () const = 0;
+
+  virtual meaning get_meaning () const = 0;
+
+  virtual diagnostic_thread_id_t get_thread_id () const = 0;
+};
+
+/* Abstract base class representing a thread of execution within
+   a diagnostic_path.
+   Each diagnostic_event is associated with one thread.
+   Typically there is just one thread per diagnostic_path. */
+
+class diagnostic_thread
+{
+public:
+  virtual ~diagnostic_thread () {}
+  virtual label_text get_name (bool can_colorize) const = 0;
 };
 
 /* Abstract base class for getting at a sequence of events.  */
@@ -91,8 +110,15 @@ class diagnostic_path
   virtual ~diagnostic_path () {}
   virtual unsigned num_events () const = 0;
   virtual const diagnostic_event & get_event (int idx) const = 0;
+  virtual unsigned num_threads () const = 0;
+  virtual const diagnostic_thread &
+  get_thread (diagnostic_thread_id_t) const = 0;
 
   bool interprocedural_p () const;
+  bool multithreaded_p () const;
+
+private:
+  bool get_first_event_in_a_function (unsigned *out_idx) const;
 };
 
 /* Concrete subclasses.  */
@@ -103,7 +129,8 @@ class simple_diagnostic_event : public diagnostic_event
 {
  public:
   simple_diagnostic_event (location_t loc, tree fndecl, int depth,
-			   const char *desc);
+			   const char *desc,
+			   diagnostic_thread_id_t thread_id = 0);
   ~simple_diagnostic_event ();
 
   location_t get_location () const FINAL OVERRIDE { return m_loc; }
@@ -113,12 +140,40 @@ class simple_diagnostic_event : public diagnostic_event
   {
     return label_text::borrow (m_desc);
   }
+  const logical_location *get_logical_location () const final override
+  {
+    return NULL;
+  }
+  meaning get_meaning () const final override
+  {
+    return meaning ();
+  }
+  diagnostic_thread_id_t get_thread_id () const final override
+  {
+    return m_thread_id;
+  }
 
  private:
   location_t m_loc;
   tree m_fndecl;
   int m_depth;
   char *m_desc; // has been i18n-ed and formatted
+  diagnostic_thread_id_t m_thread_id;
+};
+
+/* A simple implementation of diagnostic_thread.  */
+
+class simple_diagnostic_thread : public diagnostic_thread
+{
+public:
+  simple_diagnostic_thread (const char *name) : m_name (name) {}
+  label_text get_name (bool) const final override
+  {
+    return label_text::borrow (m_name);
+  }
+
+private:
+  const char *m_name; // has been i18n-ed and formatted
 };
 
 /* A simple implementation of diagnostic_path, as a vector of
@@ -127,17 +182,27 @@ class simple_diagnostic_event : public diagnostic_event
 class simple_diagnostic_path : public diagnostic_path
 {
  public:
-  simple_diagnostic_path (pretty_printer *event_pp)
-  : m_event_pp (event_pp) {}
+  simple_diagnostic_path (pretty_printer *event_pp);
 
-  unsigned num_events () const FINAL OVERRIDE;
-  const diagnostic_event & get_event (int idx) const FINAL OVERRIDE;
+  unsigned num_events () const final override;
+  const diagnostic_event & get_event (int idx) const final override;
+  unsigned num_threads () const final override;
+  const diagnostic_thread &
+  get_thread (diagnostic_thread_id_t) const final override;
+
+  diagnostic_thread_id_t add_thread (const char *name);
 
   diagnostic_event_id_t add_event (location_t loc, tree fndecl, int depth,
 				   const char *fmt, ...)
     ATTRIBUTE_GCC_DIAG(5,6);
+  diagnostic_event_id_t
+  add_thread_event (diagnostic_thread_id_t thread_id,
+		    location_t loc, tree fndecl, int depth,
+		    const char *fmt, ...)
+    ATTRIBUTE_GCC_DIAG(6,7);
 
  private:
+  auto_delete_vec<simple_diagnostic_thread> m_threads;
   auto_delete_vec<simple_diagnostic_event> m_events;
 
   /* (for use by add_event).  */
