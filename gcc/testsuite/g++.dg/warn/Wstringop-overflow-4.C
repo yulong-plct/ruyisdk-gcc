@@ -145,8 +145,15 @@ void test_strcpy_new_int16_t (size_t n, const size_t vals[])
   T (S (9), new int16_t[r_imin_imax * 2 + 1]);
 
   int r_0_imax = SR (0, INT_MAX);
-  T (S (1), new int16_t[r_0_imax]);
-  T (S (2), new int16_t[r_0_imax + 1]);
+
+  if (sizeof (int) < sizeof (size_t))
+    /* The code below might emit a warning when int is the same size
+       as size_t as a result of threading.  See PR 101688 comment #2.  */
+    T (S (1), new int16_t[r_0_imax]);
+
+  /* Similar to PR 101688 the following can result in a bougs warning because
+     of threading.  */
+  T (S (2), new int16_t[r_0_imax + 1]); // { dg-bogus "into a region of size" "" { xfail { ilp32 } } }
   T (S (9), new int16_t[r_0_imax * 2 + 1]);
 
   int r_1_imax = SR (1, INT_MAX);

@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-Ofast -fdump-tree-vrp1-details" } */
+/* { dg-options "-Ofast -fdump-tree-ethread-details" } */
 
 typedef unsigned short u16;
 typedef unsigned char u8;
@@ -56,7 +56,4 @@ main (int argc, char argv[])
   return crc;
 }
 
-/* None of the threads we can get in vrp-thread1 are valid.  They all
-   cross or rotate loops.  */
-/* { dg-final { scan-tree-dump-not "Registering jump thread" "vrp-thread1" } } */
-/* { dg-final { scan-tree-dump-not "joiner" "vrp-thread1" } } */
+/* { dg-final { scan-tree-dump-times "Registering jump thread" 2 "ethread" } } */
