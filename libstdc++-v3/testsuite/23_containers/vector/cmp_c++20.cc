@@ -15,9 +15,8 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// { dg-options "-std=gnu++2a" }
-// { dg-do compile { target c++2a } }
-// { dg-xfail-if "not supported" { debug-mode } }
+// { dg-do compile { target c++20 } }
+// { dg-xfail-if "not supported" { debug_mode } }
 
 #include <vector>
 #include <testsuite_hooks.h>

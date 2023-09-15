@@ -1,5 +1,5 @@
-// { dg-options "-std=gnu++2a -Wno-unused-result" }
-// { dg-do compile { target c++2a } }
+// { dg-options "-Wno-unused-result" }
+// { dg-do compile { target c++20 } }
 
 // Copyright (C) 2019-2021 Free Software Foundation, Inc.
 //
