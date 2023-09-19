@@ -31,9 +31,7 @@
 #define _SHARED_PTR_ATOMIC_H 1
 
 #include <bits/atomic_base.h>
-
-#define __glibcxx_want_atomic_shared_ptr
-#include <bits/version.h>
+#include <bits/shared_ptr.h>
 
 // Annotations for the custom locking in atomic<shared_ptr<T>>.
 #if defined _GLIBCXX_TSAN && __has_include(<sanitizer/tsan_interface.h>)
@@ -359,7 +357,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /// @} relates shared_ptr
   /// @} group pointer_abstractions
 
-#ifdef  __cpp_lib_atomic_shared_ptr // C++ >= 20 && HOSTED
+#ifdef  __glibcxx_atomic_shared_ptr // C++ >= 20 && HOSTED
   template<typename _Tp>
     struct atomic;
 
@@ -430,7 +428,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  auto __current = _M_val.load(memory_order_relaxed);
 	  while (__current & _S_lock_bit)
 	    {
-#if __cpp_lib_atomic_wait
+#if __glibcxx_atomic_wait
 	      __detail::__thread_relax();
 #endif
 	      __current = _M_val.load(memory_order_relaxed);
@@ -444,7 +442,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 						 memory_order_relaxed))
 	    {
 	      _GLIBCXX_TSAN_MUTEX_TRY_LOCK_FAILED(&_M_val);
-#if __cpp_lib_atomic_wait
+#if __glibcxx_atomic_wait
 	      __detail::__thread_relax();
 #endif
 	      __current = __current & ~_S_lock_bit;
@@ -477,7 +475,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __c._M_pi = reinterpret_cast<pointer>(__x & ~_S_lock_bit);
 	}
 
-#if __cpp_lib_atomic_wait
+#if __glibcxx_atomic_wait
 	// Precondition: caller holds lock!
 	void
 	_M_wait_unlock(memory_order __o) const noexcept
@@ -587,7 +585,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return __result;
       }
 
-#if __cpp_lib_atomic_wait
+#if __glibcxx_atomic_wait
       void
       wait(value_type __old, memory_order __o) const noexcept
       {
@@ -710,7 +708,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return compare_exchange_strong(__expected, std::move(__desired), __o);
       }
 
-#if __cpp_lib_atomic_wait
+#if __glibcxx_atomic_wait
       void
       wait(value_type __old,
 	   memory_order __o = memory_order_seq_cst) const noexcept
@@ -823,7 +821,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return compare_exchange_strong(__expected, std::move(__desired), __o);
       }
 
-#if __cpp_lib_atomic_wait
+#if __glibcxx_atomic_wait
       void
       wait(value_type __old,
 	   memory_order __o = memory_order_seq_cst) const noexcept

@@ -35,9 +35,6 @@
 # include <bits/concept_check.h>
 #endif
 
-#define __glibcxx_want_addressof_constexpr
-#include <bits/version.h>
-
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION

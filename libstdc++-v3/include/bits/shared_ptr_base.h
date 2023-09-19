@@ -64,10 +64,6 @@
 # include <compare>
 #endif
 
-#define __glibcxx_want_smart_ptr_for_overwrite
-#define __glibcxx_want_shared_ptr_arrays
-#include <bits/version.h>
-
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -337,6 +333,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<_Lock_policy _Lp = __default_lock_policy>
     class __shared_count;
 
+#ifdef __glibcxx_atomic_shared_ptr
+  template<typename>
+    class _Sp_atomic;
+#endif
 
   // Counted ptr with no deleter or allocator support
   template<typename _Ptr, _Lock_policy _Lp>
@@ -571,7 +571,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _Impl _M_impl;
     };
 
-#ifdef __cpp_lib_smart_ptr_for_overwrite // C++ >= 20 && HOSTED
+#ifdef __glibcxx_smart_ptr_for_overwrite // C++ >= 20 && HOSTED
   struct _Sp_overwrite_tag { };
 
   // Partial specialization used for make_shared_for_overwrite<non-array>().
@@ -630,9 +630,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _M_get_deleter(const std::type_info&) noexcept override
       { return nullptr; }
     };
-#endif // __cpp_lib_smart_ptr_for_overwrite
+#endif // __glibcxx_smart_ptr_for_overwrite
 
-#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+#if __glibcxx_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
   struct _Sp_overwrite_tag;
 
   // For make_shared<T[]>, make_shared<T[N]>, allocate_shared<T[]> etc.
@@ -794,7 +794,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _M_get_deleter(const std::type_info&) noexcept override
       { return nullptr; }
     };
-#endif // __cpp_lib_shared_ptr_arrays >= 201707L
+#endif // __glibcxx_shared_ptr_arrays >= 201707L
 
   // The default deleter for shared_ptr<T[]> and shared_ptr<T[N]>.
   struct __sp_array_delete
@@ -812,7 +812,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _Tp>
 	struct __not_alloc_shared_tag<_Sp_alloc_shared_tag<_Tp>> { };
 
-#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+#if __glibcxx_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
       template<typename _Alloc>
 	struct __not_alloc_shared_tag<_Sp_counted_array_base<_Alloc>> { };
 #endif
@@ -888,7 +888,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __p = __pi->_M_ptr();
 	}
 
-#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+#if __glibcxx_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
       template<typename _Tp, typename _Alloc, typename _Init>
 	__shared_count(_Tp*& __p, const _Sp_counted_array_base<_Alloc>& __a,
 		       _Init __init)
@@ -1041,6 +1041,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     private:
       friend class __weak_count<_Lp>;
+#ifdef __glibcxx_atomic_shared_ptr
+      template<typename> friend class _Sp_atomic;
+#endif
 
       _Sp_counted_base<_Lp>*  _M_pi;
     };
@@ -1138,6 +1141,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     private:
       friend class __shared_count<_Lp>;
+#ifdef __glibcxx_atomic_shared_ptr
+      template<typename> friend class _Sp_atomic;
+#endif
 
       _Sp_counted_base<_Lp>*  _M_pi;
     };
@@ -1626,7 +1632,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	friend __shared_ptr<_Tp1, _Lp1>
 	__allocate_shared(const _Alloc& __a, _Args&&... __args);
 
-#if __cpp_lib_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
+#if __glibcxx_shared_ptr_arrays >= 201707L // C++ >= 20 && HOSTED
       // This constructor is non-standard, it is used by allocate_shared<T[]>.
       template<typename _Alloc, typename _Init = const remove_extent_t<_Tp>*>
 	__shared_ptr(const _Sp_counted_array_base<_Alloc>& __a,
@@ -1686,6 +1692,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Del, typename _Tp1>
 	friend _Del* get_deleter(const shared_ptr<_Tp1>&) noexcept;
+
+#ifdef __glibcxx_atomic_shared_ptr
+      friend _Sp_atomic<shared_ptr<_Tp>>;
+#endif
 
       element_type*	   _M_ptr;         // Contained pointer.
       __shared_count<_Lp>  _M_refcount;    // Reference counter.
@@ -2017,6 +2027,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _Tp1, _Lock_policy _Lp1> friend class __weak_ptr;
       friend class __enable_shared_from_this<_Tp, _Lp>;
       friend class enable_shared_from_this<_Tp>;
+#ifdef __glibcxx_atomic_shared_ptr
+      friend _Sp_atomic<weak_ptr<_Tp>>;
+#endif
 
       element_type*	 _M_ptr;         // Contained pointer.
       __weak_count<_Lp>  _M_refcount;    // Reference counter.

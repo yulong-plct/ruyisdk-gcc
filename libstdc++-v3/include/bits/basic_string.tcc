@@ -528,44 +528,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __n;
     }
 
-#else  // !_GLIBCXX_USE_CXX11_ABI
+#ifdef __glibcxx_string_resize_and_overwrite // C++ >= 23
+  template<typename _CharT, typename _Traits, typename _Alloc>
+  template<typename _Operation>
+    [[__gnu__::__always_inline__]]
+    constexpr void
+    basic_string<_CharT, _Traits, _Alloc>::
+    __resize_and_overwrite(const size_type __n, _Operation __op)
+    { resize_and_overwrite<_Operation&>(__n, __op); }
+#endif
 
   template<typename _CharT, typename _Traits, typename _Alloc>
     const typename basic_string<_CharT, _Traits, _Alloc>::size_type
     basic_string<_CharT, _Traits, _Alloc>::
-    _Rep::_S_max_size = (((npos - sizeof(_Rep_base))/sizeof(_CharT)) - 1) / 4;
-
-  template<typename _CharT, typename _Traits, typename _Alloc>
-    const _CharT
-    basic_string<_CharT, _Traits, _Alloc>::
-    _Rep::_S_terminal = _CharT();
-
-  template<typename _CharT, typename _Traits, typename _Alloc>
-    const typename basic_string<_CharT, _Traits, _Alloc>::size_type
-    basic_string<_CharT, _Traits, _Alloc>::npos;
-
-  // Linker sets _S_empty_rep_storage to all 0s (one reference, empty string)
-  // at static init time (before static ctors are run).
-  template<typename _CharT, typename _Traits, typename _Alloc>
-    typename basic_string<_CharT, _Traits, _Alloc>::size_type
-    basic_string<_CharT, _Traits, _Alloc>::_Rep::_S_empty_rep_storage[
-    (sizeof(_Rep_base) + sizeof(_CharT) + sizeof(size_type) - 1) /
-      sizeof(size_type)];
-
-  // NB: This is the special case for Input Iterators, used in
-  // istreambuf_iterators, etc.
-  // Input Iterators have a cost structure very different from
-  // pointers, calling for a different coding style.
-  template<typename _CharT, typename _Traits, typename _Alloc>
-    template<typename _InIterator>
-      _CharT*
-      basic_string<_CharT, _Traits, _Alloc>::
-      _S_construct(_InIterator __beg, _InIterator __end, const _Alloc& __a,
-		   input_iterator_tag)
-      {
-#if _GLIBCXX_FULLY_DYNAMIC_STRING == 0
-	if (__beg == __end && __a == _Alloc())
-	  return _S_empty_rep()._M_refdata();
+#ifdef __glibcxx_string_resize_and_overwrite // C++ >= 23
+    resize_and_overwrite(const size_type __n, _Operation __op)
+#else
+    __resize_and_overwrite(const size_type __n, _Operation __op)
 #endif
 	// Avoid reallocation for common case.
 	_CharT __buf[128];
@@ -1241,6 +1220,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __str;
     }
 
+#endif  // _GLIBCXX_USE_CXX11_ABI
+   
+#if __glibcxx_constexpr_string >= 201907L
+# define _GLIBCXX_STRING_CONSTEXPR constexpr
+#else
+# define _GLIBCXX_STRING_CONSTEXPR
+#endif
   template<typename _CharT, typename _Traits, typename _Alloc>
     typename basic_string<_CharT, _Traits, _Alloc>::size_type
     basic_string<_CharT, _Traits, _Alloc>::

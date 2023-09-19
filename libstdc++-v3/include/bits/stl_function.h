@@ -60,9 +60,6 @@
 #include <bits/move.h>
 #endif
 
-#define __glibcxx_want_transparent_operators
-#include <bits/version.h>
-
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
@@ -156,7 +153,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    *  @{
    */
 
-#if __cpp_lib_transparent_operators // C++ >= 14
+#if __glibcxx_transparent_operators // C++ >= 14
   struct __is_transparent;  // undefined
 
   template<typename _Tp = void>
@@ -239,7 +236,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return -__x; }
     };
 
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   template<>
     struct plus<void>
     {
@@ -340,7 +337,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    *
    *  @{
    */
-#if __cpp_lib_transparent_operators // C++ >= 14
+#if __glibcxx_transparent_operators // C++ >= 14
   template<typename _Tp = void>
     struct equal_to;
 
@@ -480,7 +477,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
     };
 
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   /// One of the @link comparison_functors comparison functors@endlink.
   template<>
     struct equal_to<void>
@@ -756,7 +753,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	      is_convertible<_Tp, const volatile void*>,
 	      is_convertible<_Up, const volatile void*>>;
     };
-#endif // __cpp_lib_transparent_operators
+#endif // __glibcxx_transparent_operators
   /** @}  */
 
   // 20.3.4 logical operations
@@ -768,7 +765,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    *
    *  @{
    */
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   template<typename _Tp = void>
     struct logical_and;
 
@@ -809,7 +806,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return !__x; }
     };
 
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   /// One of the @link logical_functors Boolean operations functors@endlink.
   template<>
     struct logical_and<void>
@@ -854,10 +851,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       typedef __is_transparent is_transparent;
     };
-#endif // __cpp_lib_transparent_operators
+#endif // __glibcxx_transparent_operators
   /** @}  */
 
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   template<typename _Tp = void>
     struct bit_and;
 
@@ -909,7 +906,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return ~__x; }
     };
 
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   template <>
     struct bit_and<void>
     {
@@ -1383,7 +1380,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /** @}  */
 
-#ifdef __cpp_lib_transparent_operators // C++ >= 14
+#ifdef __glibcxx_transparent_operators // C++ >= 14
   template<typename _Func, typename _SfinaeType, typename = __void_t<>>
     struct __has_is_transparent
     { };
