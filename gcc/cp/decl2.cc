@@ -136,7 +136,54 @@ struct mangled_decl_hash : ggc_remove <tree>
    we need compatibility aliases.  */
 static GTY(()) hash_table<mangled_decl_hash> *mangled_decls;
 
-/* Nonzero if we're done parsing and into end-of-file activities.  */
+// Hash table mapping priority to lists of variables or functions.
+struct priority_map_traits
+{
+  typedef unsigned key_type;
+  typedef tree value_type;
+  static const bool maybe_mx = true;
+  static hashval_t hash (key_type v)
+  {
+    return hashval_t (v);
+  }
+  static bool equal_keys (key_type k1, key_type k2)
+  {
+    return k1 == k2;
+  }
+  template <typename T> static void remove (T &)
+  {
+  }
+  // Zero is not a priority
+  static const bool empty_zero_p = true;
+  template <typename T> static bool is_empty (const T &entry)
+  {
+    return entry.m_key == 0;
+  }
+  template <typename T> static void mark_empty (T &entry)
+  {
+    entry.m_key = 0;
+  }
+  // Entries are not deleteable
+  template <typename T> static bool is_deleted (const T &)
+  {
+    return false;
+  }
+  template <typename T> static void mark_deleted (T &)
+  {
+    gcc_unreachable ();
+  }
+};
+
+typedef hash_map<unsigned/*Priority*/, tree/*List*/,
+		 priority_map_traits> priority_map_t;
+
+/* A pair of such hash tables, indexed by initp -- one for fini and
+   one for init.  The fini table is only ever used when !cxa_atexit.  */
+static GTY(()) priority_map_t *static_init_fini_fns[2];
+
+/* Nonzero if we're done parsing and into end-of-file activities.
+   2 if all templates have been instantiated.
+   3 if we're done with front-end processing.  */
 
 int at_eof;
 
@@ -4920,6 +4967,7 @@ c_parse_final_cleanups (void)
   tree decl;
 
   locus_at_end_of_parsing = input_location;
+  /* We're done parsing.  */
   at_eof = 1;
 
   /* Bad parse errors.  Just forget about it.  */
@@ -5204,7 +5252,10 @@ c_parse_final_cleanups (void)
 	reconsider = true;
     }
 
-  finish_module_processing (parse_in);
+  /* All templates have been instantiated.  */
+  at_eof = 2;
+
+  void *module_cookie = finish_module_processing (parse_in);
 
   lower_var_init ();
 
@@ -5240,6 +5291,16 @@ c_parse_final_cleanups (void)
     no_linkage_error (decl);
 
   maybe_warn_sized_delete ();
+
+  // Place the init fns in the right order.  We need to do this now,
+  // so that any module init will go at the start.
+  if (static_init_fini_fns[true])
+    for (auto iter : *static_init_fini_fns[true])
+      iter.second = nreverse (iter.second);
+
+  /* Now we've instantiated all templates.  Now we can escalate the functions
+     we squirreled away earlier.  */
+  process_and_check_pending_immediate_escalating_fns ();
 
   /* Then, do the Objective-C stuff.  This is where all the
      Objective-C module stuff gets generated (symtab,
@@ -5304,7 +5365,7 @@ c_parse_final_cleanups (void)
   timevar_start (TV_PHASE_PARSING);
 
   /* Indicate that we're done with front end processing.  */
-  at_eof = 2;
+  at_eof = 3;
 }
 
 /* Perform any post compilation-proper cleanups for the C++ front-end.

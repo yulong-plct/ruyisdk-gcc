@@ -9107,8 +9107,8 @@ build_trivial_dtor_call (tree instance, bool no_ptr_deref)
 /* Return true if a call to FN with number of arguments NARGS
    is an immediate invocation.  */
 
-static bool
-immediate_invocation_p (tree fn, int nargs)
+bool
+immediate_invocation_p (tree fn)
 {
   return (TREE_CODE (fn) == FUNCTION_DECL
 	  && DECL_IMMEDIATE_FUNCTION_P (fn)

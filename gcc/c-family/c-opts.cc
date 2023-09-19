@@ -1071,6 +1071,11 @@ c_common_post_options (const char **pfilename)
     /* For -std=c++17 -fconcepts, imply -fconcepts-ts.  */
     flag_concepts_ts = 1;
 
+  /* -fimmediate-escalation has no effect when immediate functions are not
+     supported.  */
+  if (flag_immediate_escalation && cxx_dialect < cxx20)
+    flag_immediate_escalation = 0;
+
   if (num_in_fnames > 1)
     error ("too many filenames given; type %<%s %s%> for usage",
 	   progname, "--help");
