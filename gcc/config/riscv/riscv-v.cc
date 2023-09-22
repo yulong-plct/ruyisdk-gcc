@@ -3060,6 +3060,20 @@ expand_cond_len_unop (unsigned icode, rtx *ops)
   expand_cond_len_op (icode, UNARY_OP_P, cond_ops, len);
 }
 
+/* Expand unary ops COND_*.  */
+void
+expand_cond_unop (unsigned icode, rtx *ops)
+{
+  rtx dest = ops[0];
+  rtx mask = ops[1];
+  rtx src = ops[2];
+  rtx merge = get_else_operand (ops[3]);
+  rtx len = gen_int_mode (GET_MODE_NUNITS (GET_MODE (dest)), Pmode);
+
+  rtx cond_ops[] = {dest, mask, merge, src};
+  expand_cond_len_op (icode, UNARY_OP_P, cond_ops, len);
+}
+
 /* Expand binary ops COND_LEN_*.  */
 void
 expand_cond_len_binop (unsigned icode, rtx *ops)
@@ -3070,6 +3084,21 @@ expand_cond_len_binop (unsigned icode, rtx *ops)
   rtx src2 = ops[3];
   rtx merge = get_else_operand (ops[4]);
   rtx len = ops[5];
+
+  rtx cond_ops[] = {dest, mask, merge, src1, src2};
+  expand_cond_len_op (icode, BINARY_OP_P, cond_ops, len);
+}
+
+/* Expand binary ops COND_*.  */
+void
+expand_cond_binop (unsigned icode, rtx *ops)
+{
+  rtx dest = ops[0];
+  rtx mask = ops[1];
+  rtx src1 = ops[2];
+  rtx src2 = ops[3];
+  rtx merge = get_else_operand (ops[4]);
+  rtx len = gen_int_mode (GET_MODE_NUNITS (GET_MODE (dest)), Pmode);
 
   rtx cond_ops[] = {dest, mask, merge, src1, src2};
   expand_cond_len_op (icode, BINARY_OP_P, cond_ops, len);
@@ -3242,6 +3271,22 @@ expand_cond_len_ternop (unsigned icode, rtx *ops)
   rtx src3 = ops[4];
   rtx merge = get_else_operand (ops[5]);
   rtx len = ops[6];
+
+  rtx cond_ops[] = {dest, mask, src1, src2, src3, merge};
+  expand_cond_len_op (icode, TERNARY_OP_P, cond_ops, len);
+}
+
+/* Expand COND_*.  */
+void
+expand_cond_ternop (unsigned icode, rtx *ops)
+{
+  rtx dest = ops[0];
+  rtx mask = ops[1];
+  rtx src1 = ops[2];
+  rtx src2 = ops[3];
+  rtx src3 = ops[4];
+  rtx merge = get_else_operand (ops[5]);
+  rtx len = gen_int_mode (GET_MODE_NUNITS (GET_MODE (dest)), Pmode);
 
   rtx cond_ops[] = {dest, mask, src1, src2, src3, merge};
   expand_cond_len_op (icode, TERNARY_OP_P, cond_ops, len);
