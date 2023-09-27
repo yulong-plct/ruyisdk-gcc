@@ -100,6 +100,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "vr-values.h"
 #include "range-op.h"
 #include "tree-ssa-loop-ivopts.h"
+#include "calls.h"
 
 static struct datadep_stats
 {
@@ -5807,6 +5808,15 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
 	    }
 	  case IFN_MASK_LOAD:
 	  case IFN_MASK_STORE:
+	  break;
+	  case IFN_MASK_CALL:
+	    {
+	      tree orig_fndecl
+		= gimple_call_addr_fndecl (gimple_call_arg (stmt, 0));
+	      if (!orig_fndecl
+		  || (flags_from_decl_or_type (orig_fndecl) & ECF_CONST) == 0)
+		clobbers_memory = true;
+	    }
 	    break;
 	  default:
 	    clobbers_memory = true;
@@ -5843,7 +5853,7 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
     }
   else if (stmt_code == GIMPLE_CALL)
     {
-      unsigned i, n;
+      unsigned i = 0, n;
       tree ptr, type;
       unsigned int align;
 
@@ -5870,13 +5880,16 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
 				   ptr);
 	    references->safe_push (ref);
 	    return false;
+	  case IFN_MASK_CALL:
+	    i = 1;
+	    gcc_fallthrough ();
 	  default:
 	    break;
 	  }
 
       op0 = gimple_call_lhs (stmt);
       n = gimple_call_num_args (stmt);
-      for (i = 0; i < n; i++)
+      for (; i < n; i++)
 	{
 	  op1 = gimple_call_arg (stmt, i);
 
