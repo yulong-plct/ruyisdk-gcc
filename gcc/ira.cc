@@ -5412,6 +5412,9 @@ bool ira_conflicts_p;
 /* Saved between IRA and reload.  */
 static int saved_flag_ira_share_spill_slots;
 
+/* Set to true while in IRA.  */
+bool ira_in_progress = false;
+
 /* This is the main entry of IRA.  */
 static void
 ira (FILE *f)
@@ -5976,7 +5979,9 @@ public:
     }
   virtual unsigned int execute (function *)
     {
+      ira_in_progress = true;
       ira (dump_file);
+      ira_in_progress = false;
       return 0;
     }
 
