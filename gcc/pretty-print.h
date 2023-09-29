@@ -446,6 +446,6 @@ pp_wide_integer (pretty_printer *pp, HOST_WIDE_INT i)
 }
 
 template<unsigned int N, typename T>
-void pp_wide_integer (pretty_printer *pp, const poly_int_pod<N, T> &);
+void pp_wide_integer (pretty_printer *pp, const poly_int<N, T> &);
 
 #endif /* GCC_PRETTY_PRINT_H */

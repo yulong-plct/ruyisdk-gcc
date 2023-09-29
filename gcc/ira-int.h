@@ -617,7 +617,7 @@ public:
   /* RTL representation of the stack slot.  */
   rtx mem;
   /* Size of the stack slot.  */
-  poly_uint64_pod width;
+  poly_uint64 width;
 };
 
 /* The number of elements in the following array.  */
