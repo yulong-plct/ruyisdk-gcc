@@ -437,8 +437,12 @@ for (i = 0; i < n_target_vars; i++)
 		continue
 	for (j = 0; j < n_other_mask[i]; j++)
 	{
-		print "#define TARGET_" other_masks[i][j] \
-		      " ((" target_vars[i] " & MASK_" other_masks[i][j] ") != 0)"
+		print "#define TARGET_" other_masks[i "," j] \
+		      " ((" target_vars[i] " & MASK_" other_masks[i "," j] ") != 0)"
+		print "#define TARGET_" other_masks[i "," j] "_P(" target_vars[i] ")" \
+		      " (((" target_vars[i] ") & MASK_" other_masks[i "," j] ") != 0)"
+		print "#define TARGET_" other_masks[i "," j] "_OPTS_P(opts)" \
+		      " (((opts->x_" target_vars[i] ") & MASK_" other_masks[i "," j] ") != 0)"
 	}
 }
 print ""
@@ -464,13 +468,23 @@ for (i = 0; i < n_opts; i++) {
 		print "#define TARGET_" name \
 		      " ((" vname " & " mask name ") != 0)"
 		print "#define TARGET_" name "_P(" vname ")" \
-		      " (((" vname ") & " mask name ") != 0)"
+		      " (((" vname ") & " mask original_name ") != 0)"
+		print "#define TARGET_" name "_OPTS_P(opts)" \
+		      " (((opts->x_" vname ") & " mask original_name ") != 0)"
+		print "#define TARGET_EXPLICIT_" name "_P(opts)" \
+		      " ((opts->x_" vname "_explicit & " mask original_name ") != 0)"
+		print "#define SET_TARGET_" name "(opts) opts->x_" vname " |= " mask original_name
 	}
 }
 for (i = 0; i < n_extra_masks; i++) {
-	if (extra_mask_macros[extra_masks[i]] == 0)
+	if (extra_mask_macros[extra_masks[i]] == 0) {
 		print "#define TARGET_" extra_masks[i] \
 		      " ((target_flags & MASK_" extra_masks[i] ") != 0)"
+		print "#define TARGET_" extra_masks[i] "_P(target_flags)" \
+		      " (((target_flags) & " extra_masks[i] ") != 0)"
+		print "#define TARGET_" extra_masks[i] "_OPTS_P(opts)" \
+		      " (((opts->x_target_flags) & MASK_" extra_masks[i] ") != 0)"
+	}
 }
 print ""
 
