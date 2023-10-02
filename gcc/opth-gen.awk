@@ -412,9 +412,9 @@ for (i = 0; i < n_target_vars; i++)
 		continue
 	for (j = 0; j < n_other_mask[i]; j++)
 	{
-		print "#define MASK_" other_masks[i][j] " (1U << " other_masknum[i][""]++ ")"
+		print "#define MASK_" other_masks[i "," j] " (1U << " other_masknum[i]++ ")"
 	}
-	if (other_masknum[i][""] > 32)
+	if (other_masknum[i] > 32)
 		print "#error too many target masks for" extra_target_vars[i]
 }
 
@@ -439,10 +439,6 @@ for (i = 0; i < n_target_vars; i++)
 	{
 		print "#define TARGET_" other_masks[i "," j] \
 		      " ((" target_vars[i] " & MASK_" other_masks[i "," j] ") != 0)"
-		print "#define TARGET_" other_masks[i "," j] "_P(" target_vars[i] ")" \
-		      " (((" target_vars[i] ") & MASK_" other_masks[i "," j] ") != 0)"
-		print "#define TARGET_" other_masks[i "," j] "_OPTS_P(opts)" \
-		      " (((opts->x_" target_vars[i] ") & MASK_" other_masks[i "," j] ") != 0)"
 	}
 }
 print ""
