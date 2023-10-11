@@ -12189,3 +12189,159 @@ proc check_effective_target_lra { } {
     return 1
 }
 
+# Test whether optimizations are enabled ('__OPTIMIZE__') per the
+# 'current_compiler_flags' (thus don't cache).
+
+proc check_effective_target___OPTIMIZE__ {} {
+    return [check_no_compiler_messages_nocache __OPTIMIZE__ assembly {
+	#ifndef __OPTIMIZE__
+	# error nein
+	#endif
+	/* Avoid pedwarn about empty TU.  */
+	int dummy;
+    } [current_compiler_flags]]
+}
+
+# Return 1 if python3 (>= 3.6) is available.
+
+proc check_effective_target_recent_python3 { } {
+    set result [remote_exec host "python3 -c \"import sys; assert sys.version_info >= (3, 6)\""]
+    set status [lindex $result 0]
+    if { $status == 0 } then {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+# Return 1 if python3 contains a module
+
+proc check_effective_target_python3_module { module } {
+    set result [remote_exec host "python3 -c \"import $module\""]
+    set status [lindex $result 0]
+    if { $status == 0 } then {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+# Return 1 if pytest module is available for python3.
+
+proc check_effective_target_pytest3 { } {
+    set result [remote_exec host "python3 -m pytest --color=no -rap -s --tb=no --version"]
+    set status [lindex $result 0]
+    if { $status == 0 } then {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+proc check_effective_target_property_1_needed { } {
+  return [check_no_compiler_messages property_1_needed executable {
+/* Assembly code */
+#ifdef __LP64__
+# define __PROPERTY_ALIGN 3
+#else
+# define __PROPERTY_ALIGN 2
+#endif
+
+	.section ".note.gnu.property", "a"
+	.p2align __PROPERTY_ALIGN
+	.long 1f - 0f		/* name length.  */
+	.long 4f - 1f		/* data length.  */
+	/* NT_GNU_PROPERTY_TYPE_0.   */
+	.long 5			/* note type.  */
+0:
+	.asciz "GNU"		/* vendor name.  */
+1:
+	.p2align __PROPERTY_ALIGN
+	/* GNU_PROPERTY_1_NEEDED.  */
+	.long 0xb0008000	/* pr_type.  */
+	.long 3f - 2f		/* pr_datasz.  */
+2:
+	/* GNU_PROPERTY_1_NEEDED_INDIRECT_EXTERN_ACCESS.  */
+	.long 1
+3:
+	.p2align __PROPERTY_ALIGN
+4:
+	.text
+	.globl main
+main:
+	.byte 0
+  } ""]
+}
+ 
+# Return 1 if this target has prog named "$prog", 0 otherwise.
+
+proc check_is_prog_name_available { prog } {
+    global tool
+
+    set options [list "additional_flags=-print-prog-name=$prog"]
+    set output [lindex [${tool}_target_compile "" "" "none" $options] 0]
+
+    if { $output == $prog } {
+        return 0
+    }
+
+    return 1
+}
+
+# returns 1 if target does selects a readonly section for const volatile variables.
+proc check_effective_target_const_volatile_readonly_section { } {
+
+    if { [istarget powerpc-*-*]
+    	  || [check-flags { "" { powerpc64-*-* } { -m32 } }] } {
+	return 0
+    }
+  return 1
+}
+
+# Return 1 if the CORE-V MAC extension is available.
+proc check_effective_target_cv_mac { } {
+    if { !([istarget riscv*-*-*]) } {
+         return 0
+     }
+    return [check_no_compiler_messages cv_mac object {
+        void foo (void)
+        {
+          asm ("cv.mac t0, t1, t2");
+        }
+    } "-march=rv32i_xcvmac" ]
+}
+
+# Appends necessary Python flags to extra-tool-flags if Python.h is supported.
+# Otherwise, modifies dg-do-what.
+proc dg-require-python-h { args } {
+    upvar dg-extra-tool-flags extra-tool-flags
+
+    verbose "ENTER dg-require-python-h" 2
+
+    set supported 0
+    set result [remote_exec host "python3-config --includes"]
+    set status [lindex $result 0]
+    if { $status == 0 } {
+	# Remove trailing newline from python3-config output.
+	set python_flags [string trim [lindex $result 1]]
+	if [check_no_compiler_messages python_h assembly {
+	    #include <Python.h>
+	    int main (void) { return 0; }
+	} $python_flags] {
+	    set supported 1
+	}
+    }
+
+    if { $supported == 0 } {
+	verbose "Python.h not supported" 2
+	upvar dg-do-what dg-do-what
+	set dg-do-what [list [lindex ${dg-do-what} 0] "N" "P"]
+	return
+    }
+
+    verbose "Python flags are: $python_flags" 2
+
+    verbose "Before appending, extra-tool-flags: ${extra-tool-flags}" 3
+    eval lappend extra-tool-flags $python_flags
+    verbose "After appending, extra-tool-flags: ${extra-tool-flags}" 3
+}
