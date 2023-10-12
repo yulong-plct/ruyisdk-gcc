@@ -1097,6 +1097,21 @@ disqualify_base_of_expr (tree t, const char *reason)
     disqualify_candidate (t, reason);
 }
 
+/* Return true if the BIT_FIELD_REF read EXPR is handled by SRA.  */
+
+static bool
+sra_handled_bf_read_p (tree expr)
+{
+  uint64_t size, offset;
+  if (bit_field_size (expr).is_constant (&size)
+      && bit_field_offset (expr).is_constant (&offset)
+      && size % BITS_PER_UNIT == 0
+      && offset % BITS_PER_UNIT == 0
+      && pow2p_hwi (size))
+    return true;
+  return false;
+}
+
 /* Scan expression EXPR and create access structures for all accesses to
    candidates for scalarization.  Return the created access or NULL if none is
    created.  */
@@ -1107,7 +1122,8 @@ build_access_from_expr_1 (tree expr, gimple *stmt, bool write)
   struct access *ret = NULL;
   bool partial_ref;
 
-  if (TREE_CODE (expr) == BIT_FIELD_REF
+  if ((TREE_CODE (expr) == BIT_FIELD_REF
+       && (write || !sra_handled_bf_read_p (expr)))
       || TREE_CODE (expr) == IMAGPART_EXPR
       || TREE_CODE (expr) == REALPART_EXPR)
     {
@@ -1154,6 +1170,7 @@ build_access_from_expr_1 (tree expr, gimple *stmt, bool write)
     case COMPONENT_REF:
     case ARRAY_REF:
     case ARRAY_RANGE_REF:
+    case BIT_FIELD_REF:
       ret = create_access (expr, stmt, write);
       break;
 
@@ -1526,6 +1543,7 @@ make_fancy_name_1 (tree expr)
       obstack_grow (&name_obstack, buffer, strlen (buffer));
       break;
 
+    case BIT_FIELD_REF:
     case ADDR_EXPR:
       make_fancy_name_1 (TREE_OPERAND (expr, 0));
       break;
@@ -1541,7 +1559,6 @@ make_fancy_name_1 (tree expr)
 	}
       break;
 
-    case BIT_FIELD_REF:
     case REALPART_EXPR:
     case IMAGPART_EXPR:
       gcc_unreachable (); 	/* we treat these as scalars.  */
@@ -3742,7 +3759,8 @@ sra_modify_expr (tree *expr, gimple_stmt_iterator *gsi, bool write)
   tree type, bfr, orig_expr;
   bool partial_cplx_access = false;
 
-  if (TREE_CODE (*expr) == BIT_FIELD_REF)
+  if (TREE_CODE (*expr) == BIT_FIELD_REF
+      && (write || !sra_handled_bf_read_p (*expr)))
     {
       bfr = *expr;
       expr = &TREE_OPERAND (*expr, 0);
