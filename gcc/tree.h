@@ -6009,6 +6009,7 @@ namespace wi
     static const enum precision_type precision_type = VAR_PRECISION;
     static const bool host_dependent_precision = false;
     static const bool is_sign_extended = false;
+    static const bool needs_write_val_arg = false;
   };
 
   template <int N>
@@ -6034,6 +6035,7 @@ namespace wi
       = N == ADDR_MAX_PRECISION ? INL_CONST_PRECISION : CONST_PRECISION;
     static const bool host_dependent_precision = false;
     static const bool is_sign_extended = true;
+    static const bool needs_write_val_arg = false;
     static const unsigned int precision = N;
   };
 
@@ -6065,8 +6067,14 @@ namespace wi
   tree_to_poly_wide_ref to_poly_wide (const_tree);
 
   template <int N>
-  struct ints_for <generic_wide_int <extended_tree <N> >,
-		   int_traits <extended_tree <N> >::precision_type>
+  struct ints_for <generic_wide_int <extended_tree <N> >, INL_CONST_PRECISION>
+  {
+    typedef generic_wide_int <extended_tree <N> > extended;
+    static extended zero (const extended &);
+  };
+
+  template <int N>
+  struct ints_for <generic_wide_int <extended_tree <N> >, CONST_PRECISION>
   {
     typedef generic_wide_int <extended_tree <N> > extended;
     static extended zero (const extended &);
@@ -6304,8 +6312,15 @@ wi::to_poly_wide (const_tree t)
 template <int N>
 inline generic_wide_int <wi::extended_tree <N> >
 wi::ints_for <generic_wide_int <wi::extended_tree <N> >,
-	      wi::int_traits <wi::extended_tree <N> >::precision_type
-	     >::zero (const extended &x)
+	      wi::INL_CONST_PRECISION>::zero (const extended &x)
+{
+  return build_zero_cst (TREE_TYPE (x.get_tree ()));
+}
+
+template <int N>
+inline generic_wide_int <wi::extended_tree <N> >
+wi::ints_for <generic_wide_int <wi::extended_tree <N> >,
+	      wi::CONST_PRECISION>::zero (const extended &x)
 {
   return build_zero_cst (TREE_TYPE (x.get_tree ()));
 }
