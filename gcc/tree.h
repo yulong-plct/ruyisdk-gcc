@@ -6030,13 +6030,14 @@ namespace wi
   template <int N>
   struct int_traits <extended_tree <N> >
   {
-    static const enum precision_type precision_type = CONST_PRECISION;
+    static const enum precision_type precision_type
+      = N == ADDR_MAX_PRECISION ? INL_CONST_PRECISION : CONST_PRECISION;
     static const bool host_dependent_precision = false;
     static const bool is_sign_extended = true;
     static const unsigned int precision = N;
   };
 
-  typedef extended_tree <WIDE_INT_MAX_PRECISION> widest_extended_tree;
+  typedef extended_tree <WIDEST_INT_MAX_PRECISION> widest_extended_tree;
   typedef extended_tree <ADDR_MAX_PRECISION> offset_extended_tree;
 
   typedef const generic_wide_int <widest_extended_tree> tree_to_widest_ref;
@@ -6064,7 +6065,8 @@ namespace wi
   tree_to_poly_wide_ref to_poly_wide (const_tree);
 
   template <int N>
-  struct ints_for <generic_wide_int <extended_tree <N> >, CONST_PRECISION>
+  struct ints_for <generic_wide_int <extended_tree <N> >,
+		   int_traits <extended_tree <N> >::precision_type>
   {
     typedef generic_wide_int <extended_tree <N> > extended;
     static extended zero (const extended &);
@@ -6080,7 +6082,7 @@ namespace wi
 
 /* Used to convert a tree to a widest2_int like this:
    widest2_int foo = widest2_int_cst (some_tree).  */
-typedef generic_wide_int <wi::extended_tree <WIDE_INT_MAX_PRECISION * 2> >
+typedef generic_wide_int <wi::extended_tree <WIDEST_INT_MAX_PRECISION * 2> >
   widest2_int_cst;
 
 /* Refer to INTEGER_CST T as though it were a widest_int.
@@ -6216,7 +6218,7 @@ wi::extended_tree <N>::get_len () const
 {
   if (N == ADDR_MAX_PRECISION)
     return TREE_INT_CST_OFFSET_NUNITS (m_t);
-  else if (N >= WIDE_INT_MAX_PRECISION)
+  else if (N >= WIDEST_INT_MAX_PRECISION)
     return TREE_INT_CST_EXT_NUNITS (m_t);
   else
     /* This class is designed to be used for specific output precisions
@@ -6302,7 +6304,8 @@ wi::to_poly_wide (const_tree t)
 template <int N>
 inline generic_wide_int <wi::extended_tree <N> >
 wi::ints_for <generic_wide_int <wi::extended_tree <N> >,
-	      wi::CONST_PRECISION>::zero (const extended &x)
+	      wi::int_traits <wi::extended_tree <N> >::precision_type
+	     >::zero (const extended &x)
 {
   return build_zero_cst (TREE_TYPE (x.get_tree ()));
 }
