@@ -8111,7 +8111,8 @@ vectorizable_store (vec_info *vinfo,
 	return false;
     }
 
-  if (!vec_stmt) /* transformation not required.  */
+  bool costing_p = !vec_stmt;
+  if (costing_p) /* transformation not required.  */
     {
       STMT_VINFO_MEMORY_ACCESS_TYPE (stmt_info) = memory_access_type;
 
@@ -8140,9 +8141,6 @@ vectorizable_store (vec_info *vinfo,
 			 "Vectorizing an unaligned access.\n");
 
       STMT_VINFO_TYPE (stmt_info) = store_vec_info_type;
-      vect_model_store_cost (vinfo, stmt_info, ncopies,
-			     memory_access_type, vls_type, slp_node, cost_vec);
-      return true;
     }
   gcc_assert (memory_access_type == STMT_VINFO_MEMORY_ACCESS_TYPE (stmt_info));
 
@@ -8152,12 +8150,27 @@ vectorizable_store (vec_info *vinfo,
 
   if (memory_access_type == VMAT_GATHER_SCATTER && gs_info.decl)
     {
-      vect_build_scatter_store_calls (vinfo, stmt_info, gsi, vec_stmt,
-				      &gs_info, mask);
+      if (costing_p)
+	vect_model_store_cost (vinfo, stmt_info, ncopies, memory_access_type,
+			       &gs_info, alignment_support_scheme, misalignment,
+			       vls_type, slp_node, cost_vec);
+      else
+	vect_build_scatter_store_calls (vinfo, stmt_info, gsi, vec_stmt,
+					&gs_info, mask);
       return true;
     }
   else if (STMT_VINFO_SIMD_LANE_ACCESS_P (stmt_info) >= 3)
-    return vectorizable_scan_store (vinfo, stmt_info, gsi, vec_stmt, ncopies);
+    {
+      gcc_assert (memory_access_type == VMAT_CONTIGUOUS);
+      if (costing_p)
+	{
+	  vect_model_store_cost (vinfo, stmt_info, ncopies, memory_access_type,
+				 &gs_info, alignment_support_scheme,
+				 misalignment, vls_type, slp_node, cost_vec);
+	  return true;
+	}
+      return vectorizable_scan_store (vinfo, stmt_info, gsi, vec_stmt, ncopies);
+    }
 
   if (STMT_VINFO_GROUPED_ACCESS (stmt_info))
     DR_GROUP_STORE_COUNT (DR_GROUP_FIRST_ELEMENT (stmt_info))++;
@@ -8199,13 +8212,21 @@ vectorizable_store (vec_info *vinfo,
   else
     ref_type = reference_alias_ptr_type (DR_REF (first_dr_info->dr));
 
-  if (dump_enabled_p ())
-    dump_printf_loc (MSG_NOTE, vect_location,
-                     "transform store. ncopies = %d\n", ncopies);
+  if (!costing_p && dump_enabled_p ())
+    dump_printf_loc (MSG_NOTE, vect_location, "transform store. ncopies = %d\n",
+		     ncopies);
 
   if (memory_access_type == VMAT_ELEMENTWISE
       || memory_access_type == VMAT_STRIDED_SLP)
     {
+      if (costing_p)
+	{
+	  vect_model_store_cost (vinfo, stmt_info, ncopies, memory_access_type,
+				 &gs_info, alignment_support_scheme,
+				 misalignment, vls_type, slp_node, cost_vec);
+	  return true;
+	}
+
       gimple_stmt_iterator incr_gsi;
       bool insert_after;
       gimple *incr;
@@ -8468,8 +8489,9 @@ vectorizable_store (vec_info *vinfo,
   else if (memory_access_type == VMAT_GATHER_SCATTER)
     {
       aggr_type = elem_type;
-      vect_get_strided_load_store_ops (stmt_info, loop_vinfo, gsi, &gs_info,
-				       &bump, &vec_offset, loop_lens);
+      if (!costing_p)
+	vect_get_strided_load_store_ops (stmt_info, loop_vinfo, gsi, &gs_info,
+					 &bump, &vec_offset, loop_lens);
     }
   else
     {
@@ -8481,7 +8503,7 @@ vectorizable_store (vec_info *vinfo,
 					  memory_access_type, loop_lens);
     }
 
-  if (mask)
+  if (mask && !costing_p)
     LOOP_VINFO_HAS_MASK_STORE (loop_vinfo) = true;
 
   /* In case the vectorization factor (VF) is bigger than the number
@@ -8532,6 +8554,13 @@ vectorizable_store (vec_info *vinfo,
   if (memory_access_type == VMAT_LOAD_STORE_LANES)
     {
       gcc_assert (!slp && grouped_store);
+      if (costing_p)
+	{
+	  vect_model_store_cost (vinfo, stmt_info, ncopies, memory_access_type,
+				 &gs_info, alignment_support_scheme,
+				 misalignment, vls_type, slp_node, cost_vec);
+	  return true;
+	}
       for (j = 0; j < ncopies; j++)
 	{
 	  gimple *new_stmt;
@@ -8677,6 +8706,13 @@ vectorizable_store (vec_info *vinfo,
   if (memory_access_type == VMAT_GATHER_SCATTER)
     {
       gcc_assert (!slp && !grouped_store);
+      if (costing_p)
+	{
+	  vect_model_store_cost (vinfo, stmt_info, ncopies, memory_access_type,
+				 &gs_info, alignment_support_scheme,
+				 misalignment, vls_type, slp_node, cost_vec);
+	  return true;
+	}
       auto_vec<tree> vec_offsets;
       for (j = 0; j < ncopies; j++)
 	{
@@ -8841,7 +8877,7 @@ vectorizable_store (vec_info *vinfo,
   for (j = 0; j < ncopies; j++)
     {
       gimple *new_stmt;
-      if (j == 0)
+      if (j == 0 && !costing_p)
 	{
 	  if (slp)
 	    {
@@ -8906,7 +8942,7 @@ vectorizable_store (vec_info *vinfo,
 					  offset, &dummy, gsi, &ptr_incr,
 					  simd_lane_access_p, bump);
 	}
-      else
+      else if (!costing_p)
 	{
 	  gcc_assert (!LOOP_VINFO_USING_SELECT_VL_P (loop_vinfo));
 	  /* DR_CHAIN is then used as an input to vect_permute_store_chain().
@@ -8927,7 +8963,7 @@ vectorizable_store (vec_info *vinfo,
 	}
 
       new_stmt = NULL;
-      if (grouped_store)
+      if (!costing_p && grouped_store)
 	/* Permute.  */
 	vect_permute_store_chain (vinfo, dr_chain, group_size, stmt_info, gsi,
 				  &result_chain);
@@ -8935,6 +8971,8 @@ vectorizable_store (vec_info *vinfo,
       stmt_vec_info next_stmt_info = first_stmt_info;
       for (i = 0; i < vec_num; i++)
 	{
+	  if (costing_p)
+	    continue;
 	  unsigned misalign;
 	  unsigned HOST_WIDE_INT align;
 
@@ -9107,13 +9145,18 @@ vectorizable_store (vec_info *vinfo,
 	  if (!next_stmt_info)
 	    break;
 	}
-      if (!slp)
+      if (!slp && !costing_p)
 	{
 	  if (j == 0)
 	    *vec_stmt = new_stmt;
 	  STMT_VINFO_VEC_STMTS (stmt_info).safe_push (new_stmt);
 	}
     }
+
+  if (costing_p)
+    vect_model_store_cost (vinfo, stmt_info, ncopies, memory_access_type,
+			   &gs_info, alignment_support_scheme, misalignment,
+			   vls_type, slp_node, cost_vec);
 
   return true;
 }
