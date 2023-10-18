@@ -945,7 +945,8 @@ copy_loop_before (class loop *loop)
   edge preheader = loop_preheader_edge (loop);
 
   initialize_original_copy_tables ();
-  res = slpeel_tree_duplicate_loop_to_edge_cfg (loop, NULL, preheader);
+  res = slpeel_tree_duplicate_loop_to_edge_cfg (loop, single_exit (loop), NULL,
+						NULL, preheader, NULL);
   gcc_assert (res != NULL);
   free_original_copy_tables ();
   delete_update_ssa ();
