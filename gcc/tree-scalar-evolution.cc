@@ -827,44 +827,6 @@ add_to_evolution (unsigned loop_nb, tree chrec_before, enum tree_code code,
 
   return res;
 }
-
-
-
-/* This section selects the loops that will be good candidates for the
-   scalar evolution analysis.  For the moment, greedily select all the
-   loop nests we could analyze.  */
-
-/* For a loop with a single exit edge, return the COND_EXPR that
-   guards the exit edge.  If the expression is too difficult to
-   analyze, then give up.  */
-
-gcond *
-get_loop_exit_condition (const class loop *loop)
-{
-  gcond *res = NULL;
-  edge exit_edge = single_exit (loop);
-
-  if (dump_file && (dump_flags & TDF_SCEV))
-    fprintf (dump_file, "(get_loop_exit_condition \n  ");
-
-  if (exit_edge)
-    {
-      gimple *stmt;
-
-      stmt = last_stmt (exit_edge->src);
-      if (gcond *cond_stmt = safe_dyn_cast <gcond *> (stmt))
-	res = cond_stmt;
-    }
-
-  if (dump_file && (dump_flags & TDF_SCEV))
-    {
-      print_gimple_stmt (dump_file, res, 0);
-      fprintf (dump_file, ")\n");
-    }
-
-  return res;
-}
-
 
 /* Depth first search algorithm.  */
 
@@ -1288,6 +1250,44 @@ tail_recurse:
     default:
       return t_false;
     }
+}
+
+
+/* This section selects the loops that will be good candidates for the
+   scalar evolution analysis.  For the moment, greedily select all the
+   loop nests we could analyze.  */
+
+/* For a loop with a single exit edge, return the COND_EXPR that
+   guards the exit edge.  If the expression is too difficult to
+   analyze, then give up.  */
+
+gcond *
+get_loop_exit_condition (const class loop *loop)
+{
+  return get_loop_exit_condition (single_exit (loop));
+}
+
+/* If the statement just before the EXIT_EDGE contains a condition then
+   return the condition, otherwise NULL. */
+
+gcond *
+get_loop_exit_condition (const_edge exit_edge)
+{
+  gcond *res = NULL;
+
+  if (dump_file && (dump_flags & TDF_SCEV))
+    fprintf (dump_file, "(get_loop_exit_condition \n  ");
+
+  if (exit_edge)
+    res = safe_dyn_cast <gcond *> (*gsi_last_bb (exit_edge->src));
+
+  if (dump_file && (dump_flags & TDF_SCEV))
+    {
+      print_gimple_stmt (dump_file, res, 0);
+      fprintf (dump_file, ")\n");
+    }
+
+  return res;
 }
 
 
