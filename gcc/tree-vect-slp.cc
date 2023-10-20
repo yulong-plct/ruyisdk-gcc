@@ -253,6 +253,8 @@ typedef struct _slp_oprnd_info
   tree first_op_type;
   enum vect_def_type first_dt;
   bool any_pattern;
+  bool first_gs_p;
+  gather_scatter_info first_gs_info;
 } *slp_oprnd_info;
 
 
@@ -274,6 +276,7 @@ vect_create_oprnd_info (int nops, int group_size)
       oprnd_info->first_dt = vect_uninitialized_def;
       oprnd_info->first_op_type = NULL_TREE;
       oprnd_info->any_pattern = false;
+      oprnd_info->first_gs_p = false;
       oprnds_info.quick_push (oprnd_info);
     }
 
@@ -461,6 +464,20 @@ static const int cond_expr_maps[3][5] = {
 static const int arg1_map[] = { 1, 1 };
 static const int arg2_map[] = { 1, 2 };
 static const int arg1_arg4_map[] = { 2, 1, 4 };
+static const int arg3_arg2_map[] = { 2, 3, 2 };
+static const int op1_op0_map[] = { 2, 1, 0 };
+static const int off_map[] = { 1, -3 };
+static const int off_op0_map[] = { 2, -3, 0 };
+static const int off_arg2_map[] = { 2, -3, 2 };
+static const int off_arg3_arg2_map[] = { 3, -3, 3, 2 };
+static const int mask_call_maps[6][7] = {
+  { 1, 1, },
+  { 2, 1, 2, },
+  { 3, 1, 2, 3, },
+  { 4, 1, 2, 3, 4, },
+  { 5, 1, 2, 3, 4, 5, },
+  { 6, 1, 2, 3, 4, 5, 6 },
+};
 
 /* For most SLP statements, there is a one-to-one mapping between
    gimple arguments and child nodes.  If that is not true for STMT,
@@ -470,17 +487,25 @@ static const int arg1_arg4_map[] = { 2, 1, 4 };
    - for each child node, the index of the argument associated with that node.
      The special index -1 is the first operand of an embedded comparison and
      the special index -2 is the second operand of an embedded comparison.
+     The special indes -3 is the offset of a gather as analyzed by
+     vect_check_gather_scatter.
 
    SWAP is as for vect_get_and_check_slp_defs.  */
 
 static const int *
-vect_get_operand_map (const gimple *stmt, unsigned char swap = 0)
+vect_get_operand_map (const gimple *stmt, bool gather_scatter_p = false,
+		      unsigned char swap = 0)
 {
   if (auto assign = dyn_cast<const gassign *> (stmt))
     {
       if (gimple_assign_rhs_code (assign) == COND_EXPR
 	  && COMPARISON_CLASS_P (gimple_assign_rhs1 (assign)))
 	return cond_expr_maps[swap];
+      if (TREE_CODE_CLASS (gimple_assign_rhs_code (assign)) == tcc_comparison
+	  && swap)
+	return op1_op0_map;
+      if (gather_scatter_p)
+	return gimple_vdef (stmt) ? off_op0_map : off_map;
     }
   gcc_assert (!swap);
   if (auto call = dyn_cast<const gcall *> (stmt))
@@ -489,7 +514,7 @@ vect_get_operand_map (const gimple *stmt, unsigned char swap = 0)
 	switch (gimple_call_internal_fn (call))
 	  {
 	  case IFN_MASK_LOAD:
-	    return arg2_map;
+	    return gather_scatter_p ? off_arg2_map : arg2_map;
 
 	  case IFN_GATHER_LOAD:
 	    return arg1_map;
@@ -497,6 +522,18 @@ vect_get_operand_map (const gimple *stmt, unsigned char swap = 0)
 	  case IFN_MASK_GATHER_LOAD:
 	  case IFN_MASK_LEN_GATHER_LOAD:
 	    return arg1_arg4_map;
+
+	  case IFN_MASK_STORE:
+	    return gather_scatter_p ? off_arg3_arg2_map : arg3_arg2_map;
+
+	  case IFN_MASK_CALL:
+	    {
+	      unsigned nargs = gimple_call_num_args (call);
+	      if (nargs >= 2 && nargs <= 7)
+		return mask_call_maps[nargs-2];
+	      else
+		return nullptr;
+	    }
 
 	  default:
 	    break;
@@ -527,6 +564,8 @@ vect_get_and_check_slp_defs (vec_info *vinfo, unsigned char swap,
   unsigned int i, number_of_oprnds;
   enum vect_def_type dt = vect_uninitialized_def;
   slp_oprnd_info oprnd_info;
+  gather_scatter_info gs_info;
+  unsigned int gs_op = -1u;
   unsigned int commutative_op = -1U;
   bool first = stmt_num == 0;
 
@@ -536,7 +575,9 @@ vect_get_and_check_slp_defs (vec_info *vinfo, unsigned char swap,
     return -1;
 
   number_of_oprnds = gimple_num_args (stmt_info->stmt);
-  const int *map = vect_get_operand_map (stmt_info->stmt, swap);
+  const int *map
+    = vect_get_operand_map (stmt_info->stmt,
+			    STMT_VINFO_GATHER_SCATTER_P (stmt_info), swap);
   if (map)
     number_of_oprnds = *map++;
   if (gcall *stmt = dyn_cast <gcall *> (stmt_info->stmt))
@@ -558,8 +599,30 @@ vect_get_and_check_slp_defs (vec_info *vinfo, unsigned char swap,
   enum vect_def_type *dts = XALLOCAVEC (enum vect_def_type, number_of_oprnds);
   for (i = 0; i < number_of_oprnds; i++)
     {
+      oprnd_info = (*oprnds_info)[i];
       int opno = map ? map[i] : int (i);
-      if (opno < 0)
+      if (opno == -3)
+	{
+	  gcc_assert (STMT_VINFO_GATHER_SCATTER_P (stmt_info));
+	  if (!is_a <loop_vec_info> (vinfo)
+	      || !vect_check_gather_scatter (stmt_info,
+					     as_a <loop_vec_info> (vinfo),
+					     first ? &oprnd_info->first_gs_info
+					     : &gs_info))
+	    return -1;
+
+	  if (first)
+	    {
+	      oprnd_info->first_gs_p = true;
+	      oprnd = oprnd_info->first_gs_info.offset;
+	    }
+	  else
+	    {
+	      gs_op = i;
+	      oprnd = gs_info.offset;
+	    }
+	}
+      else if (opno < 0)
 	oprnd = TREE_OPERAND (gimple_arg (stmt_info->stmt, 0), -1 - opno);
       else
 	{
@@ -571,8 +634,6 @@ vect_get_and_check_slp_defs (vec_info *vinfo, unsigned char swap,
 	}
       if (TREE_CODE (oprnd) == VIEW_CONVERT_EXPR)
 	oprnd = TREE_OPERAND (oprnd, 0);
-
-      oprnd_info = (*oprnds_info)[i];
 
       stmt_vec_info def_stmt_info;
       if (!vect_is_simple_use (oprnd, vinfo, &dts[i], &def_stmt_info))
@@ -690,6 +751,32 @@ vect_get_and_check_slp_defs (vec_info *vinfo, unsigned char swap,
 	    dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
 			     "Build SLP failed: different operand types\n");
 	  return 1;
+	}
+
+      if ((gs_op == i) != oprnd_info->first_gs_p)
+	{
+	  if (dump_enabled_p ())
+	    dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
+			     "Build SLP failed: mixed gather and non-gather\n");
+	  return 1;
+	}
+      else if (gs_op == i)
+	{
+	  if (!operand_equal_p (oprnd_info->first_gs_info.base,
+				gs_info.base))
+	    {
+	      if (dump_enabled_p ())
+		dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
+				 "Build SLP failed: different gather base\n");
+	      return 1;
+	    }
+	  if (oprnd_info->first_gs_info.scale != gs_info.scale)
+	    {
+	      if (dump_enabled_p ())
+		dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
+				 "Build SLP failed: different gather scale\n");
+	      return 1;
+	    }
 	}
 
       /* Not first stmt of the group, check that the def-stmt/s match
@@ -1546,7 +1633,9 @@ vect_build_slp_tree_2 (vec_info *vinfo, slp_tree node,
     return NULL;
 
   nops = gimple_num_args (stmt_info->stmt);
-  if (const int *map = vect_get_operand_map (stmt_info->stmt))
+  if (const int *map = vect_get_operand_map (stmt_info->stmt,
+					     STMT_VINFO_GATHER_SCATTER_P
+					       (stmt_info)))
     nops = map[0];
 
   /* If the SLP node is a PHI (induction or reduction), terminate
