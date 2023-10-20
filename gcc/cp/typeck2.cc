@@ -1965,8 +1965,11 @@ build_x_arrow (location_t loc, tree expr, tsubst_flags_t complain)
 	  && !dependent_scope_p (TREE_TYPE (type)))
 	/* Pointer to current instantiation, don't treat as dependent.  */;
       else if (type_dependent_expression_p (expr))
-	return build_min_nt_loc (loc, ARROW_EXPR, expr);
-      expr = build_non_dependent_expr (expr);
+	{
+	  expr = build_min_nt_loc (loc, ARROW_EXPR, expr);
+	  TREE_TYPE (expr) = ttype;
+	  return expr;
+	}
     }
 
   if (MAYBE_CLASS_TYPE_P (type))

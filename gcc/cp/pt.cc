@@ -28226,115 +28226,6 @@ resolve_typename_type (tree type, bool only_current_p)
   return result;
 }
 
-/* EXPR is an expression which is not type-dependent.  Return a proxy
-   for EXPR that can be used to compute the types of larger
-   expressions containing EXPR.  */
-
-tree
-build_non_dependent_expr (tree expr)
-{
-  tree orig_expr = expr;
-  tree inner_expr;
-
-  /* When checking, try to get a constant value for all non-dependent
-     expressions in order to expose bugs in *_dependent_expression_p
-     and constexpr.  This can affect code generation, see PR70704, so
-     only do this for -fchecking=2.  */
-  if (flag_checking > 1
-      && cxx_dialect >= cxx11
-      /* Don't do this during nsdmi parsing as it can lead to
-	 unexpected recursive instantiations.  */
-      && !parsing_nsdmi ()
-      /* Don't do this during concept processing either and for
-         the same reason.  */
-      && !processing_constraint_expression_p ())
-    fold_non_dependent_expr (expr, tf_none);
-
-  STRIP_ANY_LOCATION_WRAPPER (expr);
-
-  /* Preserve OVERLOADs; the functions must be available to resolve
-     types.  */
-  inner_expr = expr;
-  if (TREE_CODE (inner_expr) == STMT_EXPR)
-    inner_expr = stmt_expr_value_expr (inner_expr);
-  if (TREE_CODE (inner_expr) == ADDR_EXPR)
-    inner_expr = TREE_OPERAND (inner_expr, 0);
-  if (TREE_CODE (inner_expr) == COMPONENT_REF)
-    inner_expr = TREE_OPERAND (inner_expr, 1);
-  if (is_overloaded_fn (inner_expr)
-      || TREE_CODE (inner_expr) == OFFSET_REF)
-    return orig_expr;
-  /* There is no need to return a proxy for a variable or enumerator.  */
-  if (VAR_P (expr) || TREE_CODE (expr) == CONST_DECL)
-    return orig_expr;
-  /* Preserve string constants; conversions from string constants to
-     "char *" are allowed, even though normally a "const char *"
-     cannot be used to initialize a "char *".  */
-  if (TREE_CODE (expr) == STRING_CST)
-    return orig_expr;
-  /* Preserve void and arithmetic constants, as an optimization -- there is no
-     reason to create a new node.  */
-  if (TREE_CODE (expr) == VOID_CST
-      || TREE_CODE (expr) == INTEGER_CST
-      || TREE_CODE (expr) == REAL_CST)
-    return orig_expr;
-  /* Preserve THROW_EXPRs -- all throw-expressions have type "void".
-     There is at least one place where we want to know that a
-     particular expression is a throw-expression: when checking a ?:
-     expression, there are special rules if the second or third
-     argument is a throw-expression.  */
-  if (TREE_CODE (expr) == THROW_EXPR)
-    return orig_expr;
-
-  /* Don't wrap an initializer list, we need to be able to look inside.  */
-  if (BRACE_ENCLOSED_INITIALIZER_P (expr))
-    return orig_expr;
-
-  /* Don't wrap a dummy object, we need to be able to test for it.  */
-  if (is_dummy_object (expr))
-    return orig_expr;
-
-  if (TREE_CODE (expr) == COND_EXPR)
-    return build3 (COND_EXPR,
-		   TREE_TYPE (expr),
-		   build_non_dependent_expr (TREE_OPERAND (expr, 0)),
-		   (TREE_OPERAND (expr, 1)
-		    ? build_non_dependent_expr (TREE_OPERAND (expr, 1))
-		    : build_non_dependent_expr (TREE_OPERAND (expr, 0))),
-		   build_non_dependent_expr (TREE_OPERAND (expr, 2)));
-  if (TREE_CODE (expr) == COMPOUND_EXPR
-      && !COMPOUND_EXPR_OVERLOADED (expr))
-    return build2 (COMPOUND_EXPR,
-		   TREE_TYPE (expr),
-		   TREE_OPERAND (expr, 0),
-		   build_non_dependent_expr (TREE_OPERAND (expr, 1)));
-
-  /* If the type is unknown, it can't really be non-dependent */
-  gcc_assert (TREE_TYPE (expr) != unknown_type_node);
-
-  /* Otherwise, build a NON_DEPENDENT_EXPR.  */
-  return build1_loc (EXPR_LOCATION (orig_expr), NON_DEPENDENT_EXPR,
-		     TREE_TYPE (expr), expr);
-}
-
-/* ARGS is a vector of expressions as arguments to a function call.
-   Replace the arguments with equivalent non-dependent expressions.
-   This modifies ARGS in place.  */
-
-void
-make_args_non_dependent (vec<tree, va_gc> *args)
-{
-  unsigned int ix;
-  tree arg;
-
-  FOR_EACH_VEC_SAFE_ELT (args, ix, arg)
-    {
-      tree newarg = build_non_dependent_expr (arg);
-      if (newarg != arg)
-	(*args)[ix] = newarg;
-    }
-}
-
 /* Returns a type which represents 'auto' or 'decltype(auto)'.  We use a
    TEMPLATE_TYPE_PARM with a level one deeper than the actual template
    parms.  If set_canonical is true, we set TYPE_CANONICAL on it.  */
@@ -30370,33 +30261,6 @@ print_template_statistics (void)
 
 namespace selftest {
 
-/* Verify that build_non_dependent_expr () works, for various expressions,
-   and that location wrappers don't affect the results.  */
-
-static void
-test_build_non_dependent_expr ()
-{
-  location_t loc = BUILTINS_LOCATION;
-
-  /* Verify constants, without and with location wrappers.  */
-  tree int_cst = build_int_cst (integer_type_node, 42);
-  ASSERT_EQ (int_cst, build_non_dependent_expr (int_cst));
-
-  tree wrapped_int_cst = maybe_wrap_with_location (int_cst, loc);
-  ASSERT_TRUE (location_wrapper_p (wrapped_int_cst));
-  ASSERT_EQ (wrapped_int_cst, build_non_dependent_expr (wrapped_int_cst));
-
-  tree string_lit = build_string (4, "foo");
-  TREE_TYPE (string_lit) = char_array_type_node;
-  string_lit = fix_string_type (string_lit);
-  ASSERT_EQ (string_lit, build_non_dependent_expr (string_lit));
-
-  tree wrapped_string_lit = maybe_wrap_with_location (string_lit, loc);
-  ASSERT_TRUE (location_wrapper_p (wrapped_string_lit));
-  ASSERT_EQ (wrapped_string_lit,
-	     build_non_dependent_expr (wrapped_string_lit));
-}
-
 /* Verify that type_dependent_expression_p () works correctly, even
    in the presence of location wrapper nodes.  */
 
@@ -30437,7 +30301,6 @@ test_type_dependent_expression_p ()
 void
 cp_pt_c_tests ()
 {
-  test_build_non_dependent_expr ();
   test_type_dependent_expression_p ();
 }
 
