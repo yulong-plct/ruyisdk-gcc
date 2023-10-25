@@ -3213,7 +3213,8 @@ needs_fp_rounding (unsigned icode, machine_mode mode)
 	 && icode != maybe_code_for_pred_widen (FLOAT, mode)
 	 && icode != maybe_code_for_pred_widen (UNSIGNED_FLOAT, mode)
 	 /* vfsgnj */
-	 && icode != maybe_code_for_pred (UNSPEC_VCOPYSIGN, mode);
+	 && icode != maybe_code_for_pred (UNSPEC_VCOPYSIGN, mode)
+	 && icode != maybe_code_for_pred_mov (mode);
 }
 
 /* Subroutine to expand COND_LEN_* patterns.  */
