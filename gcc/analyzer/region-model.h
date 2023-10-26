@@ -26,6 +26,10 @@ along with GCC; see the file COPYING3.  If not see
       (Zhongxing Xu, Ted Kremenek, and Jian Zhang)
      http://lcs.ios.ac.cn/~xuzb/canalyze/memmodel.pdf  */
 
+#include "bitmap.h"
+#include "stringpool.h"
+#include "attribs.h" // for rdwr_map
+#include "selftest.h"
 #include "analyzer/svalue.h"
 #include "analyzer/region.h"
 
@@ -593,7 +597,79 @@ class region_model
 
   void loop_replay_fixup (const region_model *dst_state);
 
- private:
+  const svalue *get_capacity (const region *reg) const;
+
+  bool replay_call_summary (call_summary_replay &r,
+			    const region_model &summary);
+
+  void maybe_complain_about_infoleak (const region *dst_reg,
+				      const svalue *copied_sval,
+				      const region *src_reg,
+				      region_model_context *ctxt);
+
+  void set_errno (const call_details &cd);
+
+  /* Implemented in sm-fd.cc  */
+  void mark_as_valid_fd (const svalue *sval, region_model_context *ctxt);
+
+  /* Implemented in sm-malloc.cc  */
+  void on_realloc_with_move (const call_details &cd,
+			     const svalue *old_ptr_sval,
+			     const svalue *new_ptr_sval);
+
+  /* Implemented in sm-malloc.cc.  */
+  void
+  transition_ptr_sval_non_null (region_model_context *ctxt,
+      const svalue *new_ptr_sval);
+
+  /* Implemented in sm-taint.cc.  */
+  void mark_as_tainted (const svalue *sval,
+			region_model_context *ctxt);
+
+  bool add_constraint (const svalue *lhs,
+		       enum tree_code op,
+		       const svalue *rhs,
+		       region_model_context *ctxt);
+
+  const svalue *check_for_poison (const svalue *sval,
+				  tree expr,
+				  const region *src_region,
+				  region_model_context *ctxt) const;
+
+  void check_region_for_write (const region *dest_reg,
+			       const svalue *sval_hint,
+			       region_model_context *ctxt) const;
+
+  const svalue *
+  check_for_null_terminated_string_arg (const call_details &cd,
+					unsigned idx) const;
+  const svalue *
+  check_for_null_terminated_string_arg (const call_details &cd,
+					unsigned idx,
+					bool include_terminator,
+					const svalue **out_sval) const;
+
+  const builtin_known_function *
+  get_builtin_kf (const gcall *call,
+		  region_model_context *ctxt = NULL) const;
+
+  static void
+  register_pop_frame_callback (const pop_frame_callback &callback)
+  {
+    pop_frame_callbacks.safe_push (callback);
+  }
+
+  static void
+  notify_on_pop_frame (const region_model *model,
+		       const region_model *prev_model,
+		       const svalue *retval,
+		       region_model_context *ctxt)
+  {
+    for (auto &callback : pop_frame_callbacks)
+	callback (model, prev_model, retval, ctxt);
+  }
+
+private:
   const region *get_lvalue_1 (path_var pv, region_model_context *ctxt) const;
   const svalue *get_rvalue_1 (path_var pv, region_model_context *ctxt) const;
 
@@ -649,6 +725,39 @@ class region_model
   void check_for_writable_region (const region* dest_reg,
 				  region_model_context *ctxt) const;
 
+  /* Implemented in bounds-checking.cc  */
+  bool check_symbolic_bounds (const region *base_reg,
+			      const svalue *sym_byte_offset,
+			      const svalue *num_bytes_sval,
+			      const svalue *capacity,
+			      enum access_direction dir,
+			      const svalue *sval_hint,
+			      region_model_context *ctxt) const;
+  bool check_region_bounds (const region *reg, enum access_direction dir,
+			    const svalue *sval_hint,
+			    region_model_context *ctxt) const;
+
+  void check_call_args (const call_details &cd) const;
+  void check_call_format_attr (const call_details &cd,
+			       tree format_attr) const;
+  void check_function_attr_access (const gcall *call,
+				   tree callee_fndecl,
+				   region_model_context *ctxt,
+				   rdwr_map &rdwr_idx) const;
+  void check_function_attr_null_terminated_string_arg (const gcall *call,
+						       tree callee_fndecl,
+						       region_model_context *ctxt,
+						       rdwr_map &rdwr_idx);
+  void check_one_function_attr_null_terminated_string_arg (const gcall *call,
+							   tree callee_fndecl,
+							   region_model_context *ctxt,
+							   rdwr_map &rdwr_idx,
+							   tree attr);
+  void check_function_attrs (const gcall *call,
+			     tree callee_fndecl,
+			     region_model_context *ctxt);
+
+  static auto_vec<pop_frame_callback> pop_frame_callbacks;
   /* Storing this here to avoid passing it around everywhere.  */
   region_model_manager *const m_mgr;
 
