@@ -785,8 +785,6 @@ simd_clone_adjust_argument_types (struct cgraph_node *node)
 
   for (i = 0; i < sc->nargs; ++i)
     {
-      ipa_adjusted_param adj;
-      memset (&adj, 0, sizeof (adj));
       tree parm = NULL_TREE;
       tree parm_type = NULL_TREE;
       if (i < args.length())
@@ -794,9 +792,6 @@ simd_clone_adjust_argument_types (struct cgraph_node *node)
 	  parm = args[i];
 	  parm_type = node->definition ? TREE_TYPE (parm) : parm;
 	}
-
-      adj.base_index = i;
-      adj.prev_clone_index = i;
 
       sc->args[i].orig_arg = node->definition ? parm : NULL_TREE;
       sc->args[i].orig_type = parm_type;
