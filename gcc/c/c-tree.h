@@ -539,6 +539,7 @@ enum c_inline_static_type {
 
 
 /* in c-parser.cc */
+struct c_tree_token_vec;
 extern void c_parse_init (void);
 extern bool c_keyword_starts_typename (enum rid keyword);
 
@@ -657,6 +658,7 @@ extern struct c_declspecs *declspecs_add_addrspace (location_t,
 extern struct c_declspecs *declspecs_add_alignas (location_t,
 						  struct c_declspecs *, tree);
 extern struct c_declspecs *finish_declspecs (struct c_declspecs *);
+extern size_t c_tree_size (enum tree_code);
 
 /* in c-objc-common.cc */
 extern bool c_objc_common_init (void);

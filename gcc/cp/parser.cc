@@ -40278,6 +40278,115 @@ cp_finish_omp_range_for (tree orig, tree begin)
     cp_finish_decomp (decl, decomp_first_name, decomp_cnt);
 }
 
+/* Return true if next tokens contain a standard attribute that contains
+   omp::directive (DIRECTIVE).  */
+
+static bool
+cp_parser_omp_section_scan (cp_parser *parser, const char *directive,
+			    bool tentative)
+{
+  size_t n = cp_parser_skip_attributes_opt (parser, 1), i;
+  if (n < 10)
+    return false;
+  for (i = 5; i < n - 4; i++)
+    if (cp_lexer_nth_token_is (parser->lexer, i, CPP_NAME)
+	&& cp_lexer_nth_token_is (parser->lexer, i + 1, CPP_OPEN_PAREN)
+	&& cp_lexer_nth_token_is (parser->lexer, i + 2, CPP_NAME))
+      {
+	tree first = cp_lexer_peek_nth_token (parser->lexer, i)->u.value;
+	tree second = cp_lexer_peek_nth_token (parser->lexer, i + 2)->u.value;
+	if (strcmp (IDENTIFIER_POINTER (first), "directive")
+	    && strcmp (IDENTIFIER_POINTER (first), "__directive__"))
+	  continue;
+	if (strcmp (IDENTIFIER_POINTER (second), directive) == 0)
+	  break;
+      }
+  if (i == n - 4)
+    return false;
+  cp_parser_parse_tentatively (parser);
+  location_t first_loc = cp_lexer_peek_token (parser->lexer)->location;
+  location_t last_loc
+    = cp_lexer_peek_nth_token (parser->lexer, n - 1)->location;
+  location_t middle_loc = UNKNOWN_LOCATION;
+  tree std_attrs = cp_parser_std_attribute_spec_seq (parser);
+  int cnt = 0;
+  bool seen = false;
+  for (tree attr = std_attrs; attr; attr = TREE_CHAIN (attr))
+    if (get_attribute_namespace (attr) == omp_identifier
+	&& is_attribute_p ("directive", get_attribute_name (attr)))
+      {
+	for (tree a = TREE_VALUE (attr); a; a = TREE_CHAIN (a))
+	  {
+	    tree d = TREE_VALUE (a);
+	    gcc_assert (TREE_CODE (d) == DEFERRED_PARSE);
+	    cp_token *first = DEFPARSE_TOKENS (d)->first;
+	    cnt++;
+	    if (first->type == CPP_NAME
+		&& strcmp (IDENTIFIER_POINTER (first->u.value),
+			   directive) == 0)
+	      {
+		seen = true;
+		if (middle_loc == UNKNOWN_LOCATION)
+		  middle_loc = first->location;
+	      }
+	  }
+      }
+  if (!seen || tentative)
+    {
+      cp_parser_abort_tentative_parse (parser);
+      return seen;
+    }
+  if (cnt != 1 || TREE_CHAIN (std_attrs))
+    {
+      error_at (make_location (first_loc, last_loc, middle_loc),
+		"%<[[omp::directive(%s)]]%> must be the only specified "
+		"attribute on a statement", directive);
+      cp_parser_abort_tentative_parse (parser);
+      return false;
+    }
+  if (!cp_parser_parse_definitely (parser))
+    return false;
+  cp_parser_handle_statement_omp_attributes (parser, std_attrs);
+  return true;
+}
+
+/* Parse an OpenMP structured block sequence.  KIND is the corresponding
+   separating directive.  */
+
+static tree
+cp_parser_omp_structured_block_sequence (cp_parser *parser,
+					 enum pragma_kind kind)
+{
+  tree stmt = begin_omp_structured_block ();
+  unsigned int save = cp_parser_begin_omp_structured_block (parser);
+
+  cp_parser_statement (parser, NULL_TREE, false, NULL);
+  while (true)
+    {
+      cp_token *token = cp_lexer_peek_token (parser->lexer);
+
+      if (token->type == CPP_CLOSE_BRACE
+	  || token->type == CPP_EOF
+	  || token->type == CPP_PRAGMA_EOL
+	  || (token->type == CPP_KEYWORD && token->keyword == RID_AT_END)
+	  || (kind != PRAGMA_NONE
+	      && cp_parser_pragma_kind (token) == kind))
+	break;
+
+      if (kind != PRAGMA_NONE
+	  && cp_parser_omp_section_scan (parser,
+					 kind == PRAGMA_OMP_SCAN
+					 ? "scan" : "section", false))
+	break;
+
+      cp_parser_statement (parser, NULL_TREE, false, NULL);
+    }
+
+  cp_parser_end_omp_structured_block (parser, save);
+  return finish_omp_structured_block (stmt);
+}
+
+
 /* OpenMP 5.0:
 
    scan-loop-body:
