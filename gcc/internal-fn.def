@@ -349,6 +349,26 @@ DEF_INTERNAL_FLT_FLOATN_FN (SQRT, ECF_CONST, sqrt, unary)
 DEF_INTERNAL_FLT_FN (TAN, ECF_CONST, tan, unary)
 DEF_INTERNAL_FLT_FN (TANH, ECF_CONST, tanh, unary)
 
+/* Floating-point to integer conversions.
+
+   ??? Here we preserve the I/L/LL prefix convention from the
+   corresponding built-in functions, rather than make the internal
+   functions polymorphic in both the argument and the return types.
+   Perhaps an alternative would be to pass a zero of the required
+   return type as a second parameter.  */
+DEF_INTERNAL_FLT_FN (ICEIL, ECF_CONST, lceil, unary_convert)
+DEF_INTERNAL_FLT_FN (IFLOOR, ECF_CONST, lfloor, unary_convert)
+DEF_INTERNAL_FLT_FN (IRINT, ECF_CONST, lrint, unary_convert)
+DEF_INTERNAL_FLT_FN (IROUND, ECF_CONST, lround, unary_convert)
+DEF_INTERNAL_FLT_FN (LCEIL, ECF_CONST, lceil, unary_convert)
+DEF_INTERNAL_FLT_FN (LFLOOR, ECF_CONST, lfloor, unary_convert)
+DEF_INTERNAL_FLT_FLOATN_FN (LRINT, ECF_CONST, lrint, unary_convert)
+DEF_INTERNAL_FLT_FLOATN_FN (LROUND, ECF_CONST, lround, unary_convert)
+DEF_INTERNAL_FLT_FN (LLCEIL, ECF_CONST, lceil, unary_convert)
+DEF_INTERNAL_FLT_FN (LLFLOOR, ECF_CONST, lfloor, unary_convert)
+DEF_INTERNAL_FLT_FLOATN_FN (LLRINT, ECF_CONST, lrint, unary_convert)
+DEF_INTERNAL_FLT_FLOATN_FN (LLROUND, ECF_CONST, lround, unary_convert)
+
 /* FP rounding.  */
 DEF_INTERNAL_FLT_FLOATN_FN (CEIL, ECF_CONST, ceil, unary)
 DEF_INTERNAL_FLT_FLOATN_FN (FLOOR, ECF_CONST, floor, unary)
