@@ -96,7 +96,7 @@
 (define_mode_iterator DREG [V8QI V4HI V4HF V2SI V2SF DF])
 
 ;; Copy of the above.
-(define_mode_iterator DREG2 [V8QI V4HI V4HF V2SI V2SF DF])
+(define_mode_iterator DREG2 [DREG])
 
 ;; All modes suitable to store/load pair (2 elements) using STP/LDP.
 (define_mode_iterator VP_2E [V2SI V2SF V2DI V2DF])
@@ -111,7 +111,7 @@
 (define_mode_iterator VQ [V16QI V8HI V4SI V2DI V8HF V4SF V2DF V8BF])
 
 ;; Copy of the above.
-(define_mode_iterator VQ2 [V16QI V8HI V4SI V2DI V8HF V8BF V4SF V2DF])
+(define_mode_iterator VQ2 [VQ])
 
 ;; Quad vector modes suitable for moving.  Includes BFmode.
 (define_mode_iterator VQMOV [V16QI V8HI V4SI V2DI V8HF V8BF V4SF V2DF])
@@ -302,7 +302,7 @@
 (define_mode_iterator SX [SI SF])
 
 ;; Duplicate of the above
-(define_mode_iterator SX2 [SI SF])
+(define_mode_iterator SX2 [SX])
 
 ;; Single and double integer and float modes
 (define_mode_iterator DSX [DF DI SF SI])
