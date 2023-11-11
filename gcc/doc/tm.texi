@@ -10385,8 +10385,13 @@ switch is needed / supplied.
 Generate one or more insns to set @var{entity} to @var{mode}. @var{hard_reg_live} is the set of hard registers live at the point where the insn(s) are to be inserted. @var{prev_moxde} indicates the mode to switch from. Sets of a lower numbered entity will be emitted before sets of a higher numbered entity to a mode of the same or lower priority.
 @end deftypefn
 
-@deftypefn {Target Hook} int TARGET_MODE_NEEDED (int @var{entity}, rtx_insn *@var{insn})
-@var{entity} is an integer specifying a mode-switched entity.  If @code{OPTIMIZE_MODE_SWITCHING} is defined, you must define this macro to return an integer value not larger than the corresponding element in @code{NUM_MODES_FOR_MODE_SWITCHING}, to denote the mode that @var{entity} must be switched into prior to the execution of @var{insn}.
+@deftypefn {Target Hook} int TARGET_MODE_NEEDED (int @var{entity}, rtx_insn *@var{insn}, HARD_REG_SET @var{regs_live})
+@var{entity} is an integer specifying a mode-switched entity.
+If @code{OPTIMIZE_MODE_SWITCHING} is defined, you must define this hook
+to return the mode that @var{entity} must be switched into prior to the
+execution of @var{insn}, or the number of modes if @var{insn} has no
+such requirement.  @var{regs_live} contains the set of hard registers
+that are live before @var{insn}.
 @end deftypefn
 
 @deftypefn {Target Hook} int TARGET_MODE_AFTER (int @var{entity}, int @var{mode}, rtx_insn *@var{insn})
