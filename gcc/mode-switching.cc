@@ -639,10 +639,6 @@ optimize_mode_switching (void)
 			clear_mode_bit (transp[bb->index], j, i);
 		    }
 
-		  if (targetm.mode_switching.after)
-		    last_mode = targetm.mode_switching.after (e, last_mode,
-							      insn);
-
 		  /* Update LIVE_NOW.  */
 		  for (link = REG_NOTES (insn); link; link = XEXP (link, 1))
 		    if (REG_NOTE_KIND (link) == REG_DEAD)
@@ -652,6 +648,10 @@ optimize_mode_switching (void)
 		  for (link = REG_NOTES (insn); link; link = XEXP (link, 1))
 		    if (REG_NOTE_KIND (link) == REG_UNUSED)
 		      reg_dies (XEXP (link, 0), &live_now);
+
+		  if (targetm.mode_switching.after)
+		    last_mode = targetm.mode_switching.after (e, last_mode,
+							      insn, live_now);
 		}
 	    }
 
