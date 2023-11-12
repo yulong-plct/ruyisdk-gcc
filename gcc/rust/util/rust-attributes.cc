@@ -842,5 +842,17 @@ void
 AttributeChecker::visit (AST::BareFunctionType &)
 {}
 
+void
+AttributeChecker::visit (AST::SelfParam &)
+{}
+
+void
+AttributeChecker::visit (AST::VariadicParam &)
+{}
+
+void
+AttributeChecker::visit (AST::FunctionParam &)
+{}
+
 } // namespace Analysis
 } // namespace Rust

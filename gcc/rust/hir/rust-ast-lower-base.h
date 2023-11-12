@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2022 Free Software Foundation, Inc.
+// Copyright (C) 2020-2024 Free Software Foundation, Inc.
 
 // This file is part of GCC.
 
@@ -16,111 +16,73 @@
 // along with GCC; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-#ifndef RUST_EARLY_NAME_RESOLVER_H
-#define RUST_EARLY_NAME_RESOLVER_H
+#ifndef RUST_AST_LOWER_BASE
+#define RUST_AST_LOWER_BASE
 
-#include "rust-name-resolver.h"
 #include "rust-system.h"
-#include "rust-ast.h"
+#include "rust-ast-full.h"
 #include "rust-ast-visitor.h"
+#include "rust-hir-map.h"
+#include "rust-hir-full.h"
+#include "rust-attributes.h"
 
 namespace Rust {
-namespace Resolver {
+namespace HIR {
 
-class EarlyNameResolver : public AST::ASTVisitor
+// proxy class so we can do attribute checking on items and trait items
+class ItemWrapper
 {
 public:
-  EarlyNameResolver ();
+  ItemWrapper (const HIR::Item &item)
+    : mappings (item.get_mappings ()), locus (item.get_locus ()),
+      outer_attrs (item.get_outer_attrs ())
+  {}
 
-  void go (AST::Crate &crate);
+  ItemWrapper (const HIR::TraitItem &item)
+    : mappings (item.get_mappings ()), locus (item.get_trait_locus ()),
+      outer_attrs (item.get_outer_attrs ())
+  {}
+
+  const Analysis::NodeMapping &get_mappings () const { return mappings; }
+  location_t get_locus () const { return locus; }
+  const AST::AttrVec &get_outer_attrs () const { return outer_attrs; }
 
 private:
-  /**
-   * Execute a lambda within a scope. This is equivalent to calling
-   * `enter_scope` before your code and `exit_scope` after. This ensures
-   * no errors can be committed
-   */
-  void scoped (NodeId scope_id, std::function<void ()> fn)
-  {
-    auto old_scope = current_scope;
-    current_scope = scope_id;
-    resolver.get_macro_scope ().push (scope_id);
-    resolver.push_new_macro_rib (resolver.get_macro_scope ().peek ());
+  const Analysis::NodeMapping &mappings;
+  location_t locus;
+  const AST::AttrVec &outer_attrs;
+};
 
-    fn ();
+// base class to allow derivatives to overload as needed
+class ASTLoweringBase : public AST::ASTVisitor
+{
+public:
+  virtual ~ASTLoweringBase () {}
 
-    resolver.get_macro_scope ().pop ();
-    current_scope = old_scope;
-  }
-
-  /**
-   * The "scope" we are currently in.
-   *
-   * This involves lexical scopes:
-   *
-   * ```rust
-   * // current_scope = crate_id;
-   * macro_rules! foo { () => {} )
-   *
-   * {
-   *     // current_scope = current_block_id;
-   *     macro_rules! foo { () => { something!(); } }
-   * }
-   * // current_scope = crate_id;
-   * ```
-   *
-   * as well as any sort of scope-like structure that might impact import name
-   * resolution or macro name resolution:
-   *
-   * ```rust
-   * macro_rules! foo {
-   *     () => { fn empty() {} }
-   * }
-   *
-   *
-   * trait Foo {
-   *     fn foo() {
-   *         fn inner_foo() {
-   *             macro_rules! foo { () => {} )
-   *
-   *             foo!();
-   *         }
-   *
-   *         foo!();
-   *     }
-   *
-   *     foo!();
-   * }
-   *
-   * foo!();
-   * ```
-   */
-  NodeId current_scope;
-
-  /* The crate's scope */
-  NodeId crate_scope;
-
-  Resolver &resolver;
-  Analysis::Mappings &mappings;
-
-  /**
-   * Early name-resolve generic args, which can be macro invocations
-   */
-  void resolve_generic_args (AST::GenericArgs &generic_args);
-
-  /**
-   * Early name-resolve a qualified path type, which can contain macro
-   * invocations
-   */
-  void resolve_qualified_path_type (AST::QualifiedPathType &path);
-
+  // visitor impl
+  // rust-ast.h
+  //  virtual void visit(AttrInput& attr_input);
+  //  virtual void visit(TokenTree& token_tree);
+  //  virtual void visit(MacroMatch& macro_match);
   virtual void visit (AST::Token &tok);
   virtual void visit (AST::DelimTokenTree &delim_tok_tree);
   virtual void visit (AST::AttrInputMetaItemContainer &input);
+  //  virtual void visit(MetaItem& meta_item);
+  //  void vsit(Stmt& stmt);
+  //  virtual void visit(Expr& expr);
   virtual void visit (AST::IdentifierExpr &ident_expr);
+  //  virtual void visit(Pattern& pattern);
+  //  virtual void visit(Type& type);
+  //  virtual void visit(TypeParamBound& type_param_bound);
   virtual void visit (AST::Lifetime &lifetime);
+  //  virtual void visit(GenericParam& generic_param);
   virtual void visit (AST::LifetimeParam &lifetime_param);
   virtual void visit (AST::ConstGenericParam &const_param);
+  //  virtual void visit(TraitItem& trait_item);
+  //  virtual void visit(InherentImplItem& inherent_impl_item);
+  //  virtual void visit(TraitImplItem& trait_impl_item);
+
+  // rust-path.h
   virtual void visit (AST::PathInExpression &path);
   virtual void visit (AST::TypePathSegment &segment);
   virtual void visit (AST::TypePathSegmentGeneric &segment);
@@ -128,8 +90,11 @@ private:
   virtual void visit (AST::TypePath &path);
   virtual void visit (AST::QualifiedPathInExpression &path);
   virtual void visit (AST::QualifiedPathInType &path);
+
+  // rust-expr.h
   virtual void visit (AST::LiteralExpr &expr);
   virtual void visit (AST::AttrInputLiteral &attr_input);
+  virtual void visit (AST::AttrInputMacro &attr_input);
   virtual void visit (AST::MetaItemLitExpr &meta_item);
   virtual void visit (AST::MetaItemPathLit &meta_item);
   virtual void visit (AST::BorrowExpr &expr);
@@ -143,6 +108,7 @@ private:
   virtual void visit (AST::AssignmentExpr &expr);
   virtual void visit (AST::CompoundAssignmentExpr &expr);
   virtual void visit (AST::GroupedExpr &expr);
+  //  virtual void visit(ArrayElems& elems);
   virtual void visit (AST::ArrayElemsValues &elems);
   virtual void visit (AST::ArrayElemsCopied &elems);
   virtual void visit (AST::ArrayExpr &expr);
@@ -150,6 +116,7 @@ private:
   virtual void visit (AST::TupleExpr &expr);
   virtual void visit (AST::TupleIndexExpr &expr);
   virtual void visit (AST::StructExprStruct &expr);
+  //  virtual void visit(StructExprField& field);
   virtual void visit (AST::StructExprFieldIdentifier &field);
   virtual void visit (AST::StructExprFieldIdentifierValue &field);
   virtual void visit (AST::StructExprFieldIndexValue &field);
@@ -177,21 +144,23 @@ private:
   virtual void visit (AST::ForLoopExpr &expr);
   virtual void visit (AST::IfExpr &expr);
   virtual void visit (AST::IfExprConseqElse &expr);
-  virtual void visit (AST::IfExprConseqIf &expr);
-  virtual void visit (AST::IfExprConseqIfLet &expr);
   virtual void visit (AST::IfLetExpr &expr);
   virtual void visit (AST::IfLetExprConseqElse &expr);
-  virtual void visit (AST::IfLetExprConseqIf &expr);
-  virtual void visit (AST::IfLetExprConseqIfLet &expr);
+  //  virtual void visit(MatchCase& match_case);
+  // virtual void visit (AST::MatchCaseBlockExpr &match_case);
+  // virtual void visit (AST::MatchCaseExpr &match_case);
   virtual void visit (AST::MatchExpr &expr);
   virtual void visit (AST::AwaitExpr &expr);
   virtual void visit (AST::AsyncBlockExpr &expr);
+
+  // rust-item.h
   virtual void visit (AST::TypeParam &param);
+  //  virtual void visit(WhereClauseItem& item);
   virtual void visit (AST::LifetimeWhereClauseItem &item);
   virtual void visit (AST::TypeBoundWhereClauseItem &item);
-  virtual void visit (AST::Method &method);
   virtual void visit (AST::Module &module);
   virtual void visit (AST::ExternCrate &crate);
+  //  virtual void visit(UseTree& use_tree);
   virtual void visit (AST::UseTreeGlob &use_tree);
   virtual void visit (AST::UseTreeList &use_tree);
   virtual void visit (AST::UseTreeRebind &use_tree);
@@ -215,9 +184,13 @@ private:
   virtual void visit (AST::Trait &trait);
   virtual void visit (AST::InherentImpl &impl);
   virtual void visit (AST::TraitImpl &impl);
+  //  virtual void visit(ExternalItem& item);
+  virtual void visit (AST::ExternalTypeItem &item);
   virtual void visit (AST::ExternalStaticItem &item);
   virtual void visit (AST::ExternalFunctionItem &item);
   virtual void visit (AST::ExternBlock &block);
+
+  // rust-macro.h
   virtual void visit (AST::MacroMatchFragment &match);
   virtual void visit (AST::MacroMatchRepetition &match);
   virtual void visit (AST::MacroMatcher &matcher);
@@ -229,30 +202,41 @@ private:
   virtual void visit (AST::MetaNameValueStr &meta_item);
   virtual void visit (AST::MetaListPaths &meta_item);
   virtual void visit (AST::MetaListNameValueStr &meta_item);
+
+  // rust-pattern.h
   virtual void visit (AST::LiteralPattern &pattern);
   virtual void visit (AST::IdentifierPattern &pattern);
   virtual void visit (AST::WildcardPattern &pattern);
+  virtual void visit (AST::RestPattern &pattern);
+  //  virtual void visit(RangePatternBound& bound);
   virtual void visit (AST::RangePatternBoundLiteral &bound);
   virtual void visit (AST::RangePatternBoundPath &bound);
   virtual void visit (AST::RangePatternBoundQualPath &bound);
   virtual void visit (AST::RangePattern &pattern);
   virtual void visit (AST::ReferencePattern &pattern);
+  //  virtual void visit(StructPatternField& field);
   virtual void visit (AST::StructPatternFieldTuplePat &field);
   virtual void visit (AST::StructPatternFieldIdentPat &field);
   virtual void visit (AST::StructPatternFieldIdent &field);
   virtual void visit (AST::StructPattern &pattern);
+  //  virtual void visit(TupleStructItems& tuple_items);
   virtual void visit (AST::TupleStructItemsNoRange &tuple_items);
   virtual void visit (AST::TupleStructItemsRange &tuple_items);
   virtual void visit (AST::TupleStructPattern &pattern);
+  //  virtual void visit(TuplePatternItems& tuple_items);
   virtual void visit (AST::TuplePatternItemsMultiple &tuple_items);
   virtual void visit (AST::TuplePatternItemsRanged &tuple_items);
   virtual void visit (AST::TuplePattern &pattern);
   virtual void visit (AST::GroupedPattern &pattern);
   virtual void visit (AST::SlicePattern &pattern);
+  virtual void visit (AST::AltPattern &pattern);
+
+  // rust-stmt.h
   virtual void visit (AST::EmptyStmt &stmt);
   virtual void visit (AST::LetStmt &stmt);
-  virtual void visit (AST::ExprStmtWithoutBlock &stmt);
-  virtual void visit (AST::ExprStmtWithBlock &stmt);
+  virtual void visit (AST::ExprStmt &stmt);
+
+  // rust-type.h
   virtual void visit (AST::TraitBound &bound);
   virtual void visit (AST::ImplTraitType &type);
   virtual void visit (AST::TraitObjectType &type);
@@ -267,13 +251,77 @@ private:
   virtual void visit (AST::SliceType &type);
   virtual void visit (AST::InferredType &type);
   virtual void visit (AST::BareFunctionType &type);
+  virtual void visit (AST::FunctionParam &param);
+  virtual void visit (AST::VariadicParam &param);
+  virtual void visit (AST::SelfParam &param);
 
-  virtual void visit (AST::VariadicParam &type);
-  virtual void visit (AST::FunctionParam &type);
-  virtual void visit (AST::SelfParam &type);
+protected:
+  ASTLoweringBase ()
+    : mappings (Analysis::Mappings::get ()),
+      attr_mappings (Analysis::BuiltinAttributeMappings::get ())
+  {}
+
+  Analysis::Mappings *mappings;
+  Analysis::BuiltinAttributeMappings *attr_mappings;
+
+  HIR::Lifetime lower_lifetime (AST::Lifetime &lifetime);
+
+  HIR::LoopLabel lower_loop_label (AST::LoopLabel &loop_label);
+
+  std::vector<std::unique_ptr<HIR::GenericParam> > lower_generic_params (
+    std::vector<std::unique_ptr<AST::GenericParam> > &params);
+
+  HIR::PathExprSegment lower_path_expr_seg (AST::PathExprSegment &s);
+
+  HIR::GenericArgs lower_generic_args (AST::GenericArgs &args);
+
+  HIR::GenericArgsBinding lower_binding (AST::GenericArgsBinding &binding);
+
+  HIR::SelfParam lower_self (std::unique_ptr<AST::Param> &self);
+
+  HIR::Type *lower_type_no_bounds (AST::TypeNoBounds *type);
+
+  HIR::TypeParamBound *lower_bound (AST::TypeParamBound *bound);
+
+  HIR::QualifiedPathType
+  lower_qual_path_type (AST::QualifiedPathType &qual_path_type);
+
+  HIR::FunctionQualifiers
+  lower_qualifiers (const AST::FunctionQualifiers &qualifiers);
+
+  void handle_outer_attributes (const ItemWrapper &item);
+
+  void handle_lang_item_attribute (const ItemWrapper &item,
+				   const AST::Attribute &attr);
+
+  void handle_doc_item_attribute (const ItemWrapper &item,
+				  const AST::Attribute &attr);
+
+  bool is_known_attribute (const std::string &attribute_path) const;
+
+  bool
+  attribute_handled_in_another_pass (const std::string &attribute_path) const;
+
+  std::unique_ptr<TuplePatternItems>
+  lower_tuple_pattern_multiple (AST::TuplePatternItemsMultiple &pattern);
+
+  std::unique_ptr<TuplePatternItems>
+  lower_tuple_pattern_ranged (AST::TuplePatternItemsRanged &pattern);
+
+  std::unique_ptr<HIR::RangePatternBound>
+  lower_range_pattern_bound (AST::RangePatternBound *bound);
+
+  HIR::Literal lower_literal (const AST::Literal &literal);
+
+  HIR::ExternBlock *lower_extern_block (AST::ExternBlock &extern_block);
+
+  HIR::ClosureParam lower_closure_param (AST::ClosureParam &param);
+
+  /* Lower a macro definition if it should be exported */
+  void lower_macro_definition (AST::MacroRulesDefinition &def);
 };
 
-} // namespace Resolver
+} // namespace HIR
 } // namespace Rust
 
-#endif // RUST_EARLY_NAME_RESOLVER_H
+#endif // RUST_AST_LOWER_BASE

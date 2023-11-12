@@ -613,8 +613,8 @@ EarlyNameResolver::visit (AST::Function &function)
     for (auto &generic : function.get_generic_params ())
       generic->accept_vis (*this);
 
-  for (auto &param : function.get_function_params ())
-    param.get_type ()->accept_vis (*this);
+  for (auto &p : function.get_function_params ())
+    p->accept_vis (*this);
 
   if (function.has_return_type ())
     function.get_return_type ()->accept_vis (*this);
@@ -691,8 +691,8 @@ EarlyNameResolver::visit (AST::TraitItemFunc &item)
   for (auto &generic : decl.get_generic_params ())
     generic->accept_vis (*this);
 
-  for (auto &param : decl.get_function_params ())
-    param.get_type ()->accept_vis (*this);
+  for (auto &p : decl.get_function_params ())
+    p->accept_vis (*this);
 
   if (item.has_definition ())
     item.get_definition ()->accept_vis (*this);
@@ -710,8 +710,8 @@ EarlyNameResolver::visit (AST::TraitItemMethod &item)
   for (auto &generic : decl.get_generic_params ())
     generic->accept_vis (*this);
 
-  for (auto &param : decl.get_function_params ())
-    param.get_type ()->accept_vis (*this);
+  for (auto &p : decl.get_function_params ())
+    p->accept_vis (*this);
 
   if (item.has_definition ())
     item.get_definition ()->accept_vis (*this);
@@ -1140,6 +1140,29 @@ EarlyNameResolver::visit (AST::BareFunctionType &type)
 
   if (type.has_return_type ())
     type.get_return_type ()->accept_vis (*this);
+}
+
+void
+EarlyNameResolver::visit (AST::VariadicParam &param)
+{
+  if (param.has_pattern ())
+    param.get_pattern ()->accept_vis (*this);
+}
+
+void
+EarlyNameResolver::visit (AST::FunctionParam &param)
+{
+  param.get_pattern ()->accept_vis (*this);
+  param.get_type ()->accept_vis (*this);
+}
+
+void
+EarlyNameResolver::visit (AST::SelfParam &param)
+{
+  if (param.has_type ())
+    param.get_type ()->accept_vis (*this);
+  if (param.has_lifetime ())
+    param.get_lifetime ().accept_vis (*this);
 }
 
 } // namespace Resolver

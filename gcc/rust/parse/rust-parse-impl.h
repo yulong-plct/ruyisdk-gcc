@@ -2899,11 +2899,20 @@ Parser<ManagedTokenSource>::parse_function (AST::Visibility vis,
       return nullptr;
     }
 
+  std::unique_ptr<AST::Param> initial_param = parse_self_param ();
+  if (initial_param != nullptr)
+    skip_token (COMMA);
+
   // parse function parameters (only if next token isn't right paren)
-  std::vector<AST::FunctionParam> function_params;
+  std::vector<std::unique_ptr<AST::Param>> function_params;
+
   if (lexer.peek_token ()->get_id () != RIGHT_PAREN)
     function_params
       = parse_function_params ([] (TokenId id) { return id == RIGHT_PAREN; });
+
+  if (initial_param != nullptr)
+    function_params.insert (function_params.begin (),
+			    std::move (initial_param));
 
   if (!skip_token (RIGHT_PAREN))
     {
@@ -3541,18 +3550,18 @@ Parser<ManagedTokenSource>::parse_type_param ()
  * has end token handling. */
 template <typename ManagedTokenSource>
 template <typename EndTokenPred>
-std::vector<AST::FunctionParam>
+std::vector<std::unique_ptr<AST::Param>>
 Parser<ManagedTokenSource>::parse_function_params (EndTokenPred is_end_token)
 {
-  std::vector<AST::FunctionParam> params;
+  std::vector<std::unique_ptr<AST::Param>> params;
 
   if (is_end_token (lexer.peek_token ()->get_id ()))
     return params;
 
-  AST::FunctionParam initial_param = parse_function_param ();
+  auto initial_param = parse_function_param ();
 
   // Return empty parameter list if no parameter there
-  if (initial_param.is_error ())
+  if (initial_param == nullptr)
     {
       // TODO: is this an error?
       return params;
@@ -3574,15 +3583,15 @@ Parser<ManagedTokenSource>::parse_function_params (EndTokenPred is_end_token)
 	break;
 
       // now, as right paren would break, function param is required
-      AST::FunctionParam param = parse_function_param ();
-      if (param.is_error ())
+      auto param = parse_function_param ();
+      if (param == nullptr)
 	{
 	  Error error (lexer.peek_token ()->get_locus (),
 		       "failed to parse function param (in function params)");
 	  add_error (std::move (error));
 
 	  // skip somewhere?
-	  return std::vector<AST::FunctionParam> ();
+	  return std::vector<std::unique_ptr<AST::Param>> ();
 	}
 
       params.push_back (std::move (param));
@@ -3597,34 +3606,55 @@ Parser<ManagedTokenSource>::parse_function_params (EndTokenPred is_end_token)
 /* Parses a single regular (i.e. non-generic) parameter in a function or
  * method, i.e. the "name: type" bit. Also handles it not existing. */
 template <typename ManagedTokenSource>
-AST::FunctionParam
+std::unique_ptr<AST::Param>
 Parser<ManagedTokenSource>::parse_function_param ()
 {
   // parse outer attributes if they exist
   AST::AttrVec outer_attrs = parse_outer_attributes ();
 
   // TODO: should saved location be at start of outer attributes or pattern?
-  Location locus = lexer.peek_token ()->get_locus ();
+  location_t locus = lexer.peek_token ()->get_locus ();
+
+  if (lexer.peek_token ()->get_id () == ELLIPSIS) // Unnamed variadic
+    {
+      lexer.skip_token (); // Skip ellipsis
+      return Rust::make_unique<AST::VariadicParam> (
+	AST::VariadicParam (std::move (outer_attrs), locus));
+    }
+
   std::unique_ptr<AST::Pattern> param_pattern = parse_pattern ();
 
   // create error function param if it doesn't exist
   if (param_pattern == nullptr)
     {
       // skip after something
-      return AST::FunctionParam::create_error ();
+      return nullptr;
     }
 
   if (!skip_token (COLON))
     {
       // skip after something
-      return AST::FunctionParam::create_error ();
+      return nullptr;
     }
 
   std::unique_ptr<AST::Type> param_type = parse_type ();
   if (param_type == nullptr)
     {
-      // skip?
-      return AST::FunctionParam::create_error ();
+      lexer.skip_token (); // Skip ellipsis
+      return Rust::make_unique<AST::VariadicParam> (
+	AST::VariadicParam (std::move (param_pattern), std::move (outer_attrs),
+			    locus));
+    }
+  else
+    {
+      std::unique_ptr<AST::Type> param_type = parse_type ();
+      if (param_type == nullptr)
+	{
+	  return nullptr;
+	}
+      return Rust::make_unique<AST::FunctionParam> (
+	AST::FunctionParam (std::move (param_pattern), std::move (param_type),
+			    std::move (outer_attrs), locus));
     }
 
   return AST::FunctionParam (std::move (param_pattern), std::move (param_type),
@@ -5040,13 +5070,14 @@ Parser<ManagedTokenSource>::parse_trait_item ()
 
 	/* now for function vs method disambiguation - method has opening
 	 * "self" param */
-	AST::SelfParam self_param = parse_self_param ();
+	std::unique_ptr<AST::Param> initial_param = parse_self_param ();
 	/* FIXME: ensure that self param doesn't accidently consume tokens for
 	 * a function */
 	bool is_method = false;
-	if (!self_param.is_error ())
+	if (initial_param != nullptr)
 	  {
-	    is_method = true;
+	    if (initial_param->is_self ())
+	      is_method = true;
 
 	    /* skip comma so function and method regular params can be parsed
 	     * in same way */
@@ -5055,7 +5086,7 @@ Parser<ManagedTokenSource>::parse_trait_item ()
 	  }
 
 	// parse trait function params
-	std::vector<AST::FunctionParam> function_params
+	std::vector<std::unique_ptr<AST::Param>> function_params
 	  = parse_function_params (
 	    [] (TokenId id) { return id == RIGHT_PAREN; });
 
@@ -5064,6 +5095,10 @@ Parser<ManagedTokenSource>::parse_trait_item ()
 	    // skip after somewhere?
 	    return nullptr;
 	  }
+
+	if (initial_param != nullptr)
+	  function_params.insert (function_params.begin (),
+				  std::move (initial_param));
 
 	// parse return type (optional)
 	std::unique_ptr<AST::Type> return_type = parse_function_return_type ();
@@ -5103,7 +5138,6 @@ Parser<ManagedTokenSource>::parse_trait_item ()
 	    AST::TraitMethodDecl method_decl (std::move (ident),
 					      std::move (qualifiers),
 					      std::move (generic_params),
-					      std::move (self_param),
 					      std::move (function_params),
 					      std::move (return_type),
 					      std::move (where_clause));
@@ -5581,14 +5615,15 @@ Parser<ManagedTokenSource>::parse_inherent_impl_function_or_method (
 
   // now for function vs method disambiguation - method has opening "self"
   // param
-  AST::SelfParam self_param = parse_self_param ();
+  std::unique_ptr<AST::Param> initial_param = parse_self_param ();
   /* FIXME: ensure that self param doesn't accidently consume tokens for a
    * function one idea is to lookahead up to 4 tokens to see whether self is
    * one of them */
   bool is_method = false;
-  if (!self_param.is_error ())
+  if (initial_param != nullptr)
     {
-      is_method = true;
+      if (initial_param->is_self ())
+	is_method = true;
 
       /* skip comma so function and method regular params can be parsed in
        * same way */
@@ -5597,8 +5632,12 @@ Parser<ManagedTokenSource>::parse_inherent_impl_function_or_method (
     }
 
   // parse trait function params
-  std::vector<AST::FunctionParam> function_params
+  std::vector<std::unique_ptr<AST::Param>> function_params
     = parse_function_params ([] (TokenId id) { return id == RIGHT_PAREN; });
+
+  if (initial_param != nullptr)
+    function_params.insert (function_params.begin (),
+			    std::move (initial_param));
 
   if (!skip_token (RIGHT_PAREN))
     {
@@ -5639,12 +5678,12 @@ Parser<ManagedTokenSource>::parse_inherent_impl_function_or_method (
   // do actual if instead of ternary for return value optimisation
   if (is_method)
     {
-      return std::unique_ptr<AST::Method> (
-	new AST::Method (std::move (ident), std::move (qualifiers),
-			 std::move (generic_params), std::move (self_param),
-			 std::move (function_params), std::move (return_type),
-			 std::move (where_clause), std::move (body),
-			 std::move (vis), std::move (outer_attrs), locus));
+      return std::unique_ptr<AST::Function> (
+	new AST::Function (std::move (ident), std::move (qualifiers),
+			   std::move (generic_params),
+			   std::move (function_params), std::move (return_type),
+			   std::move (where_clause), std::move (body),
+			   std::move (vis), std::move (outer_attrs), locus));
     }
   else
     {
@@ -5784,13 +5823,14 @@ Parser<ManagedTokenSource>::parse_trait_impl_function_or_method (
 
   // now for function vs method disambiguation - method has opening "self"
   // param
-  AST::SelfParam self_param = parse_self_param ();
+  std::unique_ptr<AST::Param> initial_param = parse_self_param ();
   // FIXME: ensure that self param doesn't accidently consume tokens for a
   // function
   bool is_method = false;
-  if (!self_param.is_error ())
+  if (initial_param != nullptr)
     {
-      is_method = true;
+      if (initial_param->is_self ())
+	is_method = true;
 
       // skip comma so function and method regular params can be parsed in
       // same way
@@ -5808,7 +5848,7 @@ Parser<ManagedTokenSource>::parse_trait_impl_function_or_method (
     "started to parse function params in function or method trait impl item");
 
   // parse trait function params (only if next token isn't right paren)
-  std::vector<AST::FunctionParam> function_params;
+  std::vector<std::unique_ptr<AST::Param>> function_params;
   if (lexer.peek_token ()->get_id () != RIGHT_PAREN)
     {
       function_params
@@ -5826,6 +5866,10 @@ Parser<ManagedTokenSource>::parse_trait_impl_function_or_method (
 	  return nullptr;
 	}
     }
+
+  if (initial_param != nullptr)
+    function_params.insert (function_params.begin (),
+			    std::move (initial_param));
 
   // DEBUG
   rust_debug ("successfully parsed function params in function or method "
@@ -5875,23 +5919,12 @@ Parser<ManagedTokenSource>::parse_trait_impl_function_or_method (
       return nullptr;
     }
 
-  // do actual if instead of ternary for return value optimisation
-  if (is_method)
-    {
-      return std::unique_ptr<AST::Method> (new AST::Method (
-	std::move (ident), std::move (qualifiers), std::move (generic_params),
-	std::move (self_param), std::move (function_params),
-	std::move (return_type), std::move (where_clause), std::move (body),
-	std::move (vis), std::move (outer_attrs), locus, is_default));
-    }
-  else
-    {
-      return std::unique_ptr<AST::Function> (new AST::Function (
-	std::move (ident), std::move (qualifiers), std::move (generic_params),
-	std::move (function_params), std::move (return_type),
-	std::move (where_clause), std::move (body), std::move (vis),
-	std::move (outer_attrs), locus, is_default));
-    }
+  return std::unique_ptr<AST::Function> (
+    new AST::Function (std::move (ident), std::move (qualifiers),
+		       std::move (generic_params), std::move (function_params),
+		       std::move (return_type), std::move (where_clause),
+		       std::move (body), std::move (vis),
+		       std::move (outer_attrs), locus, is_default));
 }
 
 // Parses an extern block of declarations.
@@ -7075,13 +7108,49 @@ Parser<ManagedTokenSource>::parse_qualified_path_in_type ()
 
 // Parses a self param. Also handles self param not existing.
 template <typename ManagedTokenSource>
-AST::SelfParam
+std::unique_ptr<AST::Param>
 Parser<ManagedTokenSource>::parse_self_param ()
 {
   bool has_reference = false;
   AST::Lifetime lifetime = AST::Lifetime::error ();
 
   Location locus = lexer.peek_token ()->get_locus ();
+
+  // TODO: Feels off, find a better way to clearly express this
+  std::vector<std::vector<TokenId>> ptrs
+    = {{ASTERISK, SELF} /* *self */,
+       {ASTERISK, CONST, SELF} /* *const self */,
+       {ASTERISK, MUT, SELF} /* *mut self */};
+
+  for (auto &s : ptrs)
+    {
+      size_t i = 0;
+      for (i = 0; i > s.size (); i++)
+	if (lexer.peek_token (i)->get_id () != s[i])
+	  break;
+      if (i == s.size ())
+	rust_error_at (lexer.peek_token ()->get_locus (),
+		       "cannot pass %<self%> by raw pointer");
+    }
+
+  // Trying to find those patterns:
+  //
+  // &'lifetime mut self
+  // &'lifetime self
+  // & mut self
+  // & self
+  // mut self
+  // self
+  //
+  // If not found, it is probably a function, exit and let function parsing
+  // handle it.
+  bool is_self = false;
+  for (size_t i = 0; i < 5; i++)
+    if (lexer.peek_token (i)->get_id () == SELF)
+      is_self = true;
+
+  if (!is_self)
+    return nullptr;
 
   // test if self is a reference parameter
   if (lexer.peek_token ()->get_id () == AMP)
@@ -7102,7 +7171,7 @@ Parser<ManagedTokenSource>::parse_self_param ()
 	      add_error (std::move (error));
 
 	      // skip after somewhere?
-	      return AST::SelfParam::create_error ();
+	      return nullptr;
 	    }
 	}
     }
@@ -7120,7 +7189,7 @@ Parser<ManagedTokenSource>::parse_self_param ()
   if (self_tok->get_id () != SELF)
     {
       // skip after somewhere?
-      return AST::SelfParam::create_error ();
+      return nullptr;
     }
   lexer.skip_token ();
 
@@ -7139,7 +7208,7 @@ Parser<ManagedTokenSource>::parse_self_param ()
 	  add_error (std::move (error));
 
 	  // skip after somewhere?
-	  return AST::SelfParam::create_error ();
+	  return nullptr;
 	}
     }
 
@@ -7152,113 +7221,20 @@ Parser<ManagedTokenSource>::parse_self_param ()
       add_error (std::move (error));
 
       // skip after somewhere?
-      return AST::SelfParam::create_error ();
+      return nullptr;
     }
 
   if (has_reference)
     {
-      return AST::SelfParam (std::move (lifetime), has_mut, locus);
+      return Rust::make_unique<AST::SelfParam> (std::move (lifetime), has_mut,
+						locus);
     }
   else
     {
       // note that type may be nullptr here and that's fine
-      return AST::SelfParam (std::move (type), has_mut, locus);
+      return Rust::make_unique<AST::SelfParam> (std::move (type), has_mut,
+						locus);
     }
-}
-
-/* Parses a method. Note that this function is probably useless because using
- * lookahead to determine whether a function is a method is a PITA (maybe not
- * even doable), so most places probably parse a "function or method" and then
- * resolve it into whatever it is afterward. As such, this is only here for
- * algorithmically defining the grammar rule. */
-template <typename ManagedTokenSource>
-AST::Method
-Parser<ManagedTokenSource>::parse_method ()
-{
-  Location locus = lexer.peek_token ()->get_locus ();
-  /* Note: as a result of the above, this will not attempt to disambiguate a
-   * function parse qualifiers */
-  AST::FunctionQualifiers qualifiers = parse_function_qualifiers ();
-
-  skip_token (FN_TOK);
-
-  const_TokenPtr ident_tok = expect_token (IDENTIFIER);
-  if (ident_tok == nullptr)
-    {
-      skip_after_next_block ();
-      return AST::Method::create_error ();
-    }
-  Identifier method_name{ident_tok};
-
-  // parse generic params - if exist
-  std::vector<std::unique_ptr<AST::GenericParam>> generic_params
-    = parse_generic_params_in_angles ();
-
-  if (!skip_token (LEFT_PAREN))
-    {
-      Error error (lexer.peek_token ()->get_locus (),
-		   "method missing opening parentheses before parameter list");
-      add_error (std::move (error));
-
-      skip_after_next_block ();
-      return AST::Method::create_error ();
-    }
-
-  // parse self param
-  AST::SelfParam self_param = parse_self_param ();
-  if (self_param.is_error ())
-    {
-      Error error (lexer.peek_token ()->get_locus (),
-		   "could not parse self param in method");
-      add_error (std::move (error));
-
-      skip_after_next_block ();
-      return AST::Method::create_error ();
-    }
-
-  // skip comma if it exists
-  if (lexer.peek_token ()->get_id () == COMMA)
-    lexer.skip_token ();
-
-  // parse function parameters
-  std::vector<AST::FunctionParam> function_params
-    = parse_function_params ([] (TokenId id) { return id == RIGHT_PAREN; });
-
-  if (!skip_token (RIGHT_PAREN))
-    {
-      Error error (lexer.peek_token ()->get_locus (),
-		   "method declaration missing closing parentheses after "
-		   "parameter list");
-      add_error (std::move (error));
-
-      skip_after_next_block ();
-      return AST::Method::create_error ();
-    }
-
-  // parse function return type - if exists
-  std::unique_ptr<AST::Type> return_type = parse_function_return_type ();
-
-  // parse where clause - if exists
-  AST::WhereClause where_clause = parse_where_clause ();
-
-  // parse block expression
-  std::unique_ptr<AST::BlockExpr> block_expr = parse_block_expr ();
-  if (block_expr == nullptr)
-    {
-      Error error (lexer.peek_token ()->get_locus (),
-		   "method declaration missing block expression");
-      add_error (std::move (error));
-
-      skip_after_end_block ();
-      return AST::Method::create_error ();
-    }
-
-  // does not parse visibility, but this method isn't used, so doesn't matter
-  return AST::Method (std::move (method_name), std::move (qualifiers),
-		      std::move (generic_params), std::move (self_param),
-		      std::move (function_params), std::move (return_type),
-		      std::move (where_clause), std::move (block_expr),
-		      AST::Visibility::create_error (), AST::AttrVec (), locus);
 }
 
 /* Parses an expression or macro statement. */

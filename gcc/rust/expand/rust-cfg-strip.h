@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2023 Free Software Foundation, Inc.
+// Copyright (C) 2020-2024 Free Software Foundation, Inc.
 
 // This file is part of GCC.
 
@@ -18,103 +18,37 @@
 
 #include "rust-ast-visitor.h"
 #include "rust-ast.h"
-#include "rust-macro-expand.h"
-#include "rust-proc-macro.h"
+#include "rust-item.h"
 
 namespace Rust {
-// Visitor used to expand attributes.
-class AttrVisitor : public AST::ASTVisitor
+// Visitor used to maybe_strip attributes.
+class CfgStrip : public AST::ASTVisitor
 {
+private:
 public:
-  ExpandVisitor (MacroExpander &expander, ProcMacroExpander &proc_expander)
-    : expander (expander), proc_expander (proc_expander)
-  {}
+  CfgStrip () {}
 
-  /* Expand all of the macro invocations currently contained in a crate */
+  /* Run the AttrVisitor on an entire crate */
   void go (AST::Crate &crate);
 
-  /* Maybe expand a macro invocation in lieu of an expression */
-  void maybe_expand_expr (std::unique_ptr<AST::Expr> &expr);
-  void maybe_expand_type (std::unique_ptr<AST::Type> &expr);
-
-public:
-  AttrVisitor (MacroExpander &expander) : expander (expander) {}
-
-  void expand_struct_fields (std::vector<AST::StructField> &fields);
-  void expand_tuple_fields (std::vector<AST::TupleField> &fields);
-
-  /**
-   * Expand all macro invocations in lieu of types within a list of function
-   * parameters
-   */
-  void
-  expand_function_params (std::vector<std::unique_ptr<AST::Param>> &params);
+  void maybe_strip_struct_fields (std::vector<AST::StructField> &fields);
+  void maybe_strip_tuple_fields (std::vector<AST::TupleField> &fields);
+  void maybe_strip_function_params (
+    std::vector<std::unique_ptr<AST::Param>> &params);
+  void maybe_strip_generic_args (AST::GenericArgs &args);
+  void maybe_strip_qualified_path_type (AST::QualifiedPathType &path_type);
+  void maybe_strip_closure_params (std::vector<AST::ClosureParam> &params);
+  void maybe_strip_self_param (AST::SelfParam &self_param);
+  void maybe_strip_where_clause (AST::WhereClause &where_clause);
+  void maybe_strip_trait_function_decl (AST::TraitFunctionDecl &decl);
+  void maybe_strip_trait_method_decl (AST::TraitMethodDecl &decl);
 
   /**
-   * Expand all macro invocations in lieu of types within a list of generic
-   * arguments
-   */
-  void expand_generic_args (AST::GenericArgs &args);
-  void expand_qualified_path_type (AST::QualifiedPathType &path_type);
-  void expand_closure_params (std::vector<AST::ClosureParam> &params);
-  void expand_where_clause (AST::WhereClause &where_clause);
-  void expand_trait_function_decl (AST::TraitFunctionDecl &decl);
-  void expand_trait_method_decl (AST::TraitMethodDecl &decl);
-
-  /**
-   * Expand a set of values, erasing them if they are marked for strip, and
-   * replacing them with expanded macro nodes if necessary.
-   * This function is slightly different from `expand_pointer_allow_strip` as
-   * it can only be called in certain expansion contexts - where macro
-   * invocations are allowed.
+   * maybe_strip a set of values, erasing them if they are marked for strip.
    *
-   * @param ctx Context to use for macro expansion
    * @param values Iterable reference over values to replace or erase
-   * @param extractor Function to call when replacing values with the content
-   * 		of an expanded AST node
    */
-  template <typename T, typename U>
-  void expand_macro_children (MacroExpander::ContextType ctx, T &values,
-			      std::function<U (AST::SingleASTNode)> extractor)
-  {
-    expander.push_context (ctx);
-
-    for (auto it = values.begin (); it != values.end ();)
-      {
-	auto &value = *it;
-
-	// mark for stripping if required
-	value->accept_vis (*this);
-
-	auto final_fragment = expander.take_expanded_fragment ();
-
-	if (final_fragment.should_expand ())
-	  {
-	    it = values.erase (it);
-	    for (auto &node : final_fragment.get_nodes ())
-	      {
-		auto new_node = extractor (node);
-		if (new_node != nullptr && !new_node->is_marked_for_strip ())
-		  {
-		    it = values.insert (it, std::move (new_node));
-		    it++;
-		  }
-	      }
-	  }
-	else if (value->is_marked_for_strip ())
-	  {
-	    it = values.erase (it);
-	  }
-	else
-	  {
-	    ++it;
-	  }
-      }
-
-    expander.pop_context ();
-  }
-
-  template <typename T> void expand_pointer_allow_strip (T &values)
+  template <typename T> void maybe_strip_pointer_allow_strip (T &values)
   {
     for (auto it = values.begin (); it != values.end ();)
       {
@@ -123,13 +57,9 @@ public:
 	// mark for stripping if required
 	value->accept_vis (*this);
 	if (value->is_marked_for_strip ())
-	  {
-	    it = values.erase (it);
-	  }
+	  it = values.erase (it);
 	else
-	  {
-	    ++it;
-	  }
+	  ++it;
       }
   }
 
@@ -153,6 +83,7 @@ public:
 
   void visit (AST::LiteralExpr &expr) override;
   void visit (AST::AttrInputLiteral &) override;
+  void visit (AST::AttrInputMacro &) override;
   void visit (AST::MetaItemLitExpr &) override;
   void visit (AST::MetaItemPathLit &) override;
   void visit (AST::BorrowExpr &expr) override;
@@ -203,19 +134,14 @@ public:
   void visit (AST::ForLoopExpr &expr) override;
   void visit (AST::IfExpr &expr) override;
   void visit (AST::IfExprConseqElse &expr) override;
-  void visit (AST::IfExprConseqIf &expr) override;
-  void visit (AST::IfExprConseqIfLet &expr) override;
   void visit (AST::IfLetExpr &expr) override;
   void visit (AST::IfLetExprConseqElse &expr) override;
-  void visit (AST::IfLetExprConseqIf &expr) override;
-  void visit (AST::IfLetExprConseqIfLet &expr) override;
   void visit (AST::MatchExpr &expr) override;
   void visit (AST::AwaitExpr &expr) override;
   void visit (AST::AsyncBlockExpr &expr) override;
   void visit (AST::TypeParam &param) override;
   void visit (AST::LifetimeWhereClauseItem &) override;
   void visit (AST::TypeBoundWhereClauseItem &item) override;
-  void visit (AST::Method &method) override;
   void visit (AST::Module &module) override;
   void visit (AST::ExternCrate &crate) override;
   void visit (AST::UseTreeGlob &) override;
@@ -241,6 +167,7 @@ public:
   void visit (AST::Trait &trait) override;
   void visit (AST::InherentImpl &impl) override;
   void visit (AST::TraitImpl &impl) override;
+  void visit (AST::ExternalTypeItem &item) override;
   void visit (AST::ExternalStaticItem &item) override;
   void visit (AST::ExternalFunctionItem &item) override;
   void visit (AST::ExternBlock &block) override;
@@ -259,6 +186,7 @@ public:
   void visit (AST::LiteralPattern &) override;
   void visit (AST::IdentifierPattern &pattern) override;
   void visit (AST::WildcardPattern &) override;
+  void visit (AST::RestPattern &) override;
   void visit (AST::RangePatternBoundLiteral &) override;
   void visit (AST::RangePatternBoundPath &bound) override;
   void visit (AST::RangePatternBoundQualPath &bound) override;
@@ -276,11 +204,11 @@ public:
   void visit (AST::TuplePattern &pattern) override;
   void visit (AST::GroupedPattern &pattern) override;
   void visit (AST::SlicePattern &pattern) override;
+  void visit (AST::AltPattern &pattern) override;
 
   void visit (AST::EmptyStmt &) override;
   void visit (AST::LetStmt &stmt) override;
-  void visit (AST::ExprStmtWithoutBlock &stmt) override;
-  void visit (AST::ExprStmtWithBlock &stmt) override;
+  void visit (AST::ExprStmt &stmt) override;
 
   void visit (AST::TraitBound &bound) override;
   void visit (AST::ImplTraitType &type) override;
@@ -299,27 +227,5 @@ public:
   void visit (AST::VariadicParam &type) override;
   void visit (AST::FunctionParam &type) override;
   void visit (AST::SelfParam &type) override;
-
-  template <typename T>
-  void expand_inner_attribute (T &item, AST::SimplePath &Path);
-
-  template <typename T>
-  void visit_inner_using_attrs (T &item, std::vector<AST::Attribute> &attrs);
-
-  template <typename T> void visit_inner_attrs (T &item);
-
-  bool is_derive (AST::Attribute &attr);
-
-  template <typename T>
-  void expand_derive (const T &item, std::unique_ptr<AST::TokenTree> &trait);
-
-  template <typename T>
-  void expand_derive (const T &item, AST::DelimTokenTree &attr);
-
-  template <typename T> void visit_attrs_with_derive (T &item);
-
-private:
-  MacroExpander &expander;
-  ProcMacroExpander &proc_expander;
 };
 } // namespace Rust

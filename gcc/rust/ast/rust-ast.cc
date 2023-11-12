@@ -1073,6 +1073,62 @@ Union::as_string () const
   return str;
 }
 
+Function::Function (Function const &other)
+  : VisItem (other), qualifiers (other.qualifiers),
+    function_name (other.function_name), where_clause (other.where_clause),
+    locus (other.locus), is_default (other.is_default)
+{
+  // guard to prevent null dereference (always required)
+  if (other.return_type != nullptr)
+    return_type = other.return_type->clone_type ();
+
+  // guard to prevent null dereference (only required if error state)
+  if (other.function_body != nullptr)
+    function_body = other.function_body->clone_block_expr ();
+
+  generic_params.reserve (other.generic_params.size ());
+  for (const auto &e : other.generic_params)
+    generic_params.push_back (e->clone_generic_param ());
+
+  function_params.reserve (other.function_params.size ());
+  for (const auto &e : other.function_params)
+    function_params.push_back (e->clone_param ());
+}
+
+Function &
+Function::operator= (Function const &other)
+{
+  VisItem::operator= (other);
+  function_name = other.function_name;
+  qualifiers = other.qualifiers;
+  where_clause = other.where_clause;
+  // visibility = other.visibility->clone_visibility();
+  // outer_attrs = other.outer_attrs;
+  locus = other.locus;
+  is_default = other.is_default;
+
+  // guard to prevent null dereference (always required)
+  if (other.return_type != nullptr)
+    return_type = other.return_type->clone_type ();
+  else
+    return_type = nullptr;
+
+  // guard to prevent null dereference (only required if error state)
+  if (other.function_body != nullptr)
+    function_body = other.function_body->clone_block_expr ();
+  else
+    function_body = nullptr;
+
+  generic_params.reserve (other.generic_params.size ());
+  for (const auto &e : other.generic_params)
+    generic_params.push_back (e->clone_generic_param ());
+
+  function_params.reserve (other.function_params.size ());
+  for (const auto &e : other.function_params)
+    function_params.push_back (e->clone_param ());
+
+  return *this;
+}
 std::string
 Function::as_string () const
 {
@@ -1132,7 +1188,7 @@ Function::as_string () const
       str += "(";
       for (; i != e; i++)
 	{
-	  str += (*i).as_string ();
+	  str += (*i)->as_string ();
 	  if (e != i + 1)
 	    str += ", ";
 	}
@@ -2327,6 +2383,33 @@ FunctionParam::as_string () const
 {
   // TODO: rewrite dump to allow non-literal types
   return param_name->as_string () + " : " + type->as_string ();
+}
+
+void
+FunctionParam::accept_vis (ASTVisitor &vis)
+{
+  vis.visit (*this);
+}
+
+void
+SelfParam::accept_vis (ASTVisitor &vis)
+{
+  vis.visit (*this);
+}
+
+void
+VariadicParam::accept_vis (ASTVisitor &vis)
+{
+  vis.visit (*this);
+}
+
+std::string
+VariadicParam::as_string () const
+{
+  if (has_pattern ())
+    return get_pattern ()->as_string () + " : ...";
+  else
+    return "...";
 }
 
 std::string
@@ -3589,6 +3672,33 @@ NamedFunctionParam::as_string () const
   return str;
 }
 
+TraitItemFunc::TraitItemFunc (TraitItemFunc const &other)
+  : TraitItem (other.locus), outer_attrs (other.outer_attrs), decl (other.decl)
+{
+  node_id = other.node_id;
+
+  // guard to prevent null dereference
+  if (other.block_expr != nullptr)
+    block_expr = other.block_expr->clone_block_expr ();
+}
+
+TraitItemFunc &
+TraitItemFunc::operator= (TraitItemFunc const &other)
+{
+  TraitItem::operator= (other);
+  outer_attrs = other.outer_attrs;
+  decl = other.decl;
+  locus = other.locus;
+  node_id = other.node_id;
+
+  // guard to prevent null dereference
+  if (other.block_expr != nullptr)
+    block_expr = other.block_expr->clone_block_expr ();
+  else
+    block_expr = nullptr;
+
+  return *this;
+}
 std::string
 TraitItemFunc::as_string () const
 {
@@ -3637,7 +3747,7 @@ TraitFunctionDecl::as_string () const
   if (has_params ())
     {
       for (const auto &param : function_params)
-	str += "\n  " + param.as_string ();
+	str += "\n  " + param->as_string ();
     }
   else
     {
@@ -3657,6 +3767,34 @@ TraitFunctionDecl::as_string () const
     str += "none";
 
   return str;
+}
+
+TraitItemMethod::TraitItemMethod (TraitItemMethod const &other)
+  : TraitItem (other.locus), outer_attrs (other.outer_attrs), decl (other.decl)
+{
+  node_id = other.node_id;
+
+  // guard to prevent null dereference
+  if (other.block_expr != nullptr)
+    block_expr = other.block_expr->clone_block_expr ();
+}
+
+TraitItemMethod &
+TraitItemMethod::operator= (TraitItemMethod const &other)
+{
+  TraitItem::operator= (other);
+  outer_attrs = other.outer_attrs;
+  decl = other.decl;
+  locus = other.locus;
+  node_id = other.node_id;
+
+  // guard to prevent null dereference
+  if (other.block_expr != nullptr)
+    block_expr = other.block_expr->clone_block_expr ();
+  else
+    block_expr = nullptr;
+
+  return *this;
 }
 
 std::string
@@ -3703,13 +3841,11 @@ TraitMethodDecl::as_string () const
 	}
     }
 
-  str += "\n Self param: " + self_param.as_string ();
-
   str += "\n Function params: ";
   if (has_params ())
     {
       for (const auto &param : function_params)
-	str += "\n  " + param.as_string ();
+	str += "\n  " + param->as_string ();
     }
   else
     {
