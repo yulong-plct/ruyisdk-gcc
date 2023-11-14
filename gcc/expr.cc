@@ -7002,8 +7002,8 @@ store_constructor (tree exp, rtx target, int cleared, poly_int64 size,
 	    auto nunits = TYPE_VECTOR_SUBPARTS (type).to_constant ();
 	    if (maybe_ne (GET_MODE_PRECISION (mode), nunits))
 	      tmp = expand_binop (mode, and_optab, tmp,
-				  GEN_INT ((HOST_WIDE_INT_1U << nunits) - 1),
-				  target, true, OPTAB_WIDEN);
+				  GEN_INT ((1 << nunits) - 1), target,
+				  true, OPTAB_WIDEN);
 	    if (tmp != target)
 	      emit_move_insn (target, tmp);
 	    break;
