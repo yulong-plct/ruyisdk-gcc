@@ -731,6 +731,97 @@ c_gimplify_expr (tree *expr_p, gimple_seq *pre_p ATTRIBUTE_UNUSED,
 	break;
       }
 
+    case PLUS_EXPR:
+    case MINUS_EXPR:
+      {
+	tree type = TREE_TYPE (*expr_p);
+	/* For -ffp-contract=on we need to attempt FMA contraction only
+	   during initial gimplification.  Late contraction across statement
+	   boundaries would violate language semantics.  */
+	if (SCALAR_FLOAT_TYPE_P (type)
+	    && flag_fp_contract_mode == FP_CONTRACT_ON
+	    && cfun && !(cfun->curr_properties & PROP_gimple_any)
+	    && fma_supported_p (IFN_FMA, type))
+	  {
+	    bool neg_mul = false, neg_add = code == MINUS_EXPR;
+
+	    tree *op0_p = &TREE_OPERAND (*expr_p, 0);
+	    tree *op1_p = &TREE_OPERAND (*expr_p, 1);
+
+	    /* Look for ±(x * y) ± z, swapping operands if necessary.  */
+	    if (TREE_CODE (*op0_p) == NEGATE_EXPR
+		&& TREE_CODE (TREE_OPERAND (*op0_p, 0)) == MULT_EXPR)
+	      /* '*EXPR_P' is '-(x * y) ± z'.  This is fine.  */;
+	    else if (TREE_CODE (*op0_p) != MULT_EXPR)
+	      {
+		std::swap (op0_p, op1_p);
+		std::swap (neg_mul, neg_add);
+	      }
+	    if (TREE_CODE (*op0_p) == NEGATE_EXPR)
+	      {
+		op0_p = &TREE_OPERAND (*op0_p, 0);
+		neg_mul = !neg_mul;
+	      }
+	    if (TREE_CODE (*op0_p) != MULT_EXPR)
+	      break;
+	    auto_vec<tree, 3> ops (3);
+	    ops.quick_push (TREE_OPERAND (*op0_p, 0));
+	    ops.quick_push (TREE_OPERAND (*op0_p, 1));
+	    ops.quick_push (*op1_p);
+
+	    enum internal_fn ifn = IFN_FMA;
+	    if (neg_mul)
+	      {
+		if (fma_supported_p (IFN_FNMA, type))
+		  ifn = IFN_FNMA;
+		else
+		  ops[0] = build1 (NEGATE_EXPR, type, ops[0]);
+	      }
+	    if (neg_add)
+	      {
+		enum internal_fn ifn2 = ifn == IFN_FMA ? IFN_FMS : IFN_FNMS;
+		if (fma_supported_p (ifn2, type))
+		  ifn = ifn2;
+		else
+		  ops[2] = build1 (NEGATE_EXPR, type, ops[2]);
+	      }
+	    /* Avoid gimplify_arg: it emits all side effects into *PRE_P.  */
+	    for (auto &&op : ops)
+	      if (gimplify_expr (&op, pre_p, post_p, is_gimple_val, fb_rvalue)
+		  == GS_ERROR)
+		return GS_ERROR;
+
+	    gcall *call = gimple_build_call_internal_vec (ifn, ops);
+	    gimple_seq_add_stmt_without_update (pre_p, call);
+	    *expr_p = create_tmp_var (type);
+	    gimple_call_set_lhs (call, *expr_p);
+	    return GS_ALL_DONE;
+	  }
+	break;
+      }
+
+    case CALL_EXPR:
+      {
+	tree fndecl = get_callee_fndecl (*expr_p);
+	if (fndecl
+	    && fndecl_built_in_p (fndecl, BUILT_IN_CLZG, BUILT_IN_CTZG)
+	    && call_expr_nargs (*expr_p) == 2
+	    && TREE_CODE (CALL_EXPR_ARG (*expr_p, 1)) != INTEGER_CST)
+	  {
+	    tree a = save_expr (CALL_EXPR_ARG (*expr_p, 0));
+	    tree c = build_call_expr_loc (EXPR_LOCATION (*expr_p),
+					  fndecl, 1, a);
+	    *expr_p = build3_loc (EXPR_LOCATION (*expr_p), COND_EXPR,
+				  integer_type_node,
+				  build2_loc (EXPR_LOCATION (*expr_p),
+					      NE_EXPR, boolean_type_node, a,
+					      build_zero_cst (TREE_TYPE (a))),
+				  c, CALL_EXPR_ARG (*expr_p, 1));
+	    return GS_OK;
+	  }
+	break;
+      }
+
     default:;
     }
 
