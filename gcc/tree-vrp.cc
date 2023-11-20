@@ -66,7 +66,18 @@ along with GCC; see the file COPYING3.  If not see
 #include "range-op.h"
 #include "value-range-equiv.h"
 #include "gimple-array-bounds.h"
-#include "tree-ssa-dom.h"
+#include "gimple-range.h"
+#include "gimple-range-path.h"
+#include "value-pointer-equiv.h"
+#include "gimple-fold.h"
+#include "tree-dfa.h"
+#include "tree-ssa-dce.h"
+#include "alloc-pool.h"
+#include "cgraph.h"
+#include "symbol-summary.h"
+#include "ipa-utils.h"
+#include "ipa-prop.h"
+#include "attribs.h"
 
 /* Set of SSA names found live during the RPO traversal of the function
    for still active basic-blocks.  */
@@ -4698,49 +4709,53 @@ execute_vrp (struct function *fun, bool warn_array_bounds_p)
       array_checker.check ();
     }
 
-  /* We must identify jump threading opportunities before we release
-     the datastructures built by VRP.  */
-  vrp_jump_threader threader (fun, &vrp_vr_values);
-  threader.thread_jumps ();
 
-  /* A comparison of an SSA_NAME against a constant where the SSA_NAME
-     was set by a type conversion can often be rewritten to use the
-     RHS of the type conversion.
-
-     However, doing so inhibits jump threading through the comparison.
-     So that transformation is not performed until after jump threading
-     is complete.  */
-  basic_block bb;
-  FOR_EACH_BB_FN (bb, fun)
+  if (Value_Range::supports_type_p (TREE_TYPE
+				     (TREE_TYPE (current_function_decl)))
+      && flag_ipa_vrp
+      && !lookup_attribute ("noipa", DECL_ATTRIBUTES (current_function_decl)))
     {
-      gimple *last = last_stmt (bb);
-      if (last && gimple_code (last) == GIMPLE_COND)
-	vrp_simplify_cond_using_ranges (&vrp_vr_values,
-					as_a <gcond *> (last));
+      edge e;
+      edge_iterator ei;
+      bool found = false;
+      Value_Range return_range (TREE_TYPE (TREE_TYPE (current_function_decl)));
+      FOR_EACH_EDGE (e, ei, EXIT_BLOCK_PTR_FOR_FN (cfun)->preds)
+	if (greturn *ret = dyn_cast <greturn *> (*gsi_last_bb (e->src)))
+	  {
+	    tree retval = gimple_return_retval (ret);
+	    if (!retval)
+	      {
+		return_range.set_varying (TREE_TYPE (TREE_TYPE (current_function_decl)));
+		found = true;
+		continue;
+	      }
+	    Value_Range r (TREE_TYPE (retval));
+	    if (ranger->range_of_expr (r, retval, ret)
+		&& !r.undefined_p ()
+		&& !r.varying_p ())
+	      {
+		if (!found)
+		  return_range = r;
+		else
+		  return_range.union_ (r);
+	      }
+	    else
+	      return_range.set_varying (TREE_TYPE (retval));
+	    found = true;
+	  }
+      if (found && !return_range.varying_p ())
+	{
+	  ipa_record_return_value_range (return_range);
+	  if (POINTER_TYPE_P (TREE_TYPE (TREE_TYPE (current_function_decl)))
+	      && return_range.nonzero_p ()
+	      && cgraph_node::get (current_function_decl)
+			->add_detected_attribute ("returns_nonnull"))
+	    warn_function_returns_nonnull (current_function_decl);
+	}
     }
 
-  free_numbers_of_iterations_estimates (fun);
-
-  /* ASSERT_EXPRs must be removed before finalizing jump threads
-     as finalizing jump threads calls the CFG cleanup code which
-     does not properly handle ASSERT_EXPRs.  */
-  assert_engine.remove_range_assertions ();
-
-  /* If we exposed any new variables, go ahead and put them into
-     SSA form now, before we handle jump threading.  This simplifies
-     interactions between rewriting of _DECL nodes into SSA form
-     and rewriting SSA_NAME nodes into SSA form after block
-     duplication and CFG manipulation.  */
-  update_ssa (TODO_update_ssa);
-
-  /* We identified all the jump threading opportunities earlier, but could
-     not transform the CFG at that time.  This routine transforms the
-     CFG and arranges for the dominator tree to be rebuilt if necessary.
-
-     Note the SSA graph update will occur during the normal TODO
-     processing by the pass manager.  */
-  threader.thread_through_all_blocks ();
-
+  phi_analysis_finalize ();
+  disable_ranger (fun);
   scev_finalize ();
   loop_optimizer_finalize ();
   return 0;
