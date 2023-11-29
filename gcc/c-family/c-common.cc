@@ -1775,7 +1775,8 @@ convert_and_check (location_t loc, tree type, tree expr)
 
   if (c_inhibit_evaluation_warnings == 0
       && !TREE_OVERFLOW_P (expr)
-      && result != error_mark_node)
+      && result != error_mark_node
+      && !c_hardbool_type_attr (type))
     warnings_for_convert_and_check (loc, type, expr_for_warning, result);
 
   return result;
@@ -9459,6 +9460,112 @@ c_common_finalize_early_debug (void)
 	&& (cnode->has_gimple_body_p ()
 	    || !DECL_IS_UNDECLARED_BUILTIN (cnode->decl)))
       (*debug_hooks->early_global_decl) (cnode->decl);
+}
+
+/* Get the LEVEL of the strict_flex_array for the ARRAY_FIELD based on the
+   values of attribute strict_flex_array and the flag_strict_flex_arrays.  */
+unsigned int
+c_strict_flex_array_level_of (tree array_field)
+{
+  gcc_assert (TREE_CODE (array_field) == FIELD_DECL);
+  unsigned int strict_flex_array_level = flag_strict_flex_arrays;
+
+  tree attr_strict_flex_array
+    = lookup_attribute ("strict_flex_array", DECL_ATTRIBUTES (array_field));
+  /* If there is a strict_flex_array attribute attached to the field,
+     override the flag_strict_flex_arrays.  */
+  if (attr_strict_flex_array)
+    {
+      /* Get the value of the level first from the attribute.  */
+      unsigned HOST_WIDE_INT attr_strict_flex_array_level = 0;
+      gcc_assert (TREE_VALUE (attr_strict_flex_array) != NULL_TREE);
+      attr_strict_flex_array = TREE_VALUE (attr_strict_flex_array);
+      gcc_assert (TREE_VALUE (attr_strict_flex_array) != NULL_TREE);
+      attr_strict_flex_array = TREE_VALUE (attr_strict_flex_array);
+      gcc_assert (tree_fits_uhwi_p (attr_strict_flex_array));
+      attr_strict_flex_array_level = tree_to_uhwi (attr_strict_flex_array);
+
+      /* The attribute has higher priority than flag_struct_flex_array.  */
+      strict_flex_array_level = attr_strict_flex_array_level;
+    }
+  return strict_flex_array_level;
+}
+
+/* Map from identifiers to booleans.  Value is true for features, and
+   false for extensions.  Used to implement __has_{feature,extension}.  */
+
+using feature_map_t = hash_map <tree, bool>;
+static feature_map_t *feature_map;
+
+/* Register a feature for __has_{feature,extension}.  FEATURE_P is true
+   if the feature identified by NAME is a feature (as opposed to an
+   extension).  */
+
+void
+c_common_register_feature (const char *name, bool feature_p)
+{
+  bool dup = feature_map->put (get_identifier (name), feature_p);
+  gcc_checking_assert (!dup);
+}
+
+/* Lazily initialize hash table for __has_{feature,extension},
+   dispatching to the appropriate front end to register language-specific
+   features.  */
+
+static void
+init_has_feature ()
+{
+  gcc_checking_assert (!feature_map);
+  feature_map = new feature_map_t;
+
+  for (unsigned i = 0; i < ARRAY_SIZE (has_feature_table); i++)
+    {
+      const hf_feature_info *info = has_feature_table + i;
+
+      if ((info->flags & HF_FLAG_SANITIZE) && !(flag_sanitize & info->mask))
+	continue;
+
+      const bool feature_p = !(info->flags & HF_FLAG_EXT);
+      c_common_register_feature (info->ident, feature_p);
+    }
+
+  /* Register language-specific features.  */
+  c_family_register_lang_features ();
+}
+
+/* If STRICT_P is true, evaluate __has_feature (IDENT).
+   Otherwise, evaluate __has_extension (IDENT).  */
+
+bool
+has_feature_p (const char *ident, bool strict_p)
+{
+  if (!feature_map)
+    init_has_feature ();
+
+  tree name = canonicalize_attr_name (get_identifier (ident));
+  bool *feat_p = feature_map->get (name);
+  if (!feat_p)
+    return false;
+
+  return !strict_p || *feat_p;
+}
+
+/* This is the slow path of c-common.h's c_hardbool_type_attr.  */
+
+tree
+c_hardbool_type_attr_1 (tree type, tree *false_value, tree *true_value)
+{
+  tree attr = lookup_attribute ("hardbool", TYPE_ATTRIBUTES (type));
+  if (!attr)
+    return attr;
+
+  if (false_value)
+    *false_value = TREE_VALUE (TYPE_VALUES (type));
+
+  if (true_value)
+    *true_value = TREE_VALUE (TREE_CHAIN (TYPE_VALUES (type)));
+
+  return attr;
 }
 
 #include "gt-c-family-c-common.h"
