@@ -8276,14 +8276,35 @@ vect_transform_reduction (loop_vec_info loop_vinfo,
   tree scalar_dest = gimple_get_lhs (stmt_info->stmt);
   tree vec_dest = vect_create_destination_var (scalar_dest, vectype_out);
 
-  vect_get_vec_defs (loop_vinfo, stmt_info, slp_node, ncopies,
-		     single_defuse_cycle && reduc_index == 0
-		     ? NULL_TREE : op.ops[0], &vec_oprnds0,
-		     single_defuse_cycle && reduc_index == 1
-		     ? NULL_TREE : op.ops[1], &vec_oprnds1,
-		     op.num_ops == 3
-		     && !(single_defuse_cycle && reduc_index == 2)
-		     ? op.ops[2] : NULL_TREE, &vec_oprnds2);
+  /* Get NCOPIES vector definitions for all operands except the reduction
+     definition.  */
+  if (!cond_fn_p)
+    {
+      vect_get_vec_defs (loop_vinfo, stmt_info, slp_node, ncopies,
+			 single_defuse_cycle && reduc_index == 0
+			 ? NULL_TREE : op.ops[0], &vec_oprnds0,
+			 single_defuse_cycle && reduc_index == 1
+			 ? NULL_TREE : op.ops[1], &vec_oprnds1,
+			 op.num_ops == 3
+			 && !(single_defuse_cycle && reduc_index == 2)
+			 ? op.ops[2] : NULL_TREE, &vec_oprnds2);
+    }
+  else
+    {
+      /* For a conditional operation pass the truth type as mask
+	 vectype.  */
+      gcc_assert (single_defuse_cycle
+		  && (reduc_index == 1 || reduc_index == 2));
+      vect_get_vec_defs (loop_vinfo, stmt_info, slp_node, ncopies,
+			 op.ops[0], truth_type_for (vectype_in), &vec_oprnds0,
+			 reduc_index == 1 ? NULL_TREE : op.ops[1],
+			 NULL_TREE, &vec_oprnds1,
+			 reduc_index == 2 ? NULL_TREE : op.ops[2],
+			 NULL_TREE, &vec_oprnds2);
+    }
+
+  /* For single def-use cycles get one copy of the vectorized reduction
+     definition.  */
   if (single_defuse_cycle)
     {
       gcc_assert (!slp_node);
