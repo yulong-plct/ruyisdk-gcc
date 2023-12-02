@@ -253,7 +253,7 @@ handle_ignored_attributes_option (vec<char *> *v)
       canonicalize_attr_name (vendor_start, vendor_len);
       /* We perform all this hijinks so that we don't have to copy OPT.  */
       tree vendor_id = get_identifier_with_length (vendor_start, vendor_len);
-      const char *attr;
+      array_slice<const attribute_spec> attrs;
       /* In the "vendor::" case, we should ignore *any* attribute coming
 	 from this attribute namespace.  */
       if (attr_len > 0)
@@ -265,22 +265,23 @@ handle_ignored_attributes_option (vec<char *> *v)
 	    }
 	  canonicalize_attr_name (attr_start, attr_len);
 	  tree attr_id = get_identifier_with_length (attr_start, attr_len);
-	  attr = IDENTIFIER_POINTER (attr_id);
+	  const char *attr = IDENTIFIER_POINTER (attr_id);
 	  /* If we've already seen this vendor::attr, ignore it.  Attempting to
 	     register it twice would lead to a crash.  */
 	  if (lookup_scoped_attribute_spec (vendor_id, attr_id))
 	    continue;
+	  /* Create a table with extra attributes which we will register.
+	     We can't free it here, so squirrel away the pointers.  */
+	  attribute_spec *table = new attribute_spec {
+	    attr, 0, -2, false, false, false, false, nullptr, nullptr
+	  };
+	  ignored_attributes_table.safe_push (table);
+	  attrs = { table, 1 };
 	}
-      else
-	attr = nullptr;
-      /* Create a table with extra attributes which we will register.
-	 We can't free it here, so squirrel away the pointers.  */
-      attribute_spec *table = new attribute_spec[2];
-      ignored_attributes_table.safe_push (table);
-      table[0] = { attr, 0, 0, false, false, false, false, nullptr, nullptr };
-      table[1] = { nullptr, 0, 0, false, false, false, false, nullptr,
-		   nullptr };
-      register_scoped_attributes (table, IDENTIFIER_POINTER (vendor_id), !attr);
+      const scoped_attribute_specs scoped_specs = {
+	IDENTIFIER_POINTER (vendor_id), attrs
+      };
+      register_scoped_attributes (scoped_specs, attrs.empty ());
     }
 }
 

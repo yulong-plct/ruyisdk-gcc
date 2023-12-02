@@ -2244,16 +2244,6 @@ TARGET_GNU_ATTRIBUTES (aarch64_attribute_table,
   { "SVE sizeless type",  0, 0, false, true,  false, true,  NULL, NULL }
 });
 
-#define AARCH64_CPU_DEFAULT_FLAGS ((selected_cpu) ? selected_cpu->flags : 0)
-
-/* An ISA extension in the co-processor and main instruction set space.  */
-struct aarch64_option_extension
-{
-  const char *const name;
-  const unsigned long flags_on;
-  const unsigned long flags_off;
-};
-
 typedef enum aarch64_cond_code
 {
   AARCH64_EQ = 0, AARCH64_NE, AARCH64_CS, AARCH64_CC, AARCH64_MI, AARCH64_PL,
