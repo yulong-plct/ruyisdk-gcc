@@ -197,7 +197,8 @@ invoke_plugin_callbacks (int event ATTRIBUTE_UNUSED,
 /* In attribs.cc.  */
 
 extern void register_attribute (const struct attribute_spec *attr);
-extern struct scoped_attributes* register_scoped_attributes (const struct attribute_spec *,
-							     const char *);
+/* The default argument for the third parameter is given in attribs.h.  */
+extern struct scoped_attributes* register_scoped_attributes (const struct scoped_attribute_spec &,
+							     bool);
 
 #endif /* PLUGIN_H */

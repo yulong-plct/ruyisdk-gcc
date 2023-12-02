@@ -1733,6 +1733,21 @@ d_enum_underlying_base_type (const_tree type)
   return TREE_TYPE (type);
 }
 
+/* Get a value for the SARIF v2.1.0 "artifact.sourceLanguage" property,
+   based on the list in SARIF v2.1.0 Appendix J.  */
+
+static const char *
+d_get_sarif_source_language (const char *)
+{
+  return "d";
+}
+
+const scoped_attribute_specs *const d_langhook_attribute_table[] =
+{
+  &d_langhook_gnu_attribute_table,
+  &d_langhook_common_attribute_table,
+};
+
 /* Definitions for our language-specific hooks.  */
 
 #undef LANG_HOOKS_NAME
@@ -1744,7 +1759,6 @@ d_enum_underlying_base_type (const_tree type)
 #undef LANG_HOOKS_HANDLE_OPTION
 #undef LANG_HOOKS_POST_OPTIONS
 #undef LANG_HOOKS_PARSE_FILE
-#undef LANG_HOOKS_COMMON_ATTRIBUTE_TABLE
 #undef LANG_HOOKS_ATTRIBUTE_TABLE
 #undef LANG_HOOKS_GET_ALIAS_SET
 #undef LANG_HOOKS_TYPES_COMPATIBLE_P
@@ -1776,7 +1790,6 @@ d_enum_underlying_base_type (const_tree type)
 #define LANG_HOOKS_HANDLE_OPTION	    d_handle_option
 #define LANG_HOOKS_POST_OPTIONS		    d_post_options
 #define LANG_HOOKS_PARSE_FILE		    d_parse_file
-#define LANG_HOOKS_COMMON_ATTRIBUTE_TABLE   d_langhook_common_attribute_table
 #define LANG_HOOKS_ATTRIBUTE_TABLE	    d_langhook_attribute_table
 #define LANG_HOOKS_GET_ALIAS_SET	    d_get_alias_set
 #define LANG_HOOKS_TYPES_COMPATIBLE_P	    d_types_compatible_p
