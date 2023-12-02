@@ -39,7 +39,7 @@ along with GCC; see the file COPYING3.  If not see
 
 /* Table of the tables of attributes (common, language, format, machine)
    searched.  */
-static const struct attribute_spec *attribute_tables[4];
+static array_slice<const scoped_attribute_specs *const> attribute_tables[2];
 
 /* Substring representation.  */
 
@@ -98,13 +98,6 @@ static void register_scoped_attribute (const struct attribute_spec *,
 
 static bool attributes_initialized = false;
 
-/* Default empty table of attributes.  */
-
-static const struct attribute_spec empty_attribute_table[] =
-{
-  { NULL, 0, 0, false, false, false, false, NULL, NULL }
-};
-
 /* Return base name of the attribute.  Ie '__attr__' is turned into 'attr'.
    To avoid need for copying, we simply return length of the string.  */
 
@@ -119,19 +112,19 @@ extract_attribute_substring (struct substring *str)
     }
 }
 
-/* Insert an array of attributes ATTRIBUTES into a namespace.  This
-   array must be NULL terminated.  NS is the name of attribute
-   namespace.  The function returns the namespace into which the
+/* Insert SPECS into its namespace.  IGNORED_P is true iff all unknown
+   attributes in this namespace should be ignored for the purposes of
+   -Wattributes.  The function returns the namespace into which the
    attributes have been registered.  */
 
 scoped_attributes *
-register_scoped_attributes (const struct attribute_spec *attributes,
-			    const char *ns)
+register_scoped_attributes (const scoped_attribute_specs &specs,
+			    bool ignored_p /*=false*/)
 {
   scoped_attributes *result = NULL;
 
   /* See if we already have attributes in the namespace NS.  */
-  result = find_attribute_namespace (ns);
+  result = find_attribute_namespace (specs.ns);
 
   if (result == NULL)
     {
@@ -142,17 +135,17 @@ register_scoped_attributes (const struct attribute_spec *attributes,
 	attributes_table.create (64);
 
       memset (&sa, 0, sizeof (sa));
-      sa.ns = ns;
+      sa.ns = specs.ns;
       sa.attributes.create (64);
       result = attributes_table.safe_push (sa);
       result->attribute_hash = new hash_table<attribute_hasher> (200);
     }
 
   /* Really add the attributes to their namespace now.  */
-  for (unsigned i = 0; attributes[i].name != NULL; ++i)
+  for (const attribute_spec &attribute : specs.attributes)
     {
-      result->attributes.safe_push (attributes[i]);
-      register_scoped_attribute (&attributes[i], result);
+      result->attributes.safe_push (attribute);
+      register_scoped_attribute (&attribute, result);
     }
 
   gcc_assert (result != NULL);
@@ -179,49 +172,135 @@ find_attribute_namespace (const char* ns)
 static void
 check_attribute_tables (void)
 {
-  for (size_t i = 0; i < ARRAY_SIZE (attribute_tables); i++)
-    for (size_t j = 0; attribute_tables[i][j].name != NULL; j++)
-      {
-	/* The name must not begin and end with __.  */
-	const char *name = attribute_tables[i][j].name;
-	int len = strlen (name);
+  hash_set<pair_hash<nofree_string_hash, nofree_string_hash>> names;
 
-	gcc_assert (!(name[0] == '_' && name[1] == '_'
-		      && name[len - 1] == '_' && name[len - 2] == '_'));
+  for (auto scoped_array : attribute_tables)
+    for (auto scoped_attributes : scoped_array)
+      for (const attribute_spec &attribute : scoped_attributes->attributes)
+	{
+	  /* The name must not begin and end with __.  */
+	  const char *name = attribute.name;
+	  int len = strlen (name);
 
-	/* The minimum and maximum lengths must be consistent.  */
-	gcc_assert (attribute_tables[i][j].min_length >= 0);
+	  gcc_assert (!(name[0] == '_' && name[1] == '_'
+			&& name[len - 1] == '_' && name[len - 2] == '_'));
 
-	gcc_assert (attribute_tables[i][j].max_length == -1
-		    || (attribute_tables[i][j].max_length
-			>= attribute_tables[i][j].min_length));
+	  /* The minimum and maximum lengths must be consistent.  */
+	  gcc_assert (attribute.min_length >= 0);
 
-	/* An attribute cannot require both a DECL and a TYPE.  */
-	gcc_assert (!attribute_tables[i][j].decl_required
-		    || !attribute_tables[i][j].type_required);
+	  gcc_assert (attribute.max_length == -1
+		      || attribute.max_length >= attribute.min_length);
+
+	  /* An attribute cannot require both a DECL and a TYPE.  */
+	  gcc_assert (!attribute.decl_required
+		      || !attribute.type_required);
 
 	  /* If an attribute requires a function type, in particular
 	     it requires a type.  */
-	gcc_assert (!attribute_tables[i][j].function_type_required
-		    || attribute_tables[i][j].type_required);
-      }
+	  gcc_assert (!attribute.function_type_required
+		      || attribute.type_required);
 
-  /* Check that each name occurs just once in each table.  */
-  for (size_t i = 0; i < ARRAY_SIZE (attribute_tables); i++)
-    for (size_t j = 0; attribute_tables[i][j].name != NULL; j++)
-      for (size_t k = j + 1; attribute_tables[i][k].name != NULL; k++)
-	gcc_assert (strcmp (attribute_tables[i][j].name,
-			    attribute_tables[i][k].name));
+	  /* Check that no name occurs more than once.  Names that
+	     begin with '*' are exempt, and may be overridden.  */
+	  const char *ns = scoped_attributes->ns;
+	  if (name[0] != '*' && names.add ({ ns ? ns : "", name }))
+	    gcc_unreachable ();
+	}
+}
 
-  /* Check that no name occurs in more than one table.  Names that
-     begin with '*' are exempt, and may be overridden.  */
-  for (size_t i = 0; i < ARRAY_SIZE (attribute_tables); i++)
-    for (size_t j = i + 1; j < ARRAY_SIZE (attribute_tables); j++)
-      for (size_t k = 0; attribute_tables[i][k].name != NULL; k++)
-	for (size_t l = 0; attribute_tables[j][l].name != NULL; l++)
-	  gcc_assert (attribute_tables[i][k].name[0] == '*'
-		      || strcmp (attribute_tables[i][k].name,
-				 attribute_tables[j][l].name));
+/* Used to stash pointers to allocated memory so that we can free them at
+   the end of parsing of all TUs. */
+static vec<attribute_spec *> ignored_attributes_table;
+
+/* Parse arguments V of -Wno-attributes=.
+   Currently we accept:
+     vendor::attr
+     vendor::
+   This functions also registers the parsed attributes so that we don't
+   warn that we don't recognize them.  */
+
+void
+handle_ignored_attributes_option (vec<char *> *v)
+{
+  if (v == nullptr)
+    return;
+
+  for (auto opt : v)
+    {
+      char *cln = strstr (opt, "::");
+      /* We don't accept '::attr'.  */
+      if (cln == nullptr || cln == opt)
+	{
+	  auto_diagnostic_group d;
+	  error ("wrong argument to ignored attributes");
+	  inform (input_location, "valid format is %<ns::attr%> or %<ns::%>");
+	  continue;
+	}
+      const char *vendor_start = opt;
+      ptrdiff_t vendor_len = cln - opt;
+      const char *attr_start = cln + 2;
+      /* This could really use rawmemchr :(.  */
+      ptrdiff_t attr_len = strchr (attr_start, '\0') - attr_start;
+      /* Verify that they look valid.  */
+      auto valid_p = [](const char *const s, ptrdiff_t len) {
+	bool ok = false;
+
+	for (int i = 0; i < len; ++i)
+	  if (ISALNUM (s[i]))
+	    ok = true;
+	  else if (s[i] != '_')
+	    return false;
+
+	return ok;
+      };
+      if (!valid_p (vendor_start, vendor_len))
+	{
+	  error ("wrong argument to ignored attributes");
+	  continue;
+	}
+      canonicalize_attr_name (vendor_start, vendor_len);
+      /* We perform all this hijinks so that we don't have to copy OPT.  */
+      tree vendor_id = get_identifier_with_length (vendor_start, vendor_len);
+      array_slice<const attribute_spec> attrs;
+      /* In the "vendor::" case, we should ignore *any* attribute coming
+	 from this attribute namespace.  */
+      if (attr_len > 0)
+	{
+	  if (!valid_p (attr_start, attr_len))
+	    {
+	      error ("wrong argument to ignored attributes");
+	      continue;
+	    }
+	  canonicalize_attr_name (attr_start, attr_len);
+	  tree attr_id = get_identifier_with_length (attr_start, attr_len);
+	  const char *attr = IDENTIFIER_POINTER (attr_id);
+	  /* If we've already seen this vendor::attr, ignore it.  Attempting to
+	     register it twice would lead to a crash.  */
+	  if (lookup_scoped_attribute_spec (vendor_id, attr_id))
+	    continue;
+	  /* Create a table with extra attributes which we will register.
+	     We can't free it here, so squirrel away the pointers.  */
+	  attribute_spec *table = new attribute_spec {
+	    attr, 0, -2, false, false, false, false, nullptr, nullptr
+	  };
+	  ignored_attributes_table.safe_push (table);
+	  attrs = { table, 1 };
+	}
+      const scoped_attribute_specs scoped_specs = {
+	IDENTIFIER_POINTER (vendor_id), attrs
+      };
+      register_scoped_attributes (scoped_specs, attrs.empty ());
+    }
+}
+
+/* Free data we might have allocated when adding extra attributes.  */
+
+void
+free_attr_data ()
+{
+  for (auto x : ignored_attributes_table)
+    delete[] x;
+  ignored_attributes_table.release ();
 }
 
 /* Initialize attribute tables, and make some sanity checks if checking is
@@ -230,27 +309,18 @@ check_attribute_tables (void)
 void
 init_attributes (void)
 {
-  size_t i;
-
   if (attributes_initialized)
     return;
 
-  attribute_tables[0] = lang_hooks.common_attribute_table;
-  attribute_tables[1] = lang_hooks.attribute_table;
-  attribute_tables[2] = lang_hooks.format_attribute_table;
-  attribute_tables[3] = targetm.attribute_table;
-
-  /* Translate NULL pointers to pointers to the empty table.  */
-  for (i = 0; i < ARRAY_SIZE (attribute_tables); i++)
-    if (attribute_tables[i] == NULL)
-      attribute_tables[i] = empty_attribute_table;
+  attribute_tables[0] = lang_hooks.attribute_table;
+  attribute_tables[1] = targetm.attribute_table;
 
   if (flag_checking)
     check_attribute_tables ();
 
-  for (i = 0; i < ARRAY_SIZE (attribute_tables); ++i)
-    /* Put all the GNU attributes into the "gnu" namespace.  */
-    register_scoped_attributes (attribute_tables[i], "gnu");
+  for (auto scoped_array : attribute_tables)
+    for (auto scoped_attributes : scoped_array)
+      register_scoped_attributes (*scoped_attributes);
 
   invoke_plugin_callbacks (PLUGIN_ATTRIBUTES, NULL);
   attributes_initialized = true;
@@ -2418,51 +2488,6 @@ attr_access::array_as_string (tree type) const
 namespace selftest
 {
 
-/* Helper types to verify the consistency attribute exclusions.  */
-
-typedef std::pair<const char *, const char *> excl_pair;
-
-struct excl_hash_traits: typed_noop_remove<excl_pair>
-{
-  typedef excl_pair  value_type;
-  typedef value_type compare_type;
-
-  static hashval_t hash (const value_type &x)
-  {
-    hashval_t h1 = htab_hash_string (x.first);
-    hashval_t h2 = htab_hash_string (x.second);
-    return h1 ^ h2;
-  }
-
-  static bool equal (const value_type &x, const value_type &y)
-  {
-    return !strcmp (x.first, y.first) && !strcmp (x.second, y.second);
-  }
-
-  static void mark_deleted (value_type &x)
-  {
-    x = value_type (NULL, NULL);
-  }
-
-  static const bool empty_zero_p = false;
-
-  static void mark_empty (value_type &x)
-  {
-    x = value_type ("", "");
-  }
-
-  static bool is_deleted (const value_type &x)
-  {
-    return !x.first && !x.second;
-  }
-
-  static bool is_empty (const value_type &x)
-  {
-    return !*x.first && !*x.second;
-  }
-};
-
-
 /* Self-test to verify that each attribute exclusion is symmetric,
    meaning that if attribute A is encoded as incompatible with
    attribute B then the opposite relationship is also encoded.
@@ -2475,55 +2500,54 @@ test_attribute_exclusions ()
   /* Iterate over the array of attribute tables first (with TI0 as
      the index) and over the array of attribute_spec in each table
      (with SI0 as the index).  */
-  const size_t ntables = ARRAY_SIZE (attribute_tables);
+  hash_set<excl_hash_traits> excl_set;
 
-  /* Set of pairs of mutually exclusive attributes.  */
-  typedef hash_set<excl_pair, false, excl_hash_traits> exclusion_set;
-  exclusion_set excl_set;
+  for (auto scoped_array : attribute_tables)
+    for (auto scoped_attributes : scoped_array)
+      for (const attribute_spec &attribute : scoped_attributes->attributes)
+	{
+	  const attribute_spec::exclusions *excl = attribute.exclude;
 
-  for (size_t ti0 = 0; ti0 != ntables; ++ti0)
-    for (size_t s0 = 0; attribute_tables[ti0][s0].name; ++s0)
-      {
-	const attribute_spec::exclusions *excl
-	  = attribute_tables[ti0][s0].exclude;
+	  /* Skip each attribute that doesn't define exclusions.  */
+	  if (!excl)
+	    continue;
 
-	/* Skip each attribute that doesn't define exclusions.  */
-	if (!excl)
-	  continue;
+	  /* Skip standard (non-GNU) attributes, since currently the
+	     exclusions are implicitly for GNU attributes only.
+	     Also, C++ likely and unlikely get rewritten to gnu::hot
+	     and gnu::cold, so symmetry isn't necessary there.  */
+	  if (!scoped_attributes->ns)
+	    continue;
 
-	const char *attr_name = attribute_tables[ti0][s0].name;
+	  const char *attr_name = attribute.name;
 
-	/* Iterate over the set of exclusions for every attribute
-	   (with EI0 as the index) adding the exclusions defined
-	   for each to the set.  */
-	for (size_t ei0 = 0; excl[ei0].name; ++ei0)
-	  {
-	    const char *excl_name = excl[ei0].name;
+	  /* Iterate over the set of exclusions for every attribute
+	     (with EI0 as the index) adding the exclusions defined
+	     for each to the set.  */
+	  for (size_t ei0 = 0; excl[ei0].name; ++ei0)
+	    {
+	      const char *excl_name = excl[ei0].name;
 
-	    if (!strcmp (attr_name, excl_name))
-	      continue;
+	      if (!strcmp (attr_name, excl_name))
+		continue;
 
-	    excl_set.add (excl_pair (attr_name, excl_name));
-	  }
-      }
+	      excl_set.add ({ attr_name, excl_name });
+	    }
+	}
 
   /* Traverse the set of mutually exclusive pairs of attributes
      and verify that they are symmetric.  */
-  for (exclusion_set::iterator it = excl_set.begin ();
-       it != excl_set.end ();
-       ++it)
-    {
-      if (!excl_set.contains (excl_pair ((*it).second, (*it).first)))
-	{
-	  /* An exclusion for an attribute has been found that
-	     doesn't have a corresponding exclusion in the opposite
-	     direction.  */
-	  char desc[120];
-	  sprintf (desc, "'%s' attribute exclusion '%s' must be symmetric",
-		   (*it).first, (*it).second);
-	  fail (SELFTEST_LOCATION, desc);
-	}
-    }
+  for (auto excl_pair : excl_set)
+    if (!excl_set.contains ({ excl_pair.second, excl_pair.first }))
+      {
+	/* An exclusion for an attribute has been found that
+	   doesn't have a corresponding exclusion in the opposite
+	   direction.  */
+	char desc[120];
+	sprintf (desc, "'%s' attribute exclusion '%s' must be symmetric",
+		 excl_pair.first, excl_pair.second);
+	fail (SELFTEST_LOCATION, desc);
+      }
 }
 
 void

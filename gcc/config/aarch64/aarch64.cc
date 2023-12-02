@@ -2230,7 +2230,7 @@ handle_aarch64_vector_pcs_attribute (tree *node, tree name, tree,
 }
 
 /* Table of machine attributes.  */
-static const struct attribute_spec aarch64_attribute_table[] =
+TARGET_GNU_ATTRIBUTES (aarch64_attribute_table,
 {
   /* { name, min_len, max_len, decl_req, type_req, fn_type_req,
        affects_type_identity, handler, exclude } */
@@ -2241,9 +2241,8 @@ static const struct attribute_spec aarch64_attribute_table[] =
 			  NULL },
   { "Advanced SIMD type", 1, 1, false, true,  false, true,  NULL, NULL },
   { "SVE type",		  3, 3, false, true,  false, true,  NULL, NULL },
-  { "SVE sizeless type",  0, 0, false, true,  false, true,  NULL, NULL },
-  { NULL,                 0, 0, false, false, false, false, NULL, NULL }
-};
+  { "SVE sizeless type",  0, 0, false, true,  false, true,  NULL, NULL }
+});
 
 #define AARCH64_CPU_DEFAULT_FLAGS ((selected_cpu) ? selected_cpu->flags : 0)
 

@@ -4468,8 +4468,29 @@ handle_nodiscard_attribute (tree *node, tree name, tree /*args*/,
     }
   return NULL_TREE;
 }
-/* Table of supported standard (C2x) attributes.  */
-const struct attribute_spec std_attribute_table[] =
+
+/* Handle the standard [[noreturn]] attribute.  */
+
+static tree
+handle_std_noreturn_attribute (tree *node, tree name, tree args,
+			       int flags, bool *no_add_attrs)
+{
+  /* Unlike GNU __attribute__ ((noreturn)), the standard [[noreturn]]
+     only applies to functions, not function pointers.  */
+  if (TREE_CODE (*node) == FUNCTION_DECL)
+    return handle_noreturn_attribute (node, name, args, flags, no_add_attrs);
+  else
+    {
+      pedwarn (input_location, OPT_Wattributes,
+	       "standard %qE attribute can only be applied to functions",
+	       name);
+      *no_add_attrs = true;
+      return NULL_TREE;
+    }
+}
+
+/* Table of supported standard (C23) attributes.  */
+static const attribute_spec std_attributes[] =
 {
   /* { name, min_len, max_len, decl_req, type_req, fn_type_req,
        affects_type_identity, handler, exclude } */
@@ -4481,7 +4502,13 @@ const struct attribute_spec std_attribute_table[] =
     handle_unused_attribute, NULL },
   { "nodiscard", 0, 1, false, false, false, false,
     handle_nodiscard_attribute, NULL },
-  { NULL, 0, 0, false, false, false, false, NULL, NULL }
+  { "noreturn", 0, 0, false, false, false, false,
+    handle_std_noreturn_attribute, NULL }
+};
+
+const scoped_attribute_specs std_attribute_table =
+{
+  nullptr, std_attributes
 };
 
 /* Create the predefined scalar types of C,
@@ -4496,8 +4523,6 @@ c_init_decl_processing (void)
 
   /* Initialize reserved words for parser.  */
   c_parse_init ();
-
-  register_scoped_attributes (std_attribute_table, NULL);
 
   current_function_decl = NULL_TREE;
 

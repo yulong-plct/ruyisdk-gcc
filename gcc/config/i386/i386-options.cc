@@ -3892,7 +3892,7 @@ ix86_handle_fentry_name (tree *node, tree name, tree args,
 }
 
 /* Table of valid machine attributes.  */
-const struct attribute_spec ix86_attribute_table[] =
+static const attribute_spec ix86_gnu_attributes[] =
 {
   /* { name, min_len, max_len, decl_req, type_req, fn_type_req,
        affects_type_identity, handler, exclude } */
@@ -3971,9 +3971,13 @@ const struct attribute_spec ix86_attribute_table[] =
     ix86_handle_fentry_name, NULL },
   { "cf_check", 0, 0, true, false, false, false,
     ix86_handle_fndecl_attribute, NULL },
+  { "nodirect_extern_access", 0, 0, true, false, false, false,
+    handle_nodirect_extern_access_attribute, NULL }
+};
 
-  /* End element.  */
-  { NULL, 0, 0, false, false, false, false, NULL, NULL }
+const scoped_attribute_specs ix86_gnu_attribute_table =
+{
+  "gnu", ix86_gnu_attributes
 };
 
 #include "gt-i386-options.h"
