@@ -1,5 +1,5 @@
 // { dg-do compile { target c++20 } }
-// { dg-xfail-if "not supported" { debug-mode } }
+// { dg-add-options no_pch }
 
 #include <vector>
 
