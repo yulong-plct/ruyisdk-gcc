@@ -21288,7 +21288,7 @@ rs6000_elf_declare_function_name (FILE *file, const char *name, tree decl)
       fputs ("\t.long 0\n", file);
       fprintf (file, "\t.previous\n");
     }
-  ASM_OUTPUT_LABEL (file, name);
+  ASM_OUTPUT_FUNCTION_LABEL (file, name, decl);
 }
 
 static void rs6000_elf_file_end (void) ATTRIBUTE_UNUSED;
@@ -21841,10 +21841,11 @@ rs6000_xcoff_declare_function_name (FILE *file, const char *name, tree decl)
       putc ('\n', file);
     }
   fputs ("\t.csect ", file);
-  RS6000_OUTPUT_BASENAME (file, buffer);
-  fputs (TARGET_32BIT ? "[DS]\n" : "[DS],3\n", file);
-  RS6000_OUTPUT_BASENAME (file, buffer);
-  fputs (":\n", file);
+  assemble_name (file, buffer);
+  fputs (TARGET_32BIT ? "\n" : ",3\n", file);
+
+  ASM_OUTPUT_FUNCTION_LABEL (file, buffer, decl);
+
   symtab_node::get (decl)->call_for_symbol_and_aliases (rs6000_declare_alias,
 							&data, true);
   fputs (TARGET_32BIT ? "\t.long ." : "\t.llong .", file);

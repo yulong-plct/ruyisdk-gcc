@@ -5421,7 +5421,7 @@ output_file_start (void)
    comments that pass information to mkoffload.  */
 
 void
-gcn_hsa_declare_function_name (FILE *file, const char *name, tree)
+gcn_hsa_declare_function_name (FILE *file, const char *name, tree decl)
 {
   int sgpr, vgpr;
   bool xnack_enabled = false;
@@ -5562,8 +5562,7 @@ gcn_hsa_declare_function_name (FILE *file, const char *name, tree)
   fputs ("\t.type\t", file);
   assemble_name (file, name);
   fputs (",@function\n", file);
-  assemble_name (file, name);
-  fputs (":\n", file);
+  ASM_OUTPUT_FUNCTION_LABEL (file, name, decl);
 
   /* This comment is read by mkoffload.  */
   if (flag_openacc)
