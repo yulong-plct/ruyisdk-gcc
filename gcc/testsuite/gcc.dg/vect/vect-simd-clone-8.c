@@ -15,6 +15,7 @@ unsigned char d[N];
 #pragma omp declare simd simdlen(8) notinbranch
 __attribute__((noinline)) int
 foo (long int a, int b, int c)
+/* { dg-warning {unsupported simdlen 8 \(amdgcn\)} "" { target amdgcn*-*-* } .-1 } */
 {
   return a + b + c;
 }
@@ -22,6 +23,7 @@ foo (long int a, int b, int c)
 #pragma omp declare simd simdlen(8) notinbranch
 __attribute__((noinline)) long int
 bar (int a, int b, long int c)
+/* { dg-warning {unsupported simdlen 8 \(amdgcn\)} "" { target amdgcn*-*-* } .-1 } */
 {
   return a + b + c;
 }
@@ -93,6 +95,3 @@ main ()
       abort ();
   return 0;
 }
-
-/* { dg-warning {unsupported simdlen 8 \(amdgcn\)} "" { target amdgcn*-*-* } 17 } */
-/* { dg-warning {unsupported simdlen 8 \(amdgcn\)} "" { target amdgcn*-*-* } 24 } */

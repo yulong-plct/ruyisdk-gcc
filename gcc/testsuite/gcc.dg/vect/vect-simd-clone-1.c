@@ -16,6 +16,8 @@ int array[N];
 #pragma omp declare simd simdlen(8) notinbranch uniform(b) linear(c:3)
 __attribute__((noinline)) int
 foo (int a, int b, int c)
+/* { dg-warning {unsupported simdlen 8 \(amdgcn\)} "" { target amdgcn*-*-* } .-1 } */
+/* { dg-warning {unsupported simdlen 4 \(amdgcn\)} "" { target amdgcn*-*-* } .-2 } */
 {
   if (a < 30)
     return 5;
@@ -57,6 +59,3 @@ main ()
       abort ();
   return 0;
 }
-
-/* { dg-warning {unsupported simdlen 8 \(amdgcn\)} "" { target amdgcn*-*-* } 18 } */
-/* { dg-warning {unsupported simdlen 4 \(amdgcn\)} "" { target amdgcn*-*-* } 18 } */
