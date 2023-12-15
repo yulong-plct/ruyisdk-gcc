@@ -11890,6 +11890,68 @@ proc check_effective_target_cv_alu { } {
     } "-march=rv32i_xcvalu" ]
 }
 
+# Return 1 if the CORE-V ELW extension is available.
+proc check_effective_target_cv_elw { } {
+    if { !([istarget riscv*-*-*]) } {
+         return 0
+     }
+    return [check_no_compiler_messages cv_elw object {
+        void foo (void)
+        {
+          asm ("cv.elw x0, 0(x0)");
+        }
+    } "-march=rv32i_xcvelw" ]
+}
+
+proc check_effective_target_loongarch_sx { } {
+    return [check_no_compiler_messages loongarch_lsx assembly {
+       #if !defined(__loongarch_sx)
+       #error "LSX not defined"
+       #endif
+    }]
+}
+
+proc check_effective_target_loongarch_sx_hw { } {
+    return [check_runtime loongarch_sx_hw {
+	#include <lsxintrin.h>
+	int main (void)
+	{
+	  __m128i a, b, c;
+	  c = __lsx_vand_v (a, b);
+	  return 0;
+	}
+    } "-mlsx"]
+}
+
+proc check_effective_target_loongarch_asx { } {
+    return [check_no_compiler_messages loongarch_asx assembly {
+       #if !defined(__loongarch_asx)
+       #error "LASX not defined"
+       #endif
+    }]
+}
+
+proc check_effective_target_loongarch_asx_hw { } {
+    return [check_runtime loongarch_asx_hw {
+	#include <lasxintrin.h>
+	int main (void)
+	{
+	  __m256i a, b, c;
+	  c = __lasx_xvand_v (a, b);
+	  return 0;
+	}
+    } "-mlasx"]
+}
+
+# Check whether LoongArch binutils supports call36 relocation.
+proc check_effective_target_loongarch_call36_support { } {
+  return [check_no_compiler_messages loongarch_call36_support object {
+/* Assembly code */
+	pcaddu18i $r1,%call36(a)
+	jirl $r1,$r1,0
+  } ""]
+}
+
 # Appends necessary Python flags to extra-tool-flags if Python.h is supported.
 # Otherwise, modifies dg-do-what.
 proc dg-require-python-h { args } {
