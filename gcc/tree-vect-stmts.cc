@@ -11365,6 +11365,44 @@ vectorizable_load (vec_info *vinfo,
 			if (new_vtype != NULL_TREE)
 			  ltype = half_vtype;
 		      }
+		    /* Try to use a single smaller load when we are about
+		       to load excess elements compared to the unrolled
+		       scalar loop.
+		       ???  This should cover the above case as well.  */
+		    else if (known_gt ((vec_num * j + i + 1) * nunits,
+				       (group_size * vf - gap)))
+		      {
+			if (known_ge ((vec_num * j + i + 1) * nunits
+				      - (group_size * vf - gap), nunits))
+			  /* DR will be unused.  */
+			  ltype = NULL_TREE;
+			else if (known_ge (vect_align,
+					   tree_to_poly_uint64
+					     (TYPE_SIZE_UNIT (vectype))))
+			  /* Aligned access to excess elements is OK if
+			     at least one element is accessed in the
+			     scalar loop.  */
+			  ;
+			else
+			  {
+			    auto remain
+			      = ((group_size * vf - gap)
+				 - (vec_num * j + i) * nunits);
+			    /* remain should now be > 0 and < nunits.  */
+			    unsigned num;
+			    if (constant_multiple_p (nunits, remain, &num))
+			      {
+				tree ptype;
+				new_vtype
+				  = vector_vector_composition_type (vectype,
+								    num,
+								    &ptype);
+				if (new_vtype)
+				  ltype = ptype;
+			      }
+			    /* Else use multiple loads or a masked load?  */
+			  }
+		      }
 		    tree offset
 		      = (dataref_offset ? dataref_offset
 					: build_int_cst (ref_type, 0));
