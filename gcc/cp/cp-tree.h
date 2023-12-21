@@ -7650,6 +7650,10 @@ extern void finish_lambda_function		(tree body);
 extern bool regenerated_lambda_fn_p		(tree);
 extern tree lambda_regenerating_args		(tree);
 extern tree most_general_lambda			(tree);
+extern tree finish_omp_target			(location_t, tree, tree, bool);
+extern void finish_omp_target_clauses		(location_t, tree, tree *);
+extern void maybe_warn_unparenthesized_assignment (tree, bool, tsubst_flags_t);
+extern tree cp_check_pragma_unroll		(location_t, tree);
 
 /* in tree.cc */
 extern int cp_tree_operand_length		(const_tree);

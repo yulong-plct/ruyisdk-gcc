@@ -815,6 +815,114 @@ finish_goto_stmt (tree destination)
   return add_stmt (build_stmt (input_location, GOTO_EXPR, destination));
 }
 
+/* Returns true if T corresponds to an assignment operator expression.  */
+
+static bool
+is_assignment_op_expr_p (tree t)
+{
+  if (t == NULL_TREE)
+    return false;
+
+  if (TREE_CODE (t) == MODIFY_EXPR
+      || (TREE_CODE (t) == MODOP_EXPR
+	  && TREE_CODE (TREE_OPERAND (t, 1)) == NOP_EXPR))
+    return true;
+
+  tree call = extract_call_expr (t);
+  if (call == NULL_TREE
+      || call == error_mark_node
+      || !CALL_EXPR_OPERATOR_SYNTAX (call))
+    return false;
+
+  tree fndecl = cp_get_callee_fndecl_nofold (call);
+  return fndecl != NULL_TREE
+    && DECL_ASSIGNMENT_OPERATOR_P (fndecl)
+    && DECL_OVERLOADED_OPERATOR_IS (fndecl, NOP_EXPR);
+}
+
+/* Return true if TYPE is a class type that is convertible to
+   and assignable from bool.  */
+
+static GTY((deletable)) hash_map<tree, bool> *boolish_class_type_p_cache;
+
+static bool
+boolish_class_type_p (tree type)
+{
+  type = TYPE_MAIN_VARIANT (type);
+  if (!CLASS_TYPE_P (type) || !COMPLETE_TYPE_P (type))
+    return false;
+
+  if (bool *r = hash_map_safe_get (boolish_class_type_p_cache, type))
+    return *r;
+
+  tree ops;
+  bool has_bool_assignment = false;
+  bool has_bool_conversion = false;
+
+  ops = lookup_fnfields (type, assign_op_identifier, /*protect=*/0, tf_none);
+  for (tree op : ovl_range (BASELINK_FUNCTIONS (ops)))
+    {
+      op = STRIP_TEMPLATE (op);
+      if (TREE_CODE (op) != FUNCTION_DECL)
+	continue;
+      tree parm = DECL_CHAIN (DECL_ARGUMENTS (op));
+      tree parm_type = non_reference (TREE_TYPE (parm));
+      if (TREE_CODE (parm_type) == BOOLEAN_TYPE)
+	{
+	  has_bool_assignment = true;
+	  break;
+	}
+    }
+
+  if (has_bool_assignment)
+    {
+      ops = lookup_conversions (type);
+      for (; ops; ops = TREE_CHAIN (ops))
+	{
+	  tree op = TREE_VALUE (ops);
+	  if (!DECL_NONCONVERTING_P (op)
+	      && TREE_CODE (DECL_CONV_FN_TYPE (op)) == BOOLEAN_TYPE)
+	    {
+	      has_bool_conversion = true;
+	      break;
+	    }
+	}
+    }
+
+  bool boolish = has_bool_assignment && has_bool_conversion;
+  hash_map_safe_put<true> (boolish_class_type_p_cache, type, boolish);
+  return boolish;
+}
+
+
+/* Maybe warn about an unparenthesized 'a = b' (appearing in a
+   boolean context where 'a == b' might have been intended).
+   NESTED_P is true if T is the RHS of another assignment.  */
+
+void
+maybe_warn_unparenthesized_assignment (tree t, bool nested_p,
+				       tsubst_flags_t complain)
+{
+  tree type = TREE_TYPE (t);
+  t = STRIP_REFERENCE_REF (t);
+
+  if ((complain & tf_warning)
+      && warn_parentheses
+      && is_assignment_op_expr_p (t)
+      /* A parenthesized expression would've had this warning
+	 suppressed by finish_parenthesized_expr.  */
+      && !warning_suppressed_p (t, OPT_Wparentheses)
+      /* In c = a = b, don't warn if a has type bool or bool-like class.  */
+      && (!nested_p
+	  || (TREE_CODE (type) != BOOLEAN_TYPE
+	      && !boolish_class_type_p (type))))
+    {
+      warning_at (cp_expr_loc_or_input_loc (t), OPT_Wparentheses,
+		  "suggest parentheses around assignment used as truth value");
+      suppress_warning (t, OPT_Wparentheses);
+    }
+}
+
 /* COND is the condition-expression for an if, while, etc.,
    statement.  Convert it to a boolean value, if appropriate.
    In addition, verify sequence points if -Wsequence-point is enabled.  */
@@ -832,6 +940,9 @@ maybe_convert_cond (tree cond)
 
   if (warn_sequence_point && !processing_template_decl)
     verify_sequence_points (cond);
+
+  maybe_warn_unparenthesized_assignment (cond, /*nested_p=*/false,
+					 tf_warning_or_error);
 
   /* Do the conversion.  */
   cond = convert_from_reference (cond);
