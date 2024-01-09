@@ -774,7 +774,65 @@ vect_get_loop_niters (class loop *loop, tree *assumptions,
 				 build_int_cst (TREE_TYPE (niter), 0),
 				 rewrite_to_non_trapping_overflow (niter));
 
-	  may_be_zero = NULL_TREE;
+      /* Loop assumptions are based off the normal exit.  */
+      *assumptions = niter_assumptions;
+      *number_of_iterationsm1 = niter;
+
+      /* We want the number of loop header executions which is the number
+	 of latch executions plus one.
+	 ???  For UINT_MAX latch executions this number overflows to zero
+	 for loops like do { n++; } while (n != 0);  */
+      if (niter && !chrec_contains_undetermined (niter))
+	{
+	  niter = fold_build2 (PLUS_EXPR, TREE_TYPE (niter),
+			       unshare_expr (niter),
+			       build_int_cst (TREE_TYPE (niter), 1));
+	  if (TREE_CODE (niter) == INTEGER_CST
+	      && TREE_CODE (*number_of_iterationsm1) != INTEGER_CST)
+	    {
+	      /* If we manage to fold niter + 1 into INTEGER_CST even when
+		 niter is some complex expression, ensure back
+		 *number_of_iterationsm1 is an INTEGER_CST as well.  See
+		 PR113210.  */
+	      *number_of_iterationsm1
+		= fold_build2 (PLUS_EXPR, TREE_TYPE (niter), niter,
+			       build_minus_one_cst (TREE_TYPE (niter)));
+	    }
+	}
+      *number_of_iterations = niter;
+    }
+
+  if (dump_enabled_p ())
+    dump_printf_loc (MSG_NOTE, vect_location, "All loop exits successfully analyzed.\n");
+
+  return conds;
+}
+
+/*  Determine the main loop exit for the vectorizer.  */
+
+edge
+vec_init_loop_exit_info (class loop *loop)
+{
+  /* Before we begin we must first determine which exit is the main one and
+     which are auxilary exits.  */
+  auto_vec<edge> exits = get_loop_exit_edges (loop);
+  if (exits.length () == 1)
+    return exits[0];
+
+  /* If we have multiple exits we only support counting IV at the moment.  Analyze
+     all exits and return one */
+  class tree_niter_desc niter_desc;
+  edge candidate = NULL;
+  for (edge exit : exits)
+    {
+      if (!get_loop_exit_condition (exit))
+	continue;
+
+      if (number_of_iterations_exit_assumptions (loop, exit, &niter_desc, NULL)
+	  && !chrec_contains_undetermined (niter_desc.niter))
+	{
+	  if (!niter_desc.may_be_zero || !candidate)
+	    candidate = exit;
 	}
       else if (integer_nonzerop (may_be_zero))
 	{
