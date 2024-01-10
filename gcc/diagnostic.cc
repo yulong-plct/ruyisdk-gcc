@@ -1240,17 +1240,17 @@ diagnostic_report_diagnostic (diagnostic_context *context,
     }
   context->diagnostic_group_emission_count++;
 
-  diagnostic->message.x_data = &diagnostic->x_data;
-  diagnostic->x_data = NULL;
-  pp_format (context->printer, &diagnostic->message);
-  (*diagnostic_starter (context)) (context, diagnostic);
-  pp_output_formatted_text (context->printer);
-  if (context->show_cwe)
-    print_any_cwe (context, diagnostic);
-  if (context->show_option_requested)
-    print_option_information (context, diagnostic, orig_diag_kind);
-  (*diagnostic_finalizer (context)) (context, diagnostic, orig_diag_kind);
-  switch (context->extra_output_kind)
+  pp_format (this->printer, &diagnostic->message, m_urlifier);
+  m_output_format->on_begin_diagnostic (*diagnostic);
+  pp_output_formatted_text (this->printer, m_urlifier);
+  if (m_show_cwe)
+    print_any_cwe (*diagnostic);
+  if (m_show_rules)
+    print_any_rules (*diagnostic);
+  if (m_show_option_requested)
+    print_option_information (*diagnostic, orig_diag_kind);
+  m_output_format->on_end_diagnostic (*diagnostic, orig_diag_kind);
+  switch (m_extra_output_kind)
     {
     default:
       break;
