@@ -12921,7 +12921,10 @@ do_store_flag (sepops ops, rtx target, machine_mode mode)
      so we just call into the folder and expand its result.  */
 
   if ((code == NE || code == EQ)
-      && integer_zerop (arg1)
+      && (integer_zerop (arg1)
+	  || integer_pow2p (arg1))
+      /* vector types are not handled here. */
+      && TREE_CODE (TREE_TYPE (arg1)) != VECTOR_TYPE
       && (TYPE_PRECISION (ops->type) != 1 || TYPE_UNSIGNED (ops->type)))
     {
       gimple *srcstmt = get_def_for_expr (arg0, BIT_AND_EXPR);
