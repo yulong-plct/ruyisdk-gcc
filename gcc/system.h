@@ -1304,4 +1304,12 @@ endswith (const char *str, const char *suffix)
   return memcmp (str + str_len - suffix_len, suffix, suffix_len) == 0;
 }
 
+/* Return true if STR string starts with PREFIX.  */
+
+static inline bool
+startswith (const char *str, const char *prefix)
+{
+  return strncmp (str, prefix, strlen (prefix)) == 0;
+}
+
 #endif /* ! GCC_SYSTEM_H */
