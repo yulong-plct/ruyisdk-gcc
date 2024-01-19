@@ -29,7 +29,7 @@ import itertools
 from functools import reduce
 
 SUPPORTED_ISA_SPEC = ["2.2", "20190608", "20191213"]
-CANONICAL_ORDER = "imafdgqlcbjtpvn"
+CANONICAL_ORDER = "imafdgqlcbjktpvn"
 LONG_EXT_PREFIXES = ['z', 's', 'h', 'x']
 
 #
@@ -38,6 +38,20 @@ LONG_EXT_PREFIXES = ['z', 's', 'h', 'x']
 IMPLIED_EXT = {
   "d" : ["f", "zicsr"],
   "f" : ["zicsr"],
+  "zk" : ["zkn"],
+  "zk" : ["zkr"],
+  "zk" : ["zkt"],
+  "zkn" : ["zbkb"],
+  "zkn" : ["zbkc"],
+  "zkn" : ["zbkx"],
+  "zkn" : ["zkne"],
+  "zkn" : ["zknd"],
+  "zkn" : ["zknh"],
+  "zks" : ["zbkb"],
+  "zks" : ["zbkc"],
+  "zks" : ["zbkx"],
+  "zks" : ["zksed"],
+  "zks" : ["zksh"],
 }
 
 def arch_canonicalize(arch, isa_spec):
