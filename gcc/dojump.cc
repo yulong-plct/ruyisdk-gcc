@@ -1248,6 +1248,7 @@ do_compare_and_jump (tree treeop0, tree treeop1, enum rtx_code signed_code,
   machine_mode mode;
   int unsignedp;
   enum rtx_code code;
+  unsigned HOST_WIDE_INT nunits;
 
   /* Don't crash if the comparison was erroneous.  */
   op0 = expand_normal (treeop0);

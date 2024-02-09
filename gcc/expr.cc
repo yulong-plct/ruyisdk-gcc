@@ -12366,6 +12366,7 @@ do_store_flag (sepops ops, rtx target, machine_mode mode)
   rtx op0, op1;
   rtx subtarget = target;
   location_t loc = ops->location;
+  unsigned HOST_WIDE_INT nunits;
 
   arg0 = ops->op0;
   arg1 = ops->op1;
