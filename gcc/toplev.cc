@@ -74,6 +74,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "ipa-reference.h"
 #include "symbol-summary.h"
 #include "tree-vrp.h"
+#include "sreal.h"
+#include "ipa-cp.h"
 #include "ipa-prop.h"
 #include "gcse.h"
 #include "omp-offload.h"
