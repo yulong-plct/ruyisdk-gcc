@@ -1290,6 +1290,21 @@ do_compare_and_jump (tree treeop0, tree treeop1, enum rtx_code signed_code,
       emit_insn (targetm.gen_canonicalize_funcptr_for_compare (new_op1, op1));
       op1 = new_op1;
     }
+  /* For boolean vectors with less than mode precision
+     make sure to fill padding with consistent values.  */
+  else if (VECTOR_BOOLEAN_TYPE_P (type)
+	   && SCALAR_INT_MODE_P (mode)
+	   && TYPE_VECTOR_SUBPARTS (type).is_constant (&nunits)
+	   && maybe_ne (GET_MODE_PRECISION (mode), nunits))
+    {
+      gcc_assert (code == EQ || code == NE);
+      op0 = expand_binop (mode, and_optab, op0,
+			  GEN_INT ((HOST_WIDE_INT_1U << nunits) - 1), NULL_RTX,
+			  true, OPTAB_WIDEN);
+      op1 = expand_binop (mode, and_optab, op1,
+			  GEN_INT ((HOST_WIDE_INT_1U << nunits) - 1), NULL_RTX,
+			  true, OPTAB_WIDEN);
+    }
 
   do_compare_rtx_and_jump (op0, op1, code, unsignedp, mode,
                            ((mode == BLKmode)

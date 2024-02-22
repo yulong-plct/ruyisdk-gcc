@@ -7002,8 +7002,8 @@ store_constructor (tree exp, rtx target, int cleared, poly_int64 size,
 	    auto nunits = TYPE_VECTOR_SUBPARTS (type).to_constant ();
 	    if (maybe_ne (GET_MODE_PRECISION (mode), nunits))
 	      tmp = expand_binop (mode, and_optab, tmp,
-				  GEN_INT ((1 << nunits) - 1), target,
-				  true, OPTAB_DIRECT);
+				  GEN_INT ((HOST_WIDE_INT_1U << nunits) - 1),
+				  target, true, OPTAB_WIDEN);
 	    if (tmp != target)
 	      emit_move_insn (target, tmp);
 	    break;
@@ -12551,6 +12551,22 @@ do_store_flag (sepops ops, rtx target, machine_mode mode)
     subtarget = 0;
 
   expand_operands (arg0, arg1, subtarget, &op0, &op1, EXPAND_NORMAL);
+
+  /* For boolean vectors with less than mode precision
+     make sure to fill padding with consistent values.  */
+  if (VECTOR_BOOLEAN_TYPE_P (type)
+      && SCALAR_INT_MODE_P (operand_mode)
+      && TYPE_VECTOR_SUBPARTS (type).is_constant (&nunits)
+      && maybe_ne (GET_MODE_PRECISION (operand_mode), nunits))
+    {
+      gcc_assert (code == EQ || code == NE);
+      op0 = expand_binop (mode, and_optab, op0,
+			  GEN_INT ((HOST_WIDE_INT_1U << nunits) - 1),
+			  NULL_RTX, true, OPTAB_WIDEN);
+      op1 = expand_binop (mode, and_optab, op1,
+			  GEN_INT ((HOST_WIDE_INT_1U << nunits) - 1),
+			  NULL_RTX, true, OPTAB_WIDEN);
+    }
 
   if (target == 0)
     target = gen_reg_rtx (mode);
