@@ -3631,22 +3631,240 @@ vect_optimize_slp_pass::start_choosing_layouts ()
 	  for (graph_edge *succ = slpg->vertices[idx].succ;
 	       succ; succ = succ->succ_next)
 	    {
-	      int succ_idx = succ->dest;
-	      /* Handle unvisited nodes optimistically.  */
-	      /* ???  But for constants once we want to handle non-bijective
-		 permutes we have to verify the permute, when unifying lanes,
-		 will not unify different constants.  For example see
-		 gcc.dg/vect/bb-slp-14.c for a case that would break.  */
-	      if (!bitmap_bit_p (n_visited, succ_idx))
-		continue;
-	      int succ_perm = n_perm[succ_idx];
-	      /* Once we materialize succs permutation its output lanes
-		 appear unpermuted to us.  */
-	      if (bitmap_bit_p (n_materialize, succ_idx))
-		succ_perm = 0;
-	      if (perm == -1)
-		perm = succ_perm;
-	      else if (succ_perm == 0)
+	      other_vertex.out_weight += vertex.weight;
+	      other_vertex.out_degree += 1;
+	    }
+	};
+      for_each_partition_edge (node_i, process_edge);
+    }
+}
+
+/* Return the incoming costs for node NODE_I, assuming that each input keeps
+   its current (provisional) choice of layout.  The inputs do not necessarily
+   have the same layout as each other.  */
+
+slpg_layout_cost
+vect_optimize_slp_pass::total_in_cost (unsigned int node_i)
+{
+  auto &vertex = m_vertices[node_i];
+  slpg_layout_cost cost;
+  auto add_cost = [&](graph_edge *, unsigned int other_node_i)
+    {
+      auto &other_vertex = m_vertices[other_node_i];
+      if (other_vertex.partition < vertex.partition)
+	{
+	  auto &other_partition = m_partitions[other_vertex.partition];
+	  auto &other_costs = partition_layout_costs (other_vertex.partition,
+						      other_partition.layout);
+	  slpg_layout_cost this_cost = other_costs.in_cost;
+	  this_cost.add_serial_cost (other_costs.internal_cost);
+	  this_cost.split (other_partition.out_degree);
+	  cost.add_parallel_cost (this_cost);
+	}
+    };
+  for_each_partition_edge (node_i, add_cost);
+  return cost;
+}
+
+/* Return the cost of switching between layout LAYOUT1_I (at node NODE1_I)
+   and layout LAYOUT2_I on cross-partition use-to-def edge UD.  Return
+   slpg_layout_cost::impossible () if the change isn't possible.  */
+
+slpg_layout_cost
+vect_optimize_slp_pass::
+edge_layout_cost (graph_edge *ud, unsigned int node1_i, unsigned int layout1_i,
+		  unsigned int layout2_i)
+{
+  auto &def_vertex = m_vertices[ud->dest];
+  auto &use_vertex = m_vertices[ud->src];
+  auto def_layout_i = ud->dest == int (node1_i) ? layout1_i : layout2_i;
+  auto use_layout_i = ud->dest == int (node1_i) ? layout2_i : layout1_i;
+  auto factor = change_layout_cost (def_vertex.node, def_layout_i,
+				    use_layout_i);
+  if (factor < 0)
+    return slpg_layout_cost::impossible ();
+
+  /* We have a choice of putting the layout change at the site of the
+     definition or at the site of the use.  Prefer the former when
+     optimizing for size or when the execution frequency of the
+     definition is no greater than the combined execution frequencies of
+     the uses.  When putting the layout change at the site of the definition,
+     divvy up the cost among all consumers.  */
+  if (m_optimize_size || def_vertex.weight <= def_vertex.out_weight)
+    {
+      slpg_layout_cost cost = { def_vertex.weight * factor, m_optimize_size };
+      cost.split (def_vertex.out_degree);
+      return cost;
+    }
+  return { use_vertex.weight * factor, m_optimize_size };
+}
+
+/* UD represents a use-def link between FROM_NODE_I and a node in a later
+   partition; FROM_NODE_I could be the definition node or the use node.
+   The node at the other end of the link wants to use layout TO_LAYOUT_I.
+   Return the cost of any necessary fix-ups on edge UD, or return
+   slpg_layout_cost::impossible () if the change isn't possible.
+
+   At this point, FROM_NODE_I's partition has chosen the cheapest
+   layout based on the information available so far, but this choice
+   is only provisional.  */
+
+slpg_layout_cost
+vect_optimize_slp_pass::forward_cost (graph_edge *ud, unsigned int from_node_i,
+				      unsigned int to_layout_i)
+{
+  auto &from_vertex = m_vertices[from_node_i];
+  unsigned int from_partition_i = from_vertex.partition;
+  slpg_partition_info &from_partition = m_partitions[from_partition_i];
+  gcc_assert (from_partition.layout >= 0);
+
+  /* First calculate the cost on the assumption that FROM_PARTITION sticks
+     with its current layout preference.  */
+  slpg_layout_cost cost = slpg_layout_cost::impossible ();
+  auto edge_cost = edge_layout_cost (ud, from_node_i,
+				     from_partition.layout, to_layout_i);
+  if (edge_cost.is_possible ())
+    {
+      auto &from_costs = partition_layout_costs (from_partition_i,
+						 from_partition.layout);
+      cost = from_costs.in_cost;
+      cost.add_serial_cost (from_costs.internal_cost);
+      cost.split (from_partition.out_degree);
+      cost.add_serial_cost (edge_cost);
+    }
+  else if (from_partition.layout == 0)
+    /* We must allow the source partition to have layout 0 as a fallback,
+       in case all other options turn out to be impossible.  */
+    return cost;
+
+  /* Take the minimum of that cost and the cost that applies if
+     FROM_PARTITION instead switches to TO_LAYOUT_I.  */
+  auto &direct_layout_costs = partition_layout_costs (from_partition_i,
+						      to_layout_i);
+  if (direct_layout_costs.is_possible ())
+    {
+      slpg_layout_cost direct_cost = direct_layout_costs.in_cost;
+      direct_cost.add_serial_cost (direct_layout_costs.internal_cost);
+      direct_cost.split (from_partition.out_degree);
+      if (!cost.is_possible ()
+	  || direct_cost.is_better_than (cost, m_optimize_size))
+	cost = direct_cost;
+    }
+
+  return cost;
+}
+
+/* UD represents a use-def link between TO_NODE_I and a node in an earlier
+   partition; TO_NODE_I could be the definition node or the use node.
+   The node at the other end of the link wants to use layout FROM_LAYOUT_I;
+   return the cost of any necessary fix-ups on edge UD, or
+   slpg_layout_cost::impossible () if the choice cannot be made.
+
+   At this point, TO_NODE_I's partition has a fixed choice of layout.  */
+
+slpg_layout_cost
+vect_optimize_slp_pass::backward_cost (graph_edge *ud, unsigned int to_node_i,
+				       unsigned int from_layout_i)
+{
+  auto &to_vertex = m_vertices[to_node_i];
+  unsigned int to_partition_i = to_vertex.partition;
+  slpg_partition_info &to_partition = m_partitions[to_partition_i];
+  gcc_assert (to_partition.layout >= 0);
+
+  /* If TO_NODE_I is a VEC_PERM_EXPR consumer, see whether it can be
+     adjusted for this input having layout FROM_LAYOUT_I.  Assume that
+     any other inputs keep their current choice of layout.  */
+  auto &to_costs = partition_layout_costs (to_partition_i,
+					   to_partition.layout);
+  if (ud->src == int (to_node_i)
+      && SLP_TREE_CODE (to_vertex.node) == VEC_PERM_EXPR)
+    {
+      auto &from_partition = m_partitions[m_vertices[ud->dest].partition];
+      auto old_layout = from_partition.layout;
+      from_partition.layout = from_layout_i;
+      int factor = internal_node_cost (to_vertex.node, -1,
+				       to_partition.layout);
+      from_partition.layout = old_layout;
+      if (factor >= 0)
+	{
+	  slpg_layout_cost cost = to_costs.out_cost;
+	  cost.add_serial_cost ({ to_vertex.weight * factor,
+				  m_optimize_size });
+	  cost.split (to_partition.in_degree);
+	  return cost;
+	}
+    }
+
+  /* Compute the cost if we insert any necessary layout change on edge UD.  */
+  auto edge_cost = edge_layout_cost (ud, to_node_i,
+				     to_partition.layout, from_layout_i);
+  if (edge_cost.is_possible ())
+    {
+      slpg_layout_cost cost = to_costs.out_cost;
+      cost.add_serial_cost (to_costs.internal_cost);
+      cost.split (to_partition.in_degree);
+      cost.add_serial_cost (edge_cost);
+      return cost;
+    }
+
+  return slpg_layout_cost::impossible ();
+}
+
+/* Make a forward pass through the partitions, accumulating input costs.
+   Make a tentative (provisional) choice of layout for each partition,
+   ensuring that this choice still allows later partitions to keep
+   their original layout.  */
+
+void
+vect_optimize_slp_pass::forward_pass ()
+{
+  for (unsigned int partition_i = 0; partition_i < m_partitions.length ();
+       ++partition_i)
+    {
+      auto &partition = m_partitions[partition_i];
+
+      /* If the partition consists of a single VEC_PERM_EXPR, precompute
+	 the incoming cost that would apply if every predecessor partition
+	 keeps its current layout.  This is used within the loop below.  */
+      slpg_layout_cost in_cost;
+      slp_tree single_node = nullptr;
+      if (partition.node_end == partition.node_begin + 1)
+	{
+	  unsigned int node_i = m_partitioned_nodes[partition.node_begin];
+	  single_node = m_vertices[node_i].node;
+	  if (SLP_TREE_CODE (single_node) == VEC_PERM_EXPR)
+	    in_cost = total_in_cost (node_i);
+	}
+
+      /* Go through the possible layouts.  Decide which ones are valid
+	 for this partition and record which of the valid layouts has
+	 the lowest cost.  */
+      unsigned int min_layout_i = 0;
+      slpg_layout_cost min_layout_cost = slpg_layout_cost::impossible ();
+      for (unsigned int layout_i = 0; layout_i < m_perms.length (); ++layout_i)
+	{
+	  auto &layout_costs = partition_layout_costs (partition_i, layout_i);
+	  if (!layout_costs.is_possible ())
+	    continue;
+
+	  /* If the recorded layout is already 0 then the layout cannot
+	     change.  */
+	  if (partition.layout == 0 && layout_i != 0)
+	    {
+	      layout_costs.mark_impossible ();
+	      continue;
+	    }
+
+	  bool is_possible = true;
+	  for (unsigned int order_i = partition.node_begin;
+	       order_i < partition.node_end; ++order_i)
+	    {
+	      unsigned int node_i = m_partitioned_nodes[order_i];
+	      auto &vertex = m_vertices[node_i];
+
+	      /* Reject the layout if it is individually incompatible
+		 with any node in the partition.  */
+	      if (!is_compatible_layout (vertex.node, layout_i))
 		{
 		  perm = 0;
 		  break;
