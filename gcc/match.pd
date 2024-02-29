@@ -6799,7 +6799,7 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 	    ? TREE_TYPE (@00) : type1);
      }
      (if (element_precision (TREE_TYPE (@0)) > element_precision (newtype)
-	  && (!VECTOR_TYPE_P (type) || is_truth_type_for (newtype, type)))
+	  && is_truth_type_for (newtype, type))
       (cmp (convert:newtype @00) (convert:newtype @10))))))))
 
 
@@ -8586,9 +8586,7 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 	  || optimize_vectors_before_lowering_p ())
       && types_match (@0, @1)
       && types_match (TREE_TYPE (TREE_TYPE (@0)), TREE_TYPE (@2))
-      && TYPE_VECTOR_SUBPARTS (type).is_constant ()
-      && multiple_p (wi::to_poly_offset (@rpos),
-		     wi::to_poly_offset (TYPE_SIZE (TREE_TYPE (type)))))
+      && TYPE_VECTOR_SUBPARTS (type).is_constant ())
   (with
    {
      unsigned HOST_WIDE_INT elsz
@@ -9404,21 +9402,6 @@ and,
         && is_truth_type_for (op_type, TREE_TYPE (@0)))
      (cond_op (bit_not @0) (view_convert @2) @1 @4 @5)))))
 
-(for uncond_op (UNCOND_UNARY)
-     cond_op (COND_LEN_UNARY)
- (simplify
-  (IFN_VCOND_MASK_LEN @0 (view_convert? (uncond_op@3 @1)) @2 @4 @5)
-   (with { tree op_type = TREE_TYPE (@3); }
-    (if (vectorized_internal_fn_supported_p (as_internal_fn (cond_op), op_type)
-        && is_truth_type_for (op_type, TREE_TYPE (@0)))
-     (cond_op @0 @1 @2 @4 @5))))
- (simplify
-  (IFN_VCOND_MASK_LEN @0 @1 (view_convert? (uncond_op@3 @2)) @4 @5)
-   (with { tree op_type = TREE_TYPE (@3); }
-    (if (vectorized_internal_fn_supported_p (as_internal_fn (cond_op), op_type)
-        && is_truth_type_for (op_type, TREE_TYPE (@0)))
-     (cond_op (bit_not @0) @2 @1 @4 @5)))))
-
 /* `(a ? -1 : 0) ^ b` can be converted into a conditional not.  */
 (simplify
  (bit_xor:c (vec_cond @0 uniform_integer_cst_p@1 uniform_integer_cst_p@2) @3)
@@ -9609,18 +9592,18 @@ and,
 
 /* Detect simplification for vector condition folding where
 
-  c = mask1 ? (masked_op mask2 a b els) : els
+  c = mask1 ? (masked_op mask2 a b) : b
 
   into
 
-  c = masked_op (mask1 & mask2) a b els
+  c = masked_op (mask1 & mask2) a b
 
   where the operation can be partially applied to one operand. */
 
 (for cond_op (COND_BINARY)
  (simplify
   (vec_cond @0
-   (cond_op:s @1 @2 @3 @4) @4)
+   (cond_op:s @1 @2 @3 @4) @3)
   (cond_op (bit_and @1 @0) @2 @3 @4)))
 
 /* And same for ternary expressions.  */
@@ -9628,7 +9611,7 @@ and,
 (for cond_op (COND_TERNARY)
  (simplify
   (vec_cond @0
-   (cond_op:s @1 @2 @3 @4 @5) @5)
+   (cond_op:s @1 @2 @3 @4 @5) @4)
   (cond_op (bit_and @1 @0) @2 @3 @4 @5)))
 
 /* For pointers @0 and @2 and nonnegative constant offset @1, look for
