@@ -1235,6 +1235,131 @@ vect_recog_sad_pattern (vec_info *vinfo,
   return pattern_stmt;
 }
 
+/* Function vect_recog_abd_pattern
+
+   Try to find the following ABsolute Difference (ABD) or
+   widening ABD (WIDEN_ABD) pattern:
+
+   TYPE1 x;
+   TYPE2 y;
+   TYPE3 x_cast = (TYPE3) x;		  // widening or no-op
+   TYPE3 y_cast = (TYPE3) y;		  // widening or no-op
+   TYPE3 diff = x_cast - y_cast;
+   TYPE4 diff_cast = (TYPE4) diff;	  // widening or no-op
+   TYPE5 abs = ABS(U)_EXPR <diff_cast>;
+
+   WIDEN_ABD exists to optimize the case where TYPE4 is at least
+   twice as wide as TYPE3.
+
+   Input:
+
+   * STMT_VINFO: The stmt from which the pattern search begins
+
+   Output:
+
+   * TYPE_OUT: The type of the output of this pattern
+
+   * Return value: A new stmt that will be used to replace the sequence of
+     stmts that constitute the pattern, principally:
+	out = IFN_ABD (x, y)
+	out = IFN_WIDEN_ABD (x, y)
+ */
+
+static gimple *
+vect_recog_abd_pattern (vec_info *vinfo,
+			stmt_vec_info stmt_vinfo, tree *type_out)
+{
+  gassign *last_stmt = dyn_cast <gassign *> (STMT_VINFO_STMT (stmt_vinfo));
+  if (!last_stmt)
+    return NULL;
+
+  tree out_type = TREE_TYPE (gimple_assign_lhs (last_stmt));
+
+  vect_unpromoted_value unprom[2];
+  gassign *diff_stmt;
+  tree half_type;
+  if (!vect_recog_absolute_difference (vinfo, last_stmt, &half_type,
+				       unprom, &diff_stmt))
+    return NULL;
+
+  tree abd_in_type, abd_out_type;
+
+  if (half_type)
+    {
+      abd_in_type = half_type;
+      abd_out_type = abd_in_type;
+    }
+  else
+    {
+      unprom[0].op = gimple_assign_rhs1 (diff_stmt);
+      unprom[1].op = gimple_assign_rhs2 (diff_stmt);
+      abd_in_type = signed_type_for (out_type);
+      abd_out_type = abd_in_type;
+    }
+
+  tree vectype_in = get_vectype_for_scalar_type (vinfo, abd_in_type);
+  if (!vectype_in)
+    return NULL;
+
+  internal_fn ifn = IFN_ABD;
+  tree vectype_out = vectype_in;
+
+  if (TYPE_PRECISION (out_type) >= TYPE_PRECISION (abd_in_type) * 2
+      && stmt_vinfo->min_output_precision >= TYPE_PRECISION (abd_in_type) * 2)
+    {
+      tree mid_type
+	= build_nonstandard_integer_type (TYPE_PRECISION (abd_in_type) * 2,
+					  TYPE_UNSIGNED (abd_in_type));
+      tree mid_vectype = get_vectype_for_scalar_type (vinfo, mid_type);
+
+      code_helper dummy_code;
+      int dummy_int;
+      auto_vec<tree> dummy_vec;
+      if (mid_vectype
+	  && supportable_widening_operation (vinfo, IFN_VEC_WIDEN_ABD,
+					     stmt_vinfo, mid_vectype,
+					     vectype_in,
+					     &dummy_code, &dummy_code,
+					     &dummy_int, &dummy_vec))
+	{
+	  ifn = IFN_VEC_WIDEN_ABD;
+	  abd_out_type = mid_type;
+	  vectype_out = mid_vectype;
+	}
+    }
+
+  if (ifn == IFN_ABD
+      && !direct_internal_fn_supported_p (ifn, vectype_in,
+					  OPTIMIZE_FOR_SPEED))
+    return NULL;
+
+  vect_pattern_detected ("vect_recog_abd_pattern", last_stmt);
+
+  tree abd_oprnds[2];
+  vect_convert_inputs (vinfo, stmt_vinfo, 2, abd_oprnds,
+		       abd_in_type, unprom, vectype_in);
+
+  *type_out = get_vectype_for_scalar_type (vinfo, out_type);
+
+  tree abd_result = vect_recog_temp_ssa_var (abd_out_type, NULL);
+  gcall *abd_stmt = gimple_build_call_internal (ifn, 2,
+						abd_oprnds[0], abd_oprnds[1]);
+  gimple_call_set_lhs (abd_stmt, abd_result);
+  gimple_set_location (abd_stmt, gimple_location (last_stmt));
+
+  gimple *stmt = abd_stmt;
+  if (TYPE_PRECISION (abd_in_type) == TYPE_PRECISION (abd_out_type)
+      && TYPE_PRECISION (abd_out_type) < TYPE_PRECISION (out_type)
+      && !TYPE_UNSIGNED (abd_out_type))
+    {
+      tree unsign = unsigned_type_for (abd_out_type);
+      stmt = vect_convert_output (vinfo, stmt_vinfo, unsign, stmt, vectype_out);
+      vectype_out = get_vectype_for_scalar_type (vinfo, unsign);
+    }
+
+  return vect_convert_output (vinfo, stmt_vinfo, out_type, stmt, vectype_out);
+}
+
 /* Recognize an operation that performs ORIG_CODE on widened inputs,
    so that it can be treated as though it had the form:
 
