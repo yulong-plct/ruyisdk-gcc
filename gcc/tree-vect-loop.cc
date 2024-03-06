@@ -5995,8 +5995,6 @@ vect_create_epilog_for_reduction (loop_vec_info loop_vinfo,
 					    (stmt_info->stmt, 0));
       stmt_info = vect_stmt_to_vectorize (stmt_info);
     }
-  gphi *reduc_def_stmt
-    = as_a <gphi *> (STMT_VINFO_REDUC_DEF (vect_orig_stmt (stmt_info))->stmt);
   code_helper code = STMT_VINFO_REDUC_CODE (reduc_info);
   internal_fn reduc_fn = STMT_VINFO_REDUC_FN (reduc_info);
   tree vectype;
@@ -6087,7 +6085,6 @@ vect_create_epilog_for_reduction (loop_vec_info loop_vinfo,
     }
   else
     {
-      stmt_vec_info reduc_info = loop_vinfo->lookup_stmt (reduc_def_stmt);
       vec_num = 1;
       ncopies = STMT_VINFO_VEC_STMTS (reduc_info).length ();
     }
@@ -6231,7 +6228,6 @@ vect_create_epilog_for_reduction (loop_vec_info loop_vinfo,
   exit_bb = loop_exit->dest;
   exit_gsi = gsi_after_labels (exit_bb);
   reduc_inputs.create (slp_node ? vec_num : ncopies);
-  vec <gimple *> vec_stmts = vNULL;
   for (unsigned i = 0; i < vec_num; i++)
     {
       gimple_seq stmts = NULL;
@@ -6941,7 +6937,8 @@ vect_create_epilog_for_reduction (loop_vec_info loop_vinfo,
         {
           if (!flow_bb_inside_loop_p (loop, gimple_bb (USE_STMT (use_p))))
 	    {
-	      if (!is_gimple_debug (USE_STMT (use_p)))
+	      if (!is_gimple_debug (USE_STMT (use_p))
+		  && gimple_bb (USE_STMT (use_p)) == loop_exit->dest)
 		phis.safe_push (USE_STMT (use_p));
 	    }
           else
@@ -10754,26 +10751,21 @@ vectorizable_live_operation (vec_info *vinfo, stmt_vec_info stmt_info,
     {
       if (!vec_stmt_p)
 	return true;
-      if (slp_node)
-	{
-	  /* For reduction chains the meta-info is attached to
-	     the group leader.  */
-	  if (REDUC_GROUP_FIRST_ELEMENT (stmt_info))
-	    stmt_info = REDUC_GROUP_FIRST_ELEMENT (stmt_info);
-	  /* For SLP reductions we vectorize the epilogue for
-	     all involved stmts together.  */
-	  else if (slp_index != 0)
-	    return true;
-	}
+      /* For SLP reductions we vectorize the epilogue for all involved stmts
+	 together.  */
+      if (slp_node && !REDUC_GROUP_FIRST_ELEMENT (stmt_info) && slp_index != 0)
+	return true;
       stmt_vec_info reduc_info = info_for_reduction (loop_vinfo, stmt_info);
       gcc_assert (reduc_info->is_reduc_info);
       if (STMT_VINFO_REDUC_TYPE (reduc_info) == FOLD_LEFT_REDUCTION
 	  || STMT_VINFO_REDUC_TYPE (reduc_info) == EXTRACT_LAST_REDUCTION)
 	return true;
 
-      vect_create_epilog_for_reduction (loop_vinfo, stmt_info, slp_node,
-					slp_node_instance,
-					LOOP_VINFO_IV_EXIT (loop_vinfo));
+      if (!LOOP_VINFO_EARLY_BREAKS (loop_vinfo)
+	  || !LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+	vect_create_epilog_for_reduction (loop_vinfo, stmt_info, slp_node,
+					  slp_node_instance,
+					  LOOP_VINFO_IV_EXIT (loop_vinfo));
 
       /* If early break we only have to materialize the reduction on the merge
 	 block, but we have to find an alternate exit first.  */
@@ -10782,11 +10774,15 @@ vectorizable_live_operation (vec_info *vinfo, stmt_vec_info stmt_info,
 	  for (auto exit : get_loop_exit_edges (LOOP_VINFO_LOOP (loop_vinfo)))
 	    if (exit != LOOP_VINFO_IV_EXIT (loop_vinfo))
 	      {
-		vect_create_epilog_for_reduction (loop_vinfo, stmt_info,
+		vect_create_epilog_for_reduction (loop_vinfo, reduc_info,
 						  slp_node, slp_node_instance,
 						  exit);
 		break;
 	      }
+	  if (LOOP_VINFO_EARLY_BREAKS_VECT_PEELED (loop_vinfo))
+	    vect_create_epilog_for_reduction (loop_vinfo, reduc_info, slp_node,
+					      slp_node_instance,
+					      LOOP_VINFO_IV_EXIT (loop_vinfo));
 	}
 
       return true;
