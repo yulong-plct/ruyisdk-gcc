@@ -3882,8 +3882,8 @@ decision_tree::gen (FILE *f, bool gimple)
 		   (*iter).second->fname);
 	  for (unsigned i = 0;
 	       i < as_a <expr *>(s->s->s->match)->ops.length (); ++i)
-	    fprintf (f, " tree ARG_UNUSED (_p%d),", i);
-	  fprintf (f, " tree *captures\n");
+	    fp_decl (f, " tree ARG_UNUSED (_p%d),", i);
+	  fp_decl (f, " tree *ARG_UNUSED (captures)");
 	}
       for (unsigned i = 0; i < s->s->s->for_subst_vec.length (); ++i)
 	{
