@@ -6585,13 +6585,6 @@ vect_transform_slp_perm_load (vec_info *vinfo,
 					       first_vec, second_vec, mask_vec);
 		      vect_finish_stmt_generation (vinfo, stmt_info, perm_stmt,
 						   gsi);
-<<<<<<< HEAD
-		    }
-		  else
-		    /* If mask was NULL_TREE generate the requested
-		       identity transform.  */
-		    perm_stmt = SSA_NAME_DEF_STMT (first_vec);
-=======
 		      if (dce_chain)
 			{
 			  bitmap_set_bit (used_defs, first_vec_index + ri);
@@ -6614,7 +6607,6 @@ vect_transform_slp_perm_load (vec_info *vinfo,
 		  gimple *perm_stmt = SSA_NAME_DEF_STMT (first_vec);
 		  if (dce_chain)
 		    bitmap_set_bit (used_defs, first_vec_index + ri);
->>>>>>> 285e0bb95dd (vect: Refactor code for index == count in vect_transform_slp_perm_load_1)
 
 		  /* Store the vector statement in NODE.  */
 		  SLP_TREE_VEC_STMTS (node)[vect_stmts_counter++] = perm_stmt;
