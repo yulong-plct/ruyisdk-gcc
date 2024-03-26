@@ -765,18 +765,14 @@ vn_reference_eq (const_vn_reference_t const vr1, const_vn_reference_t const vr2)
   if (vr1->operands == vr2->operands)
     return true;
 
-  if (!vr1->type || !vr2->type)
-    {
-      if (vr1->type != vr2->type)
-	return false;
-    }
-  else if (COMPLETE_TYPE_P (vr1->type) != COMPLETE_TYPE_P (vr2->type)
-	   || (COMPLETE_TYPE_P (vr1->type)
-	       && !expressions_equal_p (TYPE_SIZE (vr1->type),
-					TYPE_SIZE (vr2->type))))
+  if (COMPLETE_TYPE_P (vr1->type) != COMPLETE_TYPE_P (vr2->type)
+      || (COMPLETE_TYPE_P (vr1->type)
+	  && !expressions_equal_p (TYPE_SIZE (vr1->type),
+				   TYPE_SIZE (vr2->type))))
     return false;
-  else if (INTEGRAL_TYPE_P (vr1->type)
-	   && INTEGRAL_TYPE_P (vr2->type))
+
+  if (INTEGRAL_TYPE_P (vr1->type)
+      && INTEGRAL_TYPE_P (vr2->type))
     {
       if (TYPE_PRECISION (vr1->type) != TYPE_PRECISION (vr2->type))
 	return false;
@@ -1084,10 +1080,6 @@ ao_ref_init_from_vn_reference (ao_ref *ref,
   poly_offset_int max_size;
   poly_offset_int size = -1;
   tree size_tree = NULL_TREE;
-
-  /* We don't handle calls.  */
-  if (!type)
-    return false;
 
   machine_mode mode = TYPE_MODE (type);
   if (mode == BLKmode)
@@ -1518,7 +1510,6 @@ fully_constant_vn_reference_p (vn_reference_t ref)
 
   /* Simplify reads from constants or constant initializers.  */
   else if (BITS_PER_UNIT == 8
-	   && ref->type
 	   && COMPLETE_TYPE_P (ref->type)
 	   && is_gimple_reg_type (ref->type))
     {
@@ -3745,10 +3736,7 @@ vn_reference_lookup_call (gcall *call, vn_reference_t *vnresult,
 
   vr->vuse = vuse ? SSA_VAL (vuse) : NULL_TREE;
   vr->operands = valueize_shared_reference_ops_from_call (call);
-  tree lhs = gimple_call_lhs (call);
-  /* For non-SSA return values the referece ops contain the LHS.  */
-  vr->type = ((lhs && TREE_CODE (lhs) == SSA_NAME)
-	      ? TREE_TYPE (lhs) : NULL_TREE);
+  vr->type = gimple_expr_type (call);
   vr->punned = false;
   vr->set = 0;
   vr->base_set = 0;
