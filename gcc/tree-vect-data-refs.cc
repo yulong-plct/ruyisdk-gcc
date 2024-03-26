@@ -143,8 +143,11 @@ simd_clone_call_p (gimple *stmt)
    types.  */
 
 tree
-vect_get_smallest_scalar_type (stmt_vec_info stmt_info, tree scalar_type)
+vect_get_smallest_scalar_type (stmt_vec_info stmt_info,
+			       HOST_WIDE_INT *lhs_size_unit,
+			       HOST_WIDE_INT *rhs_size_unit)
 {
+  tree scalar_type = gimple_expr_type (stmt_info->stmt);
   HOST_WIDE_INT lhs, rhs;
 
   /* During the analysis phase, this function is called on arbitrary
@@ -155,24 +158,21 @@ vect_get_smallest_scalar_type (stmt_vec_info stmt_info, tree scalar_type)
   lhs = rhs = TREE_INT_CST_LOW (TYPE_SIZE_UNIT (scalar_type));
 
   gassign *assign = dyn_cast <gassign *> (stmt_info->stmt);
-  if (assign)
-    {
-      scalar_type = TREE_TYPE (gimple_assign_lhs (assign));
-      if (gimple_assign_cast_p (assign)
+  if (assign
+      && (gimple_assign_cast_p (assign)
 	  || gimple_assign_rhs_code (assign) == DOT_PROD_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_SUM_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_MULT_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_LSHIFT_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_PLUS_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_MINUS_EXPR
-	  || gimple_assign_rhs_code (assign) == FLOAT_EXPR)
-	{
-	  tree rhs_type = TREE_TYPE (gimple_assign_rhs1 (assign));
+	  || gimple_assign_rhs_code (assign) == FLOAT_EXPR))
+    {
+      tree rhs_type = TREE_TYPE (gimple_assign_rhs1 (assign));
 
-	  rhs = TREE_INT_CST_LOW (TYPE_SIZE_UNIT (rhs_type));
-	  if (rhs < lhs)
-	    scalar_type = rhs_type;
-	}
+      rhs = TREE_INT_CST_LOW (TYPE_SIZE_UNIT (rhs_type));
+      if (rhs < lhs)
+        scalar_type = rhs_type;
     }
   else if (cgraph_node *node = simd_clone_call_p (stmt_info->stmt))
     {
@@ -197,16 +197,10 @@ vect_get_smallest_scalar_type (stmt_vec_info stmt_info, tree scalar_type)
       if (gimple_call_internal_p (call))
 	{
 	  internal_fn ifn = gimple_call_internal_fn (call);
-	  if (internal_load_fn_p (ifn))
-	    /* For loads the LHS type does the trick.  */
+	  if (internal_load_fn_p (ifn) || internal_store_fn_p (ifn))
+	    /* gimple_expr_type already picked the type of the loaded
+	       or stored data.  */
 	    i = ~0U;
-	  else if (internal_store_fn_p (ifn))
-	    {
-	      /* For stores use the tyep of the stored value.  */
-	      i = internal_fn_stored_value_index (ifn);
-	      scalar_type = TREE_TYPE (gimple_call_arg (call, i));
-	      i = ~0U;
-	    }
 	  else if (internal_fn_mask_index (ifn) == 0)
 	    i = 1;
 	}
@@ -222,6 +216,8 @@ vect_get_smallest_scalar_type (stmt_vec_info stmt_info, tree scalar_type)
 	}
     }
 
+  *lhs_size_unit = lhs;
+  *rhs_size_unit = rhs;
   return scalar_type;
 }
 
