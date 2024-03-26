@@ -3000,7 +3000,7 @@ get_val_for (tree x, tree base)
   else if (gimple_assign_rhs_class (stmt) == GIMPLE_UNARY_RHS
 	   && TREE_CODE (gimple_assign_rhs1 (stmt)) == SSA_NAME)
     return fold_build1 (gimple_assign_rhs_code (stmt),
-			TREE_TYPE (gimple_assign_lhs (stmt)),
+			gimple_expr_type (stmt),
 			get_val_for (gimple_assign_rhs1 (stmt), base));
   else if (gimple_assign_rhs_class (stmt) == GIMPLE_BINARY_RHS)
     {
@@ -3013,7 +3013,7 @@ get_val_for (tree x, tree base)
       else
 	gcc_unreachable ();
       return fold_build2 (gimple_assign_rhs_code (stmt),
-			  TREE_TYPE (gimple_assign_lhs (stmt)), rhs1, rhs2);
+			  gimple_expr_type (stmt), rhs1, rhs2);
     }
   else
     gcc_unreachable ();

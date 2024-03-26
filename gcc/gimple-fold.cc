@@ -7556,8 +7556,7 @@ gimple_fold_stmt_to_constant_1 (gimple *stmt, tree (*valueize) (tree),
               tree op1 = (*valueize) (gimple_assign_rhs2 (stmt));
               tree op2 = (*valueize) (gimple_assign_rhs3 (stmt));
               return fold_ternary_loc (loc, subcode,
-				       TREE_TYPE (gimple_assign_lhs (stmt)),
-				       op0, op1, op2);
+				       gimple_expr_type (stmt), op0, op1, op2);
             }
 
           default:
@@ -8993,17 +8992,16 @@ gimple_assign_nonnegative_warnv_p (gimple *stmt, bool *strict_overflow_p,
 				   int depth)
 {
   enum tree_code code = gimple_assign_rhs_code (stmt);
-  tree type = TREE_TYPE (gimple_assign_lhs (stmt));
   switch (get_gimple_rhs_class (code))
     {
     case GIMPLE_UNARY_RHS:
       return tree_unary_nonnegative_warnv_p (gimple_assign_rhs_code (stmt),
-					     type,
+					     gimple_expr_type (stmt),
 					     gimple_assign_rhs1 (stmt),
 					     strict_overflow_p, depth);
     case GIMPLE_BINARY_RHS:
       return tree_binary_nonnegative_warnv_p (gimple_assign_rhs_code (stmt),
-					      type,
+					      gimple_expr_type (stmt),
 					      gimple_assign_rhs1 (stmt),
 					      gimple_assign_rhs2 (stmt),
 					      strict_overflow_p, depth);
@@ -9031,12 +9029,12 @@ gimple_call_nonnegative_warnv_p (gimple *stmt, bool *strict_overflow_p,
     gimple_call_arg (stmt, 0) : NULL_TREE;
   tree arg1 = gimple_call_num_args (stmt) > 1 ?
     gimple_call_arg (stmt, 1) : NULL_TREE;
-  tree lhs = gimple_call_lhs (stmt);
-  return (lhs
-	  && tree_call_nonnegative_warnv_p (TREE_TYPE (lhs),
-					    gimple_call_combined_fn (stmt),
-					    arg0, arg1,
-					    strict_overflow_p, depth));
+
+  return tree_call_nonnegative_warnv_p (gimple_expr_type (stmt),
+					gimple_call_combined_fn (stmt),
+					arg0,
+					arg1,
+					strict_overflow_p, depth);
 }
 
 /* Return true if return value of call STMT is known to be non-negative.
