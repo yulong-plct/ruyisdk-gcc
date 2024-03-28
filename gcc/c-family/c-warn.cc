@@ -1511,15 +1511,13 @@ match_case_to_enum_1 (tree key, tree type, tree label)
     return;
 
   char buf[WIDE_INT_PRINT_BUFFER_SIZE];
-  wide_int w = wi::to_wide (key);
 
-  gcc_assert (w.get_len () <= WIDE_INT_MAX_INL_ELTS);
   if (tree_fits_uhwi_p (key))
-    print_dec (w, buf, UNSIGNED);
+    print_dec (wi::to_wide (key), buf, UNSIGNED);
   else if (tree_fits_shwi_p (key))
-    print_dec (w, buf, SIGNED);
+    print_dec (wi::to_wide (key), buf, SIGNED);
   else
-    print_hex (w, buf);
+    print_hex (wi::to_wide (key), buf);
 
   if (TYPE_NAME (type) == NULL_TREE)
     warning_at (DECL_SOURCE_LOCATION (CASE_LABEL (label)),

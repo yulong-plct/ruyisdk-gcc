@@ -3366,17 +3366,12 @@ do_warn_aggressive_loop_optimizations (class loop *loop,
     return;
 
   gimple *estmt = last_stmt (e->src);
-  char buf[WIDE_INT_PRINT_BUFFER_SIZE], *p;
-  unsigned len = i_bound.get_len ();
-  if (len > WIDE_INT_MAX_INL_ELTS)
-    p = XALLOCAVEC (char, len * HOST_BITS_PER_WIDE_INT / 4 + 4);
-  else
-    p = buf;
-  print_dec (i_bound, p, TYPE_UNSIGNED (TREE_TYPE (loop->nb_iterations))
+  char buf[WIDE_INT_PRINT_BUFFER_SIZE];
+  print_dec (i_bound, buf, TYPE_UNSIGNED (TREE_TYPE (loop->nb_iterations))
 	     ? UNSIGNED : SIGNED);
   auto_diagnostic_group d;
   if (warning_at (gimple_location (stmt), OPT_Waggressive_loop_optimizations,
-		  "iteration %s invokes undefined behavior", p))
+		  "iteration %s invokes undefined behavior", buf))
     inform (gimple_location (estmt), "within this loop");
   loop->warned_aggressive_loop_optimizations = true;
 }
@@ -3413,9 +3408,6 @@ record_estimate (class loop *loop, tree bound, const widest_int &i_bound,
   else
     gcc_checking_assert (i_bound == wi::to_widest (bound));
 
-  if (wi::min_precision (i_bound, SIGNED) > bound_wide_int ().get_precision ())
-    return;
-
   /* If we have a guaranteed upper bound, record it in the appropriate
      list, unless this is an !is_exit bound (i.e. undefined behavior in
      at_stmt) in a loop with known constant number of iterations.  */
@@ -3426,7 +3418,7 @@ record_estimate (class loop *loop, tree bound, const widest_int &i_bound,
     {
       class nb_iter_bound *elt = ggc_alloc<nb_iter_bound> ();
 
-      elt->bound = bound_wide_int::from (i_bound, SIGNED);
+      elt->bound = i_bound;
       elt->stmt = at_stmt;
       elt->is_exit = is_exit;
       elt->next = loop->bounds;
@@ -3901,8 +3893,8 @@ infer_loop_bounds_from_undefined (class loop *loop, basic_block *bbs)
 static int
 wide_int_cmp (const void *p1, const void *p2)
 {
-  const bound_wide_int *d1 = (const bound_wide_int *) p1;
-  const bound_wide_int *d2 = (const bound_wide_int *) p2;
+  const widest_int *d1 = (const widest_int *) p1;
+  const widest_int *d2 = (const widest_int *) p2;
   return wi::cmpu (*d1, *d2);
 }
 
@@ -3910,7 +3902,7 @@ wide_int_cmp (const void *p1, const void *p2)
    Lookup by binary search.  */
 
 static int
-bound_index (const vec<bound_wide_int> &bounds, const bound_wide_int &bound)
+bound_index (vec<widest_int> bounds, const widest_int &bound)
 {
   unsigned int end = bounds.length ();
   unsigned int begin = 0;
@@ -3919,7 +3911,7 @@ bound_index (const vec<bound_wide_int> &bounds, const bound_wide_int &bound)
   while (begin != end)
     {
       unsigned int middle = (begin + end) / 2;
-      bound_wide_int index = bounds[middle];
+      widest_int index = bounds[middle];
 
       if (index == bound)
 	return middle;
@@ -3941,7 +3933,7 @@ static void
 discover_iteration_bound_by_body_walk (class loop *loop)
 {
   class nb_iter_bound *elt;
-  auto_vec<bound_wide_int> bounds;
+  auto_vec<widest_int> bounds;
   vec<vec<basic_block> > queues = vNULL;
   vec<basic_block> queue = vNULL;
   ptrdiff_t queue_index;
@@ -3950,7 +3942,7 @@ discover_iteration_bound_by_body_walk (class loop *loop)
   /* Discover what bounds may interest us.  */
   for (elt = loop->bounds; elt; elt = elt->next)
     {
-      bound_wide_int bound = elt->bound;
+      widest_int bound = elt->bound;
 
       /* Exit terminates loop at given iteration, while non-exits produce undefined
 	 effect on the next iteration.  */
@@ -3983,7 +3975,7 @@ discover_iteration_bound_by_body_walk (class loop *loop)
   hash_map<basic_block, ptrdiff_t> bb_bounds;
   for (elt = loop->bounds; elt; elt = elt->next)
     {
-      bound_wide_int bound = elt->bound;
+      widest_int bound = elt->bound;
       if (!elt->is_exit)
 	{
 	  bound += 1;
@@ -4092,8 +4084,7 @@ discover_iteration_bound_by_body_walk (class loop *loop)
 	  print_decu (bounds[latch_index], dump_file);
 	  fprintf (dump_file, "\n");
 	}
-      record_niter_bound (loop, widest_int::from (bounds[latch_index],
-						  SIGNED), false, true);
+      record_niter_bound (loop, bounds[latch_index], false, true);
     }
 
   queues.release ();
@@ -4196,8 +4187,7 @@ maybe_lower_iteration_bound (class loop *loop)
       if (dump_file && (dump_flags & TDF_DETAILS))
 	fprintf (dump_file, "Reducing loop iteration estimate by 1; "
 		 "undefined statement must be executed at the last iteration.\n");
-      record_niter_bound (loop, widest_int::from (loop->nb_iterations_upper_bound,
-						  SIGNED) - 1,
+      record_niter_bound (loop, loop->nb_iterations_upper_bound - 1,
 			  false, true);
     }
 
@@ -4347,13 +4337,10 @@ estimate_numbers_of_iterations (class loop *loop)
      not break code with undefined behavior by not recording smaller
      maximum number of iterations.  */
   if (loop->nb_iterations
-      && TREE_CODE (loop->nb_iterations) == INTEGER_CST
-      && (wi::min_precision (wi::to_widest (loop->nb_iterations), SIGNED)
-	  <= bound_wide_int ().get_precision ()))
+      && TREE_CODE (loop->nb_iterations) == INTEGER_CST)
     {
       loop->any_upper_bound = true;
-      loop->nb_iterations_upper_bound
-	= bound_wide_int::from (wi::to_widest (loop->nb_iterations), SIGNED);
+      loop->nb_iterations_upper_bound = wi::to_widest (loop->nb_iterations);
     }
 }
 
@@ -4606,7 +4593,7 @@ n_of_executions_at_most (gimple *stmt,
 			 class nb_iter_bound *niter_bound,
 			 tree niter)
 {
-  widest_int bound = widest_int::from (niter_bound->bound, SIGNED);
+  widest_int bound = niter_bound->bound;
   tree nit_type = TREE_TYPE (niter), e;
   enum tree_code cmp;
 
