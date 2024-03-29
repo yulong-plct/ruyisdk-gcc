@@ -3636,11 +3636,11 @@ vect_optimize_slp_pass::build_vertices (hash_set<slp_tree> &visited,
   m_vertices.safe_push (slpg_vertex (node));
 
   bool leaf = true;
+  bool force_leaf = false;
   FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (node), i, child)
     if (child)
       {
 	leaf = false;
-  bool force_leaf = false;
 	build_vertices (visited, child);
       }
     else
@@ -4947,7 +4947,7 @@ vect_optimize_slp_pass::materialize ()
 
       unsigned j;
       slp_tree child;
-      FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (node), j, child)
+      FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (vertex.node), j, child)
 	{
 	  if (!child)
 	    continue;
