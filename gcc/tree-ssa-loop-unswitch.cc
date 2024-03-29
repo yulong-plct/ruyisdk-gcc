@@ -455,33 +455,7 @@ tree_unswitch_single_loop (class loop *loop, int num)
   if (!nloop)
     {
       free_original_copy_tables ();
-
-      /* Update the SSA form after unswitching.  */
-      update_ssa (TODO_update_ssa_no_phi);
-
-      /* Invoke itself on modified loops.  */
-      bitmap handled_copy = BITMAP_ALLOC (NULL);
-      bitmap_copy (handled_copy, handled);
-      add_predicate_to_path (predicate_path, predicate, false);
-      changed |= simplify_loop_version (nloop, predicate_path,
-					ignored_edge_flag, handled_copy);
-      tree_unswitch_single_loop (nloop, loc, predicate_path,
-				 false_size, budget,
-				 ignored_edge_flag, handled_copy);
-      predicate_path.pop ();
-      BITMAP_FREE (handled_copy);
-
-      /* FIXME: After unwinding above we have to reset all ->handled
-	 flags as otherwise we fail to realize unswitching opportunities
-	 in the below recursion.  See gcc.dg/loop-unswitch-16.c  */
-      add_predicate_to_path (predicate_path, predicate, true);
-      changed |= simplify_loop_version (loop, predicate_path,
-					ignored_edge_flag, handled);
-      tree_unswitch_single_loop (loop, loc, predicate_path,
-				 true_size, budget,
-				 ignored_edge_flag, handled);
-      predicate_path.pop ();
-      changed = true;
+      return changed;
     }
 
   /* Update the SSA form after unswitching.  */
