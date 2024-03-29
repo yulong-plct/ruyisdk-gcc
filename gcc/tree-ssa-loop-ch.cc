@@ -36,32 +36,11 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-ssa-sccvn.h"
 #include "tree-phinodes.h"
 #include "ssa-iterators.h"
-#include "value-range.h"
-#include "gimple-range.h"
 
 /* Duplicates headers of loops if they are small enough, so that the statements
    in the loop body are always executed when the loop is entered.  This
    increases effectiveness of code motion optimizations, and reduces the need
    for loop preconditioning.  */
-
-/* Return true if the condition on the first iteration of the loop can
-   be statically determined.  */
-
-static bool
-entry_loop_condition_is_static (class loop *l, path_range_query *query)
-{
-  edge e = loop_preheader_edge (l);
-  gcond *last = safe_dyn_cast <gcond *> (last_stmt (e->dest));
-
-  if (!last
-      || !irange::supports_type_p (TREE_TYPE (gimple_cond_lhs (last))))
-    return false;
-
-  int_range<2> r;
-  query->compute_ranges (e);
-  query->range_of_stmt (r, last);
-  return r == int_range<2> (boolean_true_node, boolean_true_node);
-}
 
 /* Check whether we should duplicate HEADER of LOOP.  At most *LIMIT
    instructions should be duplicated, limit is decreased by the actual
@@ -75,13 +54,27 @@ should_duplicate_loop_header_p (basic_block header, class loop *loop,
 
   gcc_assert (!header->aux);
 
+  /* Loop header copying usually increases size of the code.  This used not to
+     be true, since quite often it is possible to verify that the condition is
+     satisfied in the first iteration and therefore to eliminate it.  Jump
+     threading handles these cases now.  */
+  if (optimize_loop_for_size_p (loop)
+      && !loop->force_vectorize)
+    {
+      if (dump_file && (dump_flags & TDF_DETAILS))
+        fprintf (dump_file,
+          "  Not duplicating bb %i: optimizing for size.\n",
+          header->index);
+      return false;
+    }
+
   gcc_assert (EDGE_COUNT (header->succs) > 0);
   if (single_succ_p (header))
     {
       if (dump_file && (dump_flags & TDF_DETAILS))
-	fprintf (dump_file,
-		 "  Not duplicating bb %i: it is single succ.\n",
-		 header->index);
+        fprintf (dump_file,
+          "  Not duplicating bb %i: it is single succ.\n",
+          header->index);
       return false;
     }
 
@@ -89,9 +82,9 @@ should_duplicate_loop_header_p (basic_block header, class loop *loop,
       && flow_bb_inside_loop_p (loop, EDGE_SUCC (header, 1)->dest))
     {
       if (dump_file && (dump_flags & TDF_DETAILS))
-	fprintf (dump_file,
-		 "  Not duplicating bb %i: both successors are in loop.\n",
-		 loop->num);
+        fprintf (dump_file,
+          "  Not duplicating bb %i: both successors are in loop.\n",
+          loop->num);
       return false;
     }
 
@@ -100,9 +93,9 @@ should_duplicate_loop_header_p (basic_block header, class loop *loop,
   if (header != loop->header && !single_pred_p (header))
     {
       if (dump_file && (dump_flags & TDF_DETAILS))
-	fprintf (dump_file,
-		 "  Not duplicating bb %i: it has mutiple predecestors.\n",
-		 header->index);
+        fprintf (dump_file,
+          "  Not duplicating bb %i: it has mutiple predecestors.\n",
+          header->index);
       return false;
     }
 
@@ -110,10 +103,10 @@ should_duplicate_loop_header_p (basic_block header, class loop *loop,
   if (!last)
     {
       if (dump_file && (dump_flags & TDF_DETAILS))
-	fprintf (dump_file,
-		 "  Not duplicating bb %i: it does not end by conditional.\n",
-		 header->index);
-      return false;
+        fprintf (dump_file,
+          "  Not duplicating bb %i: it does not end by conditional.\n",
+          header->index);
+            return false;
     }
 
   for (gphi_iterator psi = gsi_start_phis (header); !gsi_end_p (psi);
