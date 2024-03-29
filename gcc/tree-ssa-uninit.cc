@@ -676,17 +676,13 @@ warn_uninitialized_vars (bool wmaybe_uninit)
 	{
 	  gimple *stmt = gsi_stmt (gsi);
 
-	  /* The call is an artificial use, will not provide meaningful
-	     error message.  If the result of the call is used somewhere
-	     else, we warn there instead.  */
-	  if (gimple_call_internal_p (stmt, IFN_DEFERRED_INIT))
-	    continue;
-
 	  if (is_gimple_debug (stmt))
 	    continue;
 
 	  /* We only do data flow with SSA_NAMEs, so that's all we
 	     can warn about.  */
+    use_operand_p use_p;
+    ssa_op_iter op_iter;
 	  FOR_EACH_SSA_USE_OPERAND (use_p, stmt, op_iter, SSA_OP_USE)
 	    {
 	      /* BIT_INSERT_EXPR first operand should not be considered
@@ -697,7 +693,7 @@ warn_uninitialized_vars (bool wmaybe_uninit)
 		      && use_p->use == gimple_assign_rhs1_ptr (ass))
 		    continue;
 		}
-	      use = USE_FROM_PTR (use_p);
+	      tree use = USE_FROM_PTR (use_p);
 	      if (wlims.always_executed)
 		warn_uninit (OPT_Wuninitialized, use, SSA_NAME_VAR (use),
 			     SSA_NAME_VAR (use),
