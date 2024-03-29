@@ -1572,36 +1572,6 @@ iv_phi_p (stmt_vec_info stmt_info)
   return true;
 }
 
-/* Return true if vectorizer can peel for nonlinear iv.  */
-static bool
-vect_can_peel_nonlinear_iv_p (loop_vec_info loop_vinfo,
-			      stmt_vec_info stmt_info)
-{
-  enum vect_induction_op_type induction_type
-    = STMT_VINFO_LOOP_PHI_EVOLUTION_TYPE (stmt_info);
-  tree niters_skip;
-  /* Init_expr will be update by vect_update_ivs_after_vectorizer,
-     if niters or vf is unkown:
-     For shift, when shift mount >= precision, there would be UD.
-     For mult, don't known how to generate
-     init_expr * pow (step, niters) for variable niters.
-     For neg, it should be ok, since niters of vectorized main loop
-     will always be multiple of 2.
-     See also PR113163 and PR114196.  */
-  if ((!LOOP_VINFO_VECT_FACTOR (loop_vinfo).is_constant ()
-       || LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo)
-       || !LOOP_VINFO_NITERS_KNOWN_P (loop_vinfo))
-      && induction_type != vect_step_op_neg)
-    {
-      if (dump_enabled_p ())
-	dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
-			 "Peeling for epilogue is not supported"
-			 " for nonlinear induction except neg"
-			 " when iteration count is unknown or"
-			 " when using partial vectorization.\n");
-      return false;
-    }
-
   /* Avoid compile time hog on vect_peel_nonlinear_iv_init.  */
   if (induction_type == vect_step_op_mul)
     {
