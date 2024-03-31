@@ -33,6 +33,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-pretty-print.h"
 #include "flags.h"
 #include "fold-const.h"
+#include "gimple-iterator.h"
 #include "stor-layout.h"
 #include "calls.h"
 #include "cfganal.h"

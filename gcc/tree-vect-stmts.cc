@@ -2205,7 +2205,7 @@ get_load_store_type (vec_info  *vinfo, stmt_vec_info stmt_info,
     {
       if (!get_group_load_store_type (vinfo, stmt_info, vectype, slp_node,
 				      masked_p,
-				      vls_type, memory_access_type, poffset,
+				      vls_type, memory_access_type,
 				      alignment_support_scheme,
 				      misalignment, gs_info, lanes_ifn))
 	return false;
@@ -2966,7 +2966,7 @@ vect_build_scatter_store_calls (vec_info *vinfo, stmt_vec_info stmt_info,
    containing loop.  */
 
 static void
-vect_get_gather_scatter_ops (vec_info *vinfo,
+vect_get_gather_scatter_ops (loop_vec_info loop_vinfo,
 			     class loop *loop, stmt_vec_info stmt_info,
 			     slp_tree slp_node, gather_scatter_info *gs_info,
 			     tree *dataref_ptr, vec<tree> *vec_offset)
@@ -7988,6 +7988,10 @@ vectorizable_store (vec_info *vinfo,
   stmt_vec_info first_stmt_info;
   bool grouped_store;
   unsigned int group_size, i;
+	vec<tree> oprnds = vNULL;
+	vec<tree> result_chain = vNULL;
+	tree offset = NULL_TREE;
+	vec<tree> vec_oprnds = vNULL;
   bool slp = (slp_node != NULL);
   unsigned int vec_num;
   bb_vec_info bb_vinfo = dyn_cast <bb_vec_info> (vinfo);
@@ -8099,10 +8103,9 @@ vectorizable_store (vec_info *vinfo,
   vect_memory_access_type memory_access_type;
   enum dr_alignment_support alignment_support_scheme;
   int misalignment;
-  poly_int64 poffset;
   internal_fn lanes_ifn;
   if (!get_load_store_type (vinfo, stmt_info, vectype, slp_node, mask, vls_type,
-			    ncopies, &memory_access_type, &poffset,
+			    ncopies, &memory_access_type,
 			    &alignment_support_scheme, &misalignment, &gs_info,
 			    &lanes_ifn))
     return false;
@@ -9973,10 +9976,9 @@ vectorizable_load (vec_info *vinfo,
   vect_memory_access_type memory_access_type;
   enum dr_alignment_support alignment_support_scheme;
   int misalignment;
-  poly_int64 poffset;
   internal_fn lanes_ifn;
   if (!get_load_store_type (vinfo, stmt_info, vectype, slp_node, mask, VLS_LOAD,
-			    ncopies, &memory_access_type, &poffset,
+			    ncopies, &memory_access_type,
 			    &alignment_support_scheme, &misalignment, &gs_info,
 			    &lanes_ifn))
     return false;

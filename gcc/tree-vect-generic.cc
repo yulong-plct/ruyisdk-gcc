@@ -81,49 +81,6 @@ gimplify_build1 (gimple_stmt_iterator *gsi, enum tree_code code, tree type,
 }
 
 
-/* Build a ternary operation and gimplify it.  Emit code before GSI.
-   Return the gimple_val holding the result.  */
-
-static tree
-gimplify_build3 (gimple_stmt_iterator *gsi, enum tree_code code,
-		 tree type, tree a, tree b, tree c)
-{
-  location_t loc = gimple_location (gsi_stmt (*gsi));
-  gimple_seq stmts = NULL;
-  tree ret = gimple_build (&stmts, loc, code, type, a, b, c);
-  gsi_insert_seq_before (gsi, stmts, GSI_SAME_STMT);
-  return ret;
-}
-
-/* Build a binary operation and gimplify it.  Emit code before GSI.
-   Return the gimple_val holding the result.  */
-
-static tree
-gimplify_build2 (gimple_stmt_iterator *gsi, enum tree_code code,
-		 tree type, tree a, tree b)
-{
-  location_t loc = gimple_location (gsi_stmt (*gsi));
-  gimple_seq stmts = NULL;
-  tree ret = gimple_build (&stmts, loc, code, type, a, b);
-  gsi_insert_seq_before (gsi, stmts, GSI_SAME_STMT);
-  return ret;
-}
-
-/* Build a unary operation and gimplify it.  Emit code before GSI.
-   Return the gimple_val holding the result.  */
-
-static tree
-gimplify_build1 (gimple_stmt_iterator *gsi, enum tree_code code, tree type,
-		 tree a)
-{
-  location_t loc = gimple_location (gsi_stmt (*gsi));
-  gimple_seq stmts = NULL;
-  tree ret = gimple_build (&stmts, loc, code, type, a);
-  gsi_insert_seq_before (gsi, stmts, GSI_SAME_STMT);
-  return ret;
-}
-
-
 static void expand_vector_operations_1 (gimple_stmt_iterator *, bitmap);
 
 /* Return the number of elements in a vector type TYPE that we have
