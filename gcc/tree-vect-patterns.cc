@@ -56,7 +56,7 @@ along with GCC; see the file COPYING3.  If not see
 /* Return true if we have a useful VR_RANGE range for VAR, storing it
    in *MIN_VALUE and *MAX_VALUE if so.  Note the range in the dump files.  */
 
-static bool
+bool
 vect_get_range_info (tree var, wide_int *min_value, wide_int *max_value)
 {
   value_range_kind vr_type = get_range_info (var, min_value, max_value);

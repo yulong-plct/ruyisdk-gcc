@@ -4799,7 +4799,9 @@ vect_gen_widened_results_half (vec_info *vinfo, code_helper ch,
 
 /* Create vectorized demotion statements for vector operands from VEC_OPRNDS.
    For multi-step conversions store the resulting vectors and call the function
-   recursively.  */
+   recursively. When NARROW_SRC_P is true, there's still a conversion after
+   narrowing, don't store the vectors in the SLP_NODE or in vector info of
+   the scalar statement(or in STMT_VINFO_RELATED_STMT chain).  */
 
 static void
 vect_create_vectorized_demotion_stmts (vec_info *vinfo, vec<tree> *vec_oprnds,
@@ -4825,7 +4827,7 @@ vect_create_vectorized_demotion_stmts (vec_info *vinfo, vec<tree> *vec_oprnds,
       gimple_set_lhs (new_stmt, new_tmp);
       vect_finish_stmt_generation (vinfo, stmt_info, new_stmt, gsi);
 
-      if (multi_step_cvt)
+      if (multi_step_cvt || narrow_src_p)
 	/* Store the resulting vector for next recursive call.  */
 	(*vec_oprnds)[i/2] = new_tmp;
       else
@@ -4852,7 +4854,8 @@ vect_create_vectorized_demotion_stmts (vec_info *vinfo, vec<tree> *vec_oprnds,
       vect_create_vectorized_demotion_stmts (vinfo, vec_oprnds,
 					     multi_step_cvt - 1,
 					     stmt_info, vec_dsts, gsi,
-					     slp_node, VEC_PACK_TRUNC_EXPR);
+					     slp_node, VEC_PACK_TRUNC_EXPR,
+               narrow_src_p);
     }
 
   vec_dsts.quick_push (vec_dest);
@@ -4998,7 +5001,15 @@ vectorizable_conversion (vec_info *vinfo,
   tree vectype_out, vectype_in;
   int ncopies, i;
   tree lhs_type, rhs_type;
-  enum { NARROW, NONE, WIDEN } modifier;
+  /* For conversions between floating point and integer, there're 2 NARROW
+     cases. NARROW_SRC is for FLOAT_EXPR, means
+     integer --DEMOTION--> integer --FLOAT_EXPR--> floating point.
+     This is safe when the range of the source integer can fit into the lower
+     precision. NARROW_DST is for FIX_TRUNC_EXPR, means
+     floating point --FIX_TRUNC_EXPR--> integer --DEMOTION--> INTEGER.
+     For other conversions, when there's narrowing, NARROW_DST is used as
+     default.  */
+  enum { NARROW_SRC, NARROW_DST, NONE, WIDEN } modifier;
   vec<tree> vec_oprnds0 = vNULL;
   vec<tree> vec_oprnds1 = vNULL;
   tree vop0;
@@ -5153,7 +5164,7 @@ vectorizable_conversion (vec_info *vinfo,
     else
       modifier = NONE;
   else if (multiple_p (nunits_out, nunits_in))
-    modifier = NARROW;
+    modifier = NARROW_DST;
   else
     {
       gcc_checking_assert (multiple_p (nunits_in, nunits_out));
@@ -5165,7 +5176,7 @@ vectorizable_conversion (vec_info *vinfo,
      case of SLP.  */
   if (slp_node)
     ncopies = 1;
-  else if (modifier == NARROW)
+  else if (modifier == NARROW_DST)
     ncopies = vect_get_num_copies (loop_vinfo, vectype_out);
   else
     ncopies = vect_get_num_copies (loop_vinfo, vectype_in);
@@ -5370,16 +5381,15 @@ vectorizable_conversion (vec_info *vinfo,
 	}
       break;
 
-    case NARROW:
+    case NARROW_DST:
       gcc_assert (op_type == unary_op);
       if (supportable_narrowing_operation (code, vectype_out, vectype_in,
 					   &code1, &multi_step_cvt,
 					   &interm_types))
 	break;
 
-      if (code != FIX_TRUNC_EXPR
-	  || GET_MODE_SIZE (lhs_mode) >= GET_MODE_SIZE (rhs_mode))
-	goto unsupported;
+      if (GET_MODE_SIZE (lhs_mode) >= GET_MODE_SIZE (rhs_mode))
+	       goto unsupported;
 
       if (code == FIX_TRUNC_EXPR)
 	{
@@ -5456,7 +5466,7 @@ vectorizable_conversion (vec_info *vinfo,
 				  ncopies * (1 + multi_step_cvt),
 				  dt, ndts, slp_node, cost_vec);
 	}
-      else if (modifier == NARROW)
+      else if (modifier == NARROW_SRC || modifier == NARROW_DST)
 	{
 	  STMT_VINFO_TYPE (stmt_info) = type_demotion_vec_info_type;
 	  /* The final packing step produces one vector result per copy.  */
@@ -5501,8 +5511,10 @@ vectorizable_conversion (vec_info *vinfo,
      from supportable_*_operation, and store them in the correct order
      for future use in vect_create_vectorized_*_stmts ().  */
   auto_vec<tree> vec_dsts (multi_step_cvt + 1);
+	bool widen_or_narrow_float_p
+    = cvt_type && (modifier == WIDEN || modifier == NARROW_SRC);
   vec_dest = vect_create_destination_var (scalar_dest,
-					  (cvt_type && modifier == WIDEN)
+					  widen_or_narrow_float_p
 					  ? cvt_type : vectype_out);
   vec_dsts.quick_push (vec_dest);
 
@@ -5519,7 +5531,7 @@ vectorizable_conversion (vec_info *vinfo,
 
   if (cvt_type)
     vec_dest = vect_create_destination_var (scalar_dest,
-					    modifier == WIDEN
+					    widen_or_narrow_float_p
 					    ? vectype_out : cvt_type);
 
   int ninputs = 1;
@@ -5527,7 +5539,7 @@ vectorizable_conversion (vec_info *vinfo,
     {
       if (modifier == WIDEN)
 	;
-      else if (modifier == NARROW)
+      else if (modifier == NARROW_SRC || modifier == NARROW_DST)
 	{
 	  if (multi_step_cvt)
 	    ninputs = vect_pow2 (multi_step_cvt);
@@ -5611,7 +5623,8 @@ vectorizable_conversion (vec_info *vinfo,
 	}
       break;
 
-    case NARROW:
+    case NARROW_SRC:
+    case NARROW_DST:
       /* In case the vectorization factor (VF) is bigger than the number
 	 of elements that we can fit in a vectype (nunits), we have to
 	 generate more than one vector stmt - i.e - we need to "unroll"
@@ -5619,7 +5632,7 @@ vectorizable_conversion (vec_info *vinfo,
       vect_get_vec_defs (vinfo, stmt_info, slp_node, ncopies * ninputs,
 			 op0, &vec_oprnds0);
       /* Arguments are ready.  Create the new vector stmts.  */
-      if (cvt_type)
+      if (cvt_type && modifier == NARROW_DST)
 	FOR_EACH_VEC_ELT (vec_oprnds0, i, vop0)
 	  {
 	    new_temp = make_ssa_name (vec_dest);
